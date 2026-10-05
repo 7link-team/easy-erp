@@ -145,6 +145,8 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
@@ -195,7 +197,11 @@ jobs:
       - run: brew install xcodegen
       - run: npm ci
       - run: npm run tauri -- ios init --ci --skip-targets-install
-      - run: npm run tauri -- ios build --ci --debug --target x86_64 --no-sign
+      - name: Select simulator SDK in generated project
+        run: |
+          node scripts/prepare-ios-simulator.mjs
+          cd desktop/gen/apple && xcodegen generate
+      - run: npm run tauri -- ios build --ci --debug --target x86_64 --no-sign --archive-only
       - name: Package simulator application
         run: |
           APP=$(find desktop/gen/apple/build -type d -name '*.app' -print -quit)
