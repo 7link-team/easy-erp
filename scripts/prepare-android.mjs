@@ -7,7 +7,7 @@ let source = readFileSync(path, "utf8");
 for (const field of ["compileSdk", "targetSdk"]) {
   const setting = new RegExp(`(${field}\\s*=\\s*)\\d+`);
   if (!setting.test(source)) throw new Error(`Android template missing ${field}.`);
-  source = source.replace(setting, "${1}36");
+  source = source.replace(setting, (_match, prefix) => `${prefix}36`);
 }
 // The stock release manifest blocks plain HTTP; LAN inventory hosts use HTTP.
 const cleartext = 'manifestPlaceholders["usesCleartextTraffic"] = "false"';
