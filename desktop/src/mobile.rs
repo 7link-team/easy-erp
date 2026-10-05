@@ -27,7 +27,14 @@ fn trusted(
         .lock()
         .unwrap()
         .as_ref()
-        .is_some_and(|u| u.origin() == url.origin());
+        .is_some_and(|u| {
+            // tauri:// has an opaque URL origin. Compare the exact bundled
+            // page instead; origin() equality only works for HTTP(S) here.
+            u.scheme() == url.scheme()
+                && u.host_str() == url.host_str()
+                && u.port() == url.port()
+                && u.path() == url.path()
+        });
     let remote = !local_only
         && state
             .server
@@ -152,11 +159,16 @@ pub fn run() {
             mobile_disconnect,
             update_info
         ])
-        .setup(|app| {
-            if let Some(window) = app.get_webview_window("launcher") {
-                *app.state::<Mobile>().launcher.lock().unwrap() = Some(window.url()?);
+        .on_page_load(|webview, payload| {
+            // WKWebView.URL can be nil during setup; Wry's URL getter unwraps
+            // it. Capture the initial local document from the load event instead.
+            if webview.label() == "launcher" && payload.url().path() == "/mobile.html" {
+                let state = webview.state::<Mobile>();
+                let mut launcher = state.launcher.lock().unwrap();
+                if launcher.is_none() {
+                    *launcher = Some(payload.url().clone());
+                }
             }
-            Ok(())
         })
         .run(tauri::generate_context!())
         .expect("移动应用启动失败");
