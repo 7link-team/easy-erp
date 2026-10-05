@@ -16,7 +16,11 @@ concurrency:
 
 jobs:
   checks:
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -29,7 +33,7 @@ jobs:
       - run: npm run build
       - run: cargo test --locked -p easy-erp-server
       - run: cargo build --locked -p easy-erp-server
-      - run: node --test scripts/tests/*.test.mjs
+      - run: node --test scripts/tests/desktop-control.test.mjs scripts/tests/release-manifest.test.mjs
 
   web:
     runs-on: ubuntu-24.04
@@ -129,6 +133,7 @@ jobs:
       ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
       ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
       ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      ANDROID_KEYSTORE_TYPE: ${{ vars.ANDROID_KEYSTORE_TYPE || 'PKCS12' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

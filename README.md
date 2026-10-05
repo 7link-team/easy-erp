@@ -47,3 +47,5 @@ cargo test --locked
 Playwright 配置、测试代码及运行报告仅保留在本地，不纳入仓库。
 
 设计与验收说明见 `design-system/` 和 `docs/`。
+
+多平台 GitHub Actions、Release 和自动更新的签名配置见 [发布与自动更新](docs/发布与自动更新.md)。工作流会先构建安装包；正式更新还需要配置发布仓库与签名 Secrets，iOS 真机包另需 Apple 分发资料。

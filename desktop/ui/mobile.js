@@ -18,6 +18,11 @@ document
   .querySelector("#mobile-connect")
   .addEventListener("submit", (event) => {
     event.preventDefault();
+    if (!address.value.trim()) {
+      status.textContent = "请填写库存电脑地址。";
+      address.focus();
+      return;
+    }
     void run("mobile_connect", { address: address.value });
   });
 async function initialize() {

@@ -189,3 +189,6 @@ input {
     width: 100%;
   }
 }
+.mobile-client main {
+  padding: max(24px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+}

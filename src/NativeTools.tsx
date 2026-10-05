@@ -15,6 +15,8 @@ interface Update {
   enabled?: boolean;
   current?: boolean;
   skipped?: boolean;
+  ready?: boolean;
+  cached?: boolean;
 }
 type Phase = "idle" | "checking" | "downloading" | "ready" | "installing";
 
@@ -37,17 +39,20 @@ export function NativeTools({ dirty }: { dirty: RefObject<boolean> }) {
     if (!native) return;
     setPhase("checking");
     setError("");
+    let nextPhase: Phase = "idle";
     try {
       const next = (await native.invoke("check_update", {
         automatic,
       })) as Update;
       if (next?.skipped) return;
       setUpdate(next);
-      if (next?.version || !automatic) setOpen(true);
+      if (next?.ready) nextPhase = "ready";
+      if (!automatic || (next?.version && !next.cached && !dirty.current))
+        setOpen(true);
     } catch (e) {
       if (!automatic) setError(String(e));
     } finally {
-      setPhase("idle");
+      setPhase(nextPhase);
     }
   }
   useEffect(() => {
@@ -63,6 +68,11 @@ export function NativeTools({ dirty }: { dirty: RefObject<boolean> }) {
       })
       .catch(() => {});
   }, []);
+  useEffect(() => {
+    if (!info?.enabled || info.mobile || phase !== "idle") return;
+    const timer = setInterval(() => void check(true), 60 * 60_000);
+    return () => clearInterval(timer);
+  }, [info?.enabled, info?.mobile, phase]);
   useEffect(() => {
     const listener = (event: Event) =>
       setProgress((event as CustomEvent).detail);

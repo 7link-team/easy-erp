@@ -9,7 +9,7 @@
     <title>库存管理</title>
     <link rel="stylesheet" href="style.css" />
   </head>
-  <body>
+  <body class="mobile-client">
     <main>
       <header class="welcome">
         <span class="eyebrow">库存管理 · 手机客户端</span>
@@ -19,7 +19,7 @@
       <section>
         <h2>填写电脑地址</h2>
         <p>手机与库存电脑需连接同一网络。请向管理员获取地址。</p>
-        <form id="mobile-connect">
+        <form id="mobile-connect" novalidate>
           <label for="address">库存电脑地址</label>
           <input
             id="address"

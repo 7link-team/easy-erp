@@ -34,6 +34,7 @@ if (process.env.ANDROID_KEYSTORE_BASE64) {
       "    buildTypes {",
       `    signingConfigs {
         create("release") {
+            storeType = System.getenv("ANDROID_KEYSTORE_TYPE") ?: "PKCS12"
             storeFile = file(System.getenv("ANDROID_KEYSTORE_PATH"))
             storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
             keyAlias = System.getenv("ANDROID_KEY_ALIAS")

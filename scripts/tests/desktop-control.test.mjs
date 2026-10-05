@@ -11,13 +11,17 @@ test(
   "native update control rejects browsers, backs up and drains the server",
   { timeout: 60000 },
   async () => {
-    const directory = await mkdtemp(join(tmpdir(), "easy-erp-update-test-"));
+    const directory = await mkdtemp(
+      join(tmpdir(), "easy-erp-update-%20-库存-"),
+    );
     const token = randomBytes(32).toString("hex");
     let child;
     let exited;
     async function start() {
       child = spawn(
-        resolve("target/debug/easy-erp-server"),
+        resolve(
+          `target/debug/easy-erp-server${process.platform === "win32" ? ".exe" : ""}`,
+        ),
         ["--data-dir", directory, "--bind", "127.0.0.1:0"],
         {
           env: {

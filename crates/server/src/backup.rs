@@ -159,8 +159,12 @@ pub async fn create(s: &AppState, actor: &User) -> Result<BackupInfo> {
     Ok(info)
 }
 async fn validate_database(path: &FsPath) -> Result<sea_orm::DatabaseConnection> {
-    let mut options = ConnectOptions::new(format!("sqlite://{}?mode=ro", path.display()));
-    options.max_connections(1).sqlx_logging(false);
+    let path = path.to_owned();
+    let mut options = ConnectOptions::new("sqlite://backup");
+    options
+        .max_connections(1)
+        .sqlx_logging(false)
+        .map_sqlx_sqlite_opts(move |options| options.filename(&path).read_only(true));
     let db = Database::connect(options).await?;
     let row = one(&db, "PRAGMA integrity_check", vec![])
         .await?

@@ -86,7 +86,13 @@ pub async fn check_update(
         .and_then(|v| v.parse::<u64>().ok())
         .unwrap_or(0);
     if automatic && now.saturating_sub(last) < 86400 {
-        return Ok(json!({"skipped":true}));
+        let pending = state.pending.lock().unwrap();
+        return Ok(match pending.as_ref() {
+            Some((update, package)) => {
+                json!({"enabled":true,"version":update.version,"notes":update.body,"ready":package.is_some(),"cached":true})
+            }
+            None => json!({"skipped":true}),
+        });
     }
     let update = app
         .updater_builder()

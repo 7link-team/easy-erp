@@ -1,5 +1,6 @@
 import { Form, Input, Button, Checkbox } from "./ui";
 import { NativeTools } from "./NativeTools";
+import { ServiceUpdate } from "./ServiceUpdate";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useNavigation, useVisualViewport, type Page } from "./navigation";
 import { browserLogin, openDesktopBrowser } from "./browserLogin";
@@ -544,6 +545,7 @@ export default function App() {
             </Button>
           </div>
         </header>
+        <ServiceUpdate dirty={dirty} />
         <main id="main" tabIndex={-1}>
           {logout.error && <Notice>{logout.error}</Notice>}
           <Suspense fallback={<Loading />}>

@@ -86,15 +86,19 @@ async fn main() -> anyhow::Result<()> {
         Err(error) => return Err(error.into()),
     };
     let path = cfg.data_dir.canonicalize()?.join("inventory.sqlite");
-    let mut options = ConnectOptions::new(format!("sqlite://{}?mode=rwc", path.display()));
+    // Pass filesystem paths directly: Windows canonical paths contain `?`,
+    // and URL parsing would reinterpret `%` in ordinary directory names.
+    let mut options = ConnectOptions::new("sqlite://inventory");
     options
         .max_connections(4)
         .min_connections(1)
         .sqlx_logging(false)
         .connect_timeout(std::time::Duration::from_secs(10))
-        .map_sqlx_sqlite_opts(|options| {
+        .map_sqlx_sqlite_opts(move |options| {
             use sea_orm::sqlx::sqlite::{SqliteJournalMode, SqliteSynchronous};
             options
+                .filename(&path)
+                .create_if_missing(true)
                 .journal_mode(SqliteJournalMode::Wal)
                 .synchronous(SqliteSynchronous::Full)
                 .foreign_keys(true)
