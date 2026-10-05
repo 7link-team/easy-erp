@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "launcher",
+  "description": "Only the packaged connection window has native management access. Business windows have no native capabilities.",
+  "windows": ["launcher"],
+  "permissions": [
+    "core:default",
+    "allow-connection-settings",
+    "allow-set-autostart",
+    "allow-connect-host",
+    "allow-start-local",
+    "allow-resume-last",
+    "allow-show-launcher",
+    "allow-open-browser"
+  ]
+}

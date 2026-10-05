@@ -41,10 +41,9 @@ npm run desktop:build
 ```sh
 npm run build
 cargo build -p easy-erp-server
-npx playwright install webkit
-ERP_E2E_BROWSER=webkit npm run test:e2e
+cargo test --locked
 ```
 
-最后一条命令使用 POSIX shell 语法。E2E 默认使用独立临时数据库及本机 4289 端口。
+Playwright 配置、测试代码及运行报告仅保留在本地，不纳入仓库。
 
 设计与验收说明见 `design-system/` 和 `docs/`。

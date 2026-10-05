@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>库存管理 · 连接库存电脑</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main>
+      <header class="welcome">
+        <div class="brand-mark" aria-hidden="true">
+          <svg
+            viewBox="0 0 48 48"
+            width="30"
+            height="30"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <path
+              d="m24 5 17 9v20l-17 9L7 34V14l17-9Zm0 19L7 14m17 10 17-10M24 24v19M16 9l17 10v9"
+            />
+          </svg>
+        </div>
+        <span class="eyebrow">库存管理 · 桌面应用</span>
+        <h1>选择库存保存位置</h1>
+        <p>选择一次，下次直接进入库存管理。</p>
+        <span id="saved-mode" class="saved-mode" hidden></span>
+      </header>
+      <section class="local-card">
+        <div class="choice-heading">
+          <h2>保存在这台电脑</h2>
+          <span class="recommended">独立使用 / 保存库存，供同事连接</span>
+        </div>
+        <p>数据留在本机，打开应用即可使用。</p>
+        <button id="local">
+          使用本机并进入库存管理 <span aria-hidden="true">→</span>
+        </button>
+      </section>
+      <section>
+        <h2>连接已有库存电脑</h2>
+        <p>多人共用一本库存账，填写管理员提供的地址。</p>
+        <label for="address">库存电脑地址</label
+        ><input
+          id="address"
+          type="url"
+          placeholder="例如 http://192.168.1.20:4280"
+        />
+        <button id="connect" class="secondary">
+          保存连接并进入 <span aria-hidden="true">→</span>
+        </button>
+      </section>
+      <div id="saved-actions" class="saved-actions" hidden>
+        <button id="retry" class="secondary">进入已保存的库存电脑</button
+        ><button id="browser" class="text-button">在浏览器中打开 ↗</button>
+      </div>
+      <label class="check"
+        ><input id="autostart" type="checkbox" />登录电脑后自动显示托盘</label
+      >
+      <p class="hint">
+        关闭窗口后收起到托盘。可从应用菜单更换库存电脑或在浏览器中打开。
+      </p>
+      <p id="status" role="status"></p>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>

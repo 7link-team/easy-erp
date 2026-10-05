@@ -1,0 +1,36 @@
+[package]
+name = "easy-erp-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+axum = { version = "0.8", features = ["multipart"] }
+tokio = { version = "1", features = ["full"] }
+sea-orm = { version = "2.0.4", default-features = false, features = ["sqlx-sqlite", "runtime-tokio", "macros"] }
+sea-orm-migration = { version = "2.0.4", default-features = false, features = ["sqlx-sqlite", "runtime-tokio"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+argon2 = "0.5"
+rand = "0.8"
+sha2 = "0.10"
+hex = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
+tower-http = { version = "0.6", features = ["fs", "trace", "cors", "limit", "set-header"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4", features = ["derive", "env"] }
+anyhow = "1"
+fs2 = "0.4"
+csv = "1"
+rust_xlsxwriter = "0.90"
+calamine = "0.31"
+rust-embed = { version = "8", features = ["interpolate-folder-path", "debug-embed"] }
+mime_guess = "2"
+zip = { version = "4", default-features = false, features = ["deflate"] }
+tempfile = "3"
+if-addrs = "0.14"
+
+[dev-dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["json", "cookies", "rustls-tls"] }
