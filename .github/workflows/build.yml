@@ -176,6 +176,20 @@ jobs:
             fi
             npm run tauri -- android build --ci --debug --target aarch64 --apk
           fi
+      - name: Verify Android package signatures
+        run: |
+          SIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
+          test -n "$SIGNER"
+          find desktop/gen/android/app/build/outputs/apk -name '*.apk' -print0 |
+            while IFS= read -r -d '' package; do
+              "$SIGNER" verify --verbose "$package"
+            done
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            find desktop/gen/android/app/build/outputs/bundle -name '*.aab' -print0 |
+              while IFS= read -r -d '' package; do
+                jarsigner -verify -strict -keystore "$ANDROID_KEYSTORE_PATH" -storetype "$ANDROID_KEYSTORE_TYPE" -storepass:env ANDROID_KEYSTORE_PASSWORD "$package"
+              done
+          fi
       - run: node scripts/collect-mobile.mjs android
       - uses: actions/upload-artifact@v4
         with:
@@ -213,8 +227,8 @@ jobs:
         run: |
           APP=$(find desktop/gen/apple/build -type d -name '*.app' -print -quit)
           test -n "$APP"
-          node scripts/smoke-ios-simulator.mjs "$APP"
           ditto -c -k --keepParent "$APP" easy-erp-ios-simulator.zip
+          node scripts/smoke-ios-simulator.mjs "$APP"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -222,6 +236,7 @@ jobs:
           path: simulator-evidence/*
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: ios-simulator
           path: easy-erp-ios-simulator.zip

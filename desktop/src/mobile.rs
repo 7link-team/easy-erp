@@ -150,6 +150,8 @@ fn update_info(window: tauri::WebviewWindow, app: tauri::AppHandle) -> Result<Va
     Ok(json!({"version":app.package_info().version.to_string(),"mobile":true,"enabled":false}))
 }
 pub fn run() {
+    #[cfg(debug_assertions)]
+    eprintln!("Starting inventory mobile client");
     tauri::Builder::default()
         .manage(Mobile::default())
         .invoke_handler(tauri::generate_handler![
