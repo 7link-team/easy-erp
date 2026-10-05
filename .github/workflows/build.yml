@@ -227,6 +227,9 @@ jobs:
         run: |
           APP=$(find desktop/gen/apple/build -type d -name '*.app' -print -quit)
           test -n "$APP"
+          # Simulator signing is local/ad-hoc and needs no Apple account.
+          codesign --force --sign - --timestamp=none "$APP"
+          codesign --verify --deep --strict "$APP"
           ditto -c -k --keepParent "$APP" easy-erp-ios-simulator.zip
           node scripts/smoke-ios-simulator.mjs "$APP"
       - uses: actions/upload-artifact@v4
