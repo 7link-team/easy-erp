@@ -205,24 +205,34 @@ async fn stop_local(app: &tauri::AppHandle) -> Result<bool, String> {
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| e.to_string())?;
+    // Persist recovery intent before asking the service to stop. A timeout or
+    // application crash must not leave a stopped service with no recovery marker.
+    let marker = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| e.to_string())?
+        .join("resume-service-after-update");
+    {
+        use std::io::Write;
+        let mut file = std::fs::File::create(marker).map_err(|e| e.to_string())?;
+        file.write_all(b"1").map_err(|e| e.to_string())?;
+        file.sync_all().map_err(|e| e.to_string())?;
+    }
     let response = client
         .post(format!("{LOCAL_URL}api/desktop/prepare-update"))
         .header("X-ERP-Request", "1")
         .bearer_auth(token.trim())
         .send()
         .await
-        .map_err(|e| format!("更新前备份失败，尚未安装更新。{e}"))?;
+        .map_err(|e| {
+            format!("无法确认库存服务是否完成更新准备，已停止安装。请重新打开应用后重试。{e}")
+        })?;
     if !response.status().is_success() {
+        clear_resume_marker(app);
         return Err("库存服务未能完成更新前备份，请检查服务日志；尚未安装更新。".into());
     }
     for _ in 0..120 {
         if lock.try_lock_exclusive().is_ok() {
-            let marker = app
-                .path()
-                .app_config_dir()
-                .map_err(|e| e.to_string())?
-                .join("resume-service-after-update");
-            std::fs::write(marker, b"1").map_err(|e| e.to_string())?;
             return Ok(true);
         }
         tokio::time::sleep(Duration::from_millis(250)).await;
