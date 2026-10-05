@@ -154,6 +154,8 @@ jobs:
         with:
           workspaces: desktop -> target
           key: android
+          cache-on-failure: true
+      - uses: gradle/actions/setup-gradle@v4
       - run: |
           sdkmanager 'ndk;27.2.12479018'
           echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
@@ -163,6 +165,7 @@ jobs:
       - run: node scripts/prepare-android.mjs
       - run: sdkmanager "platforms;android-$ANDROID_COMPILE_SDK"
       - name: Build Android packages
+        timeout-minutes: 45
         run: |
           if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
             npm run tauri -- android build --ci --target aarch64 armv7 x86_64 --apk --aab
@@ -195,6 +198,7 @@ jobs:
         with:
           workspaces: desktop -> target
           key: ios-simulator
+          cache-on-failure: true
       - run: brew install xcodegen
       - run: npm ci
       - run: npm run tauri -- ios init --ci --skip-targets-install
@@ -205,6 +209,7 @@ jobs:
           cd desktop/gen/apple && xcodegen generate
       - run: npm run tauri -- ios build --ci --debug --target x86_64 --no-sign --archive-only
       - name: Package simulator application
+        timeout-minutes: 15
         run: |
           APP=$(find desktop/gen/apple/build -type d -name '*.app' -print -quit)
           test -n "$APP"
