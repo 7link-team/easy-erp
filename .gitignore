@@ -7,6 +7,9 @@ target/
 *.tsbuildinfo
 /dist/
 /build-artifacts/
+/release-assets/
+/desktop/updater-build.json
+/easy-erp-web.zip
 
 # Local inventory data, backups and credentials
 /data/
