@@ -2,6 +2,7 @@ mod assets;
 mod auth;
 mod backup;
 mod db;
+mod desktop_control;
 mod domain;
 mod error;
 mod inventory;
@@ -112,12 +113,17 @@ async fn main() -> anyhow::Result<()> {
         secure: cfg.secure_cookie,
         bind: cfg.bind,
         maintenance: RwLock::new(()),
+        desktop_token: std::env::var("ERP_DESKTOP_CONTROL_TOKEN")
+            .ok()
+            .filter(|value| value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit())),
+        updating: std::sync::atomic::AtomicBool::new(false),
+        shutdown: tokio::sync::Notify::new(),
     });
     let mut hosts = cfg.allowed_hosts;
     hosts.extend(["localhost".into(), "127.0.0.1".into(), "[::1]".into()]);
     let hosts = Arc::new(hosts);
     let maintenance_state = s.clone();
-    tokio::spawn(backup::scheduler(s.clone()));
+    let scheduler = tokio::spawn(backup::scheduler(s.clone()));
     let static_files = if let Some(path) = cfg.web_dir {
         Router::new().fallback_service(
             ServeDir::new(&path).not_found_service(ServeFile::new(path.join("index.html"))),
@@ -127,6 +133,10 @@ async fn main() -> anyhow::Result<()> {
     };
     let app = Router::new()
         .route("/api/status", get(auth::status))
+        .route(
+            "/api/desktop/prepare-update",
+            post(desktop_control::prepare_update),
+        )
         .route("/api/web-addresses", get(network::list))
         .route("/api/setup", post(auth::setup))
         .route("/api/login", post(auth::login))
@@ -178,10 +188,27 @@ async fn main() -> anyhow::Result<()> {
         .layer(middleware::from_fn(move |req: Request, next: Next| {
             let state = maintenance_state.clone();
             async move {
-                if req.uri().path() == "/api/backups/restore" {
+                if state.updating.load(std::sync::atomic::Ordering::Acquire) {
+                    return (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "库存电脑正在更新，请稍后重试。",
+                    )
+                        .into_response();
+                }
+                if matches!(
+                    req.uri().path(),
+                    "/api/backups/restore" | "/api/desktop/prepare-update"
+                ) {
                     return next.run(req).await;
                 }
                 let _guard = state.maintenance.read().await;
+                if state.updating.load(std::sync::atomic::Ordering::Acquire) {
+                    return (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "库存电脑正在更新，请稍后重试。",
+                    )
+                        .into_response();
+                }
                 next.run(req).await
             }
         }))
@@ -190,15 +217,21 @@ async fn main() -> anyhow::Result<()> {
             async move { guard(req, next, &hosts, cfg.bind).await }
         }))
         .layer(TraceLayer::new_for_http())
-        .with_state(s);
+        .with_state(s.clone());
     let listener = tokio::net::TcpListener::bind(cfg.bind).await?;
     tracing::info!(address=%listener.local_addr()?,"库存服务已启动；首次在本机创建管理员账号");
+    let stopping = s.clone();
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
-    .with_graceful_shutdown(shutdown())
+    .with_graceful_shutdown(async move {
+        tokio::select! { _ = shutdown() => {}, _ = stopping.shutdown.notified() => {} }
+    })
     .await?;
+    scheduler.abort();
+    let _ = scheduler.await;
+    s.db.clone().close().await?;
     drop(lock);
     Ok(())
 }

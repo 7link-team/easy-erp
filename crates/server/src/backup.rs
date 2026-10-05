@@ -330,6 +330,9 @@ pub async fn restore(
 ) -> Result<Json<Value>> {
     local(peer)?;
     let _maintenance = s.maintenance.write().await;
+    if s.updating.load(std::sync::atomic::Ordering::Acquire) {
+        return Err(ApiError::conflict("库存电脑正在更新，请稍后恢复备份。"));
+    }
     let actor = current(&s, &headers).await?;
     actor.admin()?;
     if input.confirmation != "恢复全部数据" {
@@ -459,6 +462,9 @@ pub async fn scheduler(s: AppState) {
     loop {
         timer.tick().await;
         let _maintenance = s.maintenance.read().await;
+        if s.updating.load(std::sync::atomic::Ordering::Acquire) {
+            return;
+        }
         let result: Result<()> = async {
             if one(&s.db, "SELECT id FROM users LIMIT 1", vec![])
                 .await?

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width,initial-scale=1,viewport-fit=cover"
+    />
+    <title>库存管理</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main>
+      <header class="welcome">
+        <span class="eyebrow">库存管理 · 手机客户端</span>
+        <h1>连接库存电脑</h1>
+        <p>和同事共用一套库存，数据保存在电脑上。</p>
+      </header>
+      <section>
+        <h2>填写电脑地址</h2>
+        <p>手机与库存电脑需连接同一网络。请向管理员获取地址。</p>
+        <form id="mobile-connect">
+          <label for="address">库存电脑地址</label>
+          <input
+            id="address"
+            type="url"
+            required
+            maxlength="200"
+            inputmode="url"
+            autocomplete="url"
+            placeholder="例如 http://192.168.1.20:4280"
+            aria-describedby="address-hint"
+          />
+          <p id="address-hint" class="hint">
+            在电脑工作台点击「在 Web 中打开」，即可查看局域网地址。
+          </p>
+          <button type="submit">连接并进入库存管理</button>
+        </form>
+        <p id="status" role="status" aria-live="polite"></p>
+      </section>
+      <p class="hint">
+        首次连接成功后会记住地址，下次直接打开。手机不保存库存数据库，也不运行库存服务。
+      </p>
+      <p id="version" class="hint"></p>
+    </main>
+    <script src="mobile.js"></script>
+  </body>
+</html>

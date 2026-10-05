@@ -3,7 +3,7 @@ name: Build and release
 on:
   push:
     branches: [main]
-    tags: ['v*']
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
@@ -15,13 +15,29 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: npm ci
+      - run: npm run build
+      - run: cargo test --locked -p easy-erp-server
+      - run: cargo build --locked -p easy-erp-server
+      - run: node --test scripts/tests/*.test.mjs
+
   web:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: "24"
           cache: npm
       - run: npm ci
       - run: npm run build
@@ -52,13 +68,19 @@ jobs:
     runs-on: ${{ matrix.runner }}
     env:
       ERP_BUILD_TARGET: ${{ matrix.target }}
+      APPLE_SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      APPLE_TEAM_ID: ${{ vars.APPLE_DEVELOPMENT_TEAM }}
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: "24"
           cache: npm
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -80,7 +102,18 @@ jobs:
           UPDATER_PUBLIC_KEY: ${{ vars.UPDATER_PUBLIC_KEY }}
           UPDATER_ENDPOINT: ${{ vars.UPDATER_ENDPOINT }}
         run: node scripts/configure-updater.mjs
-      - run: npm run desktop:build -- --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config updater-build.json
+      - if: runner.os == 'macOS' && env.APPLE_CERTIFICATE != ''
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.APPLE_CERTIFICATE }}
+          p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      - name: Build desktop installers
+        shell: bash
+        run: |
+          for name in APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID APPLE_SIGNING_IDENTITY APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD TAURI_SIGNING_PRIVATE_KEY; do
+            if [ -z "${!name}" ]; then unset "$name"; fi
+          done
+          npm run desktop:build -- --target "$ERP_BUILD_TARGET" --bundles '${{ matrix.bundles }}' --config updater-build.json
       - name: Collect installers
         run: node scripts/collect-release.mjs ${{ matrix.target }}
       - uses: actions/upload-artifact@v4
@@ -89,12 +122,142 @@ jobs:
           path: release-assets/*
           if-no-files-found: error
 
+  android:
+    runs-on: ubuntu-24.04
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop -> target
+          key: android
+      - run: |
+          sdkmanager 'ndk;27.2.12479018'
+          echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+      - run: npm ci
+      - run: npm run tauri -- android init --ci --skip-targets-install
+      - run: node scripts/prepare-android.mjs
+      - run: sdkmanager "platforms;android-$ANDROID_COMPILE_SDK"
+      - name: Build Android packages
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            npm run tauri -- android build --ci --target aarch64 armv7 x86_64 --apk --aab
+          else
+            if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+              echo 'Release builds require a stable Android signing key.' >&2
+              exit 1
+            fi
+            npm run tauri -- android build --ci --debug --target aarch64 --apk
+          fi
+      - run: node scripts/collect-mobile.mjs android
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: release-assets/*
+          if-no-files-found: error
+
+  ios-simulator:
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-ios
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop -> target
+          key: ios-simulator
+      - run: brew install xcodegen
+      - run: npm ci
+      - run: npm run tauri -- ios init --ci --skip-targets-install
+      - run: npm run tauri -- ios build --ci --debug --target x86_64 --no-sign
+      - name: Package simulator application
+        run: |
+          APP=$(find desktop/gen/apple/build -type d -name '*.app' -print -quit)
+          test -n "$APP"
+          ditto -c -k --keepParent "$APP" easy-erp-ios-simulator.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator
+          path: easy-erp-ios-simulator.zip
+          if-no-files-found: error
+
+  ios-device:
+    if: vars.IOS_SIGNING_ENABLED == 'true'
+    runs-on: macos-15-intel
+    env:
+      APPLE_DEVELOPMENT_TEAM: ${{ vars.APPLE_DEVELOPMENT_TEAM }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop -> target
+          key: ios-device
+      - run: brew install xcodegen
+      - name: Import iOS distribution identity
+        env:
+          IOS_CERTIFICATE_BASE64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_PROFILE_BASE64: ${{ secrets.IOS_PROFILE_BASE64 }}
+        run: node scripts/prepare-ios-signing.mjs
+      - run: npm ci
+      - run: npm run tauri -- ios init --ci --skip-targets-install
+      - run: npm run tauri -- ios build --ci --target aarch64 --export-method release-testing
+      - run: node scripts/collect-mobile.mjs ios
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-device
+          path: release-assets/*
+          if-no-files-found: error
+      - name: Remove temporary signing identity
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/easy-erp-signing.keychain-db" ]; then
+            security delete-keychain "$RUNNER_TEMP/easy-erp-signing.keychain-db"
+          fi
+
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [web, desktop]
+    if: >-
+      always() && startsWith(github.ref, 'refs/tags/v') &&
+      needs.checks.result == 'success' &&
+      needs.web.result == 'success' && needs.desktop.result == 'success' &&
+      needs.android.result == 'success' && needs.ios-simulator.result == 'success' &&
+      (needs.ios-device.result == 'success' || needs.ios-device.result == 'skipped')
+    needs: [checks, web, desktop, android, ios-simulator, ios-device]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+    env:
+      GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+      RELEASE_REPOSITORY: ${{ vars.RELEASE_REPOSITORY || github.repository }}
+      RELEASE_TAG: ${{ github.ref_name }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -103,16 +266,16 @@ jobs:
           merge-multiple: true
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: "24"
       - name: Build release manifest and checksums
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
-          RELEASE_REPOSITORY: ${{ github.repository }}
-        run: node scripts/release-manifest.mjs
-      - name: Create draft release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$RELEASE_TAG" --verify-tag --draft --title "库存管理 $RELEASE_TAG" --generate-notes
-          gh release upload "$RELEASE_TAG" release-assets/* --clobber
+          test "$(gh api "repos/$RELEASE_REPOSITORY" --jq .private)" = false || { echo 'Automatic update assets require a public release repository.' >&2; exit 1; }
+          node scripts/release-manifest.mjs
+      - name: Create draft release
+        run: |
+          if gh release view "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY" >/dev/null 2>&1; then
+            test "$(gh release view "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY" --json isDraft --jq .isDraft)" = true || { echo 'Refusing to replace a published release.' >&2; exit 1; }
+          else
+            gh release create "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY" --draft --title "库存管理 $RELEASE_TAG" --notes "安装前请备份库存。Web 包需配合库存服务使用。iOS 模拟器包不是真机安装包；IPA 仅在已配置分发签名时提供。构建来源：$GITHUB_SHA"
+          fi
+          gh release upload "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY" release-assets/* --clobber

@@ -1,6 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "launcher",
+  "platforms": ["macOS", "windows", "linux"],
   "description": "Only the packaged connection window has native management access. Business windows have no native capabilities.",
   "windows": ["launcher"],
   "permissions": [
@@ -11,6 +12,10 @@
     "allow-start-local",
     "allow-resume-last",
     "allow-show-launcher",
-    "allow-open-browser"
+    "allow-open-browser",
+    "allow-update-info",
+    "allow-check-update",
+    "allow-download-update",
+    "allow-install-update"
   ]
 }

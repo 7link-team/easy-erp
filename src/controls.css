@@ -348,3 +348,14 @@ a.button {
     transition: none;
   }
 }
+.native-login-tools {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
+  z-index: 20;
+}
+@media (max-width: 760px) {
+  .topbar .ui-button.desktop-logout {
+    display: none;
+  }
+}

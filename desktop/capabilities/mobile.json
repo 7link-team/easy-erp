@@ -1,0 +1,6 @@
+{
+  "identifier": "mobile-launcher",
+  "platforms": ["android", "iOS"],
+  "windows": ["launcher"],
+  "permissions": ["core:default", "allow-mobile-settings", "allow-mobile-connect", "allow-mobile-resume", "allow-mobile-disconnect", "allow-update-info"]
+}

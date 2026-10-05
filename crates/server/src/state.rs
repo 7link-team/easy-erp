@@ -13,5 +13,8 @@ pub struct State {
     pub secure: bool,
     pub bind: std::net::SocketAddr,
     pub maintenance: RwLock<()>,
+    pub desktop_token: Option<String>,
+    pub updating: std::sync::atomic::AtomicBool,
+    pub shutdown: tokio::sync::Notify,
 }
 pub type AppState = Arc<State>;

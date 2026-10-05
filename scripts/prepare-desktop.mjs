@@ -11,15 +11,25 @@ if (["android", "ios"].includes(process.env.TAURI_ENV_PLATFORM)) {
   console.log("Mobile client: no inventory server is bundled.");
   process.exit(0);
 }
-const target = process.env.ERP_BUILD_TARGET ?? execFileSync(rustc, ["-vV"], { encoding: "utf8" }).match(
-  /^host: (.+)$/m,
-)?.[1];
+const target =
+  process.env.ERP_BUILD_TARGET ??
+  execFileSync(rustc, ["-vV"], { encoding: "utf8" }).match(
+    /^host: (.+)$/m,
+  )?.[1];
 if (!target) throw new Error("Cannot determine Rust target");
 // A fixed shell command also resolves npm.cmd on Windows.
 execSync("npm run build", { cwd: root, stdio: "inherit" });
 execFileSync(
   cargo,
-  ["build", "--locked", ...(debug ? [] : ["--release"]), "--target", target, "-p", "easy-erp-server"],
+  [
+    "build",
+    "--locked",
+    ...(debug ? [] : ["--release"]),
+    "--target",
+    target,
+    "-p",
+    "easy-erp-server",
+  ],
   { cwd: root, stdio: "inherit" },
 );
 mkdirSync(resolve(root, "desktop/binaries"), { recursive: true });

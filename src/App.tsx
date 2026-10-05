@@ -1,4 +1,5 @@
 import { Form, Input, Button, Checkbox } from "./ui";
+import { NativeTools } from "./NativeTools";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useNavigation, useVisualViewport, type Page } from "./navigation";
 import { browserLogin, openDesktopBrowser } from "./browserLogin";
@@ -411,6 +412,7 @@ export default function App() {
   if (startError)
     return (
       <main className="recovery">
+        <NativeTools dirty={dirty} />
         <Notice>{startError}</Notice>
         <Button className="button" onClick={() => location.reload()}>
           重新连接库存电脑
@@ -419,15 +421,20 @@ export default function App() {
     );
   if (!user)
     return (
-      <Login
-        initialized={initialized}
-        onSetup={() => setInitialized(true)}
-        onLogin={(u) => {
-          setUser(u);
-          reset();
-          refresh();
-        }}
-      />
+      <>
+        <div className="native-login-tools">
+          <NativeTools dirty={dirty} />
+        </div>
+        <Login
+          initialized={initialized}
+          onSetup={() => setInitialized(true)}
+          onLogin={(u) => {
+            setUser(u);
+            reset();
+            refresh();
+          }}
+        />
+      </>
     );
   const nav = [
     { id: "home", label: "工作台", icon: LayoutDashboard },
@@ -504,6 +511,7 @@ export default function App() {
             已连接库存电脑
           </span>
           <div className="topbar-actions">
+            <NativeTools dirty={dirty} />
             <Button
               className="icon-button"
               onClick={refresh}

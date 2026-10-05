@@ -9,6 +9,14 @@ fn main() {
             "show_launcher",
             "open_browser",
             "open_web_address",
+            "update_info",
+            "check_update",
+            "download_update",
+            "install_update",
+            "mobile_settings",
+            "mobile_connect",
+            "mobile_resume",
+            "mobile_disconnect",
         ]),
     ))
     .expect("build desktop permissions")

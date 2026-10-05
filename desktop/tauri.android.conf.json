@@ -1,0 +1,6 @@
+{
+  "app": {
+    "windows": [{ "label": "launcher", "title": "库存管理", "url": "mobile.html", "visible": true }]
+  },
+  "bundle": { "externalBin": [], "android": { "minSdkVersion": 24 } }
+}

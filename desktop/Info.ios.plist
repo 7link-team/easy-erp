@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>NSLocalNetworkUsageDescription</key><string>连接同一局域网内保存库存的电脑，查询库存并登记入库和出库。</string>
+  <key>NSAppTransportSecurity</key><dict>
+    <key>NSAllowsLocalNetworking</key><true/>
+    <key>NSAllowsArbitraryLoadsInWebContent</key><true/>
+  </dict>
+</dict></plist>
