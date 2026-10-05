@@ -2,6 +2,13 @@ import { readFileSync, writeFileSync } from "node:fs";
 
 const path = "desktop/gen/android/app/build.gradle.kts";
 let source = readFileSync(path, "utf8");
+// Pin to a published stable SDK; the generated template may target an SDK
+// that is not yet available from Google's stable sdkmanager channel.
+for (const field of ["compileSdk", "targetSdk"]) {
+  const setting = new RegExp(`(${field}\\s*=\\s*)\\d+`);
+  if (!setting.test(source)) throw new Error(`Android template missing ${field}.`);
+  source = source.replace(setting, "${1}36");
+}
 // The stock release manifest blocks plain HTTP; LAN inventory hosts use HTTP.
 const cleartext = 'manifestPlaceholders["usesCleartextTraffic"] = "false"';
 if (!source.includes(cleartext))

@@ -206,7 +206,14 @@ jobs:
         run: |
           APP=$(find desktop/gen/apple/build -type d -name '*.app' -print -quit)
           test -n "$APP"
+          node scripts/smoke-ios-simulator.mjs "$APP"
           ditto -c -k --keepParent "$APP" easy-erp-ios-simulator.zip
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-simulator-evidence
+          path: simulator-evidence/*
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
           name: ios-simulator
@@ -275,6 +282,7 @@ jobs:
         with:
           path: release-assets
           merge-multiple: true
+          pattern: '!*-evidence'
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
