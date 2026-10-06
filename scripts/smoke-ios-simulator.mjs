@@ -16,6 +16,7 @@ const device = Object.entries(devices.devices)
 if (!device) throw new Error("No available iPhone simulator runtime.");
 const { udid } = device;
 const bundle = "com.aspeed.easy-erp";
+const logPredicate = 'process == "EasyERP" OR process == "库存管理" OR eventMessage CONTAINS[c] "easy-erp" OR eventMessage CONTAINS[c] "panic"';
 mkdirSync("simulator-evidence", { recursive: true });
 let consoleProcess;
 let systemLogProcess;
@@ -26,7 +27,7 @@ try {
   console.log("Installing simulator application");
   simctl("install", udid, app);
   const systemLog = openSync("simulator-evidence/live-system.log", "w");
-  systemLogProcess = spawn("xcrun", ["simctl", "spawn", udid, "log", "stream", "--level", "debug", "--style", "compact", "--predicate", 'process == "库存管理" OR eventMessage CONTAINS[c] "easy-erp" OR eventMessage CONTAINS[c] "panic"'], {
+  systemLogProcess = spawn("xcrun", ["simctl", "spawn", udid, "log", "stream", "--level", "debug", "--style", "compact", "--predicate", logPredicate], {
     stdio: ["ignore", systemLog, systemLog],
   });
   closeSync(systemLog);
@@ -47,7 +48,7 @@ try {
   consoleProcess?.kill("SIGKILL");
   systemLogProcess?.kill("SIGKILL");
   try {
-    writeFileSync("simulator-evidence/system.log", simctl("spawn", udid, "log", "show", "--last", "5m", "--info", "--debug", "--style", "compact", "--predicate", 'process == "库存管理" OR eventMessage CONTAINS[c] "easy-erp" OR eventMessage CONTAINS[c] "panic"'));
+    writeFileSync("simulator-evidence/system.log", simctl("spawn", udid, "log", "show", "--last", "5m", "--info", "--debug", "--style", "compact", "--predicate", logPredicate));
     const reportDirectories = [
       join(homedir(), "Library/Logs/DiagnosticReports"),
       join(homedir(), "Library/Developer/CoreSimulator/Devices", udid, "data/Library/Logs/CrashReporter"),
