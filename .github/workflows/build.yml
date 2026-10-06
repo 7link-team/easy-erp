@@ -119,12 +119,12 @@ jobs:
           done
           npm run desktop:build -- --target "$ERP_BUILD_TARGET" --bundles '${{ matrix.bundles }}' --config updater-build.json
       - name: Test native update logic
-        if: matrix.target != 'aarch64-apple-darwin'
+        if: runner.os != 'Windows' && matrix.target != 'aarch64-apple-darwin'
         run: cargo test --locked --release --target ${{ matrix.target }} --manifest-path desktop/Cargo.toml --lib
-      - name: Diagnose Windows loader failure
-        if: failure() && runner.os == 'Windows'
+      - name: Test Windows native update logic
+        if: runner.os == 'Windows'
         shell: pwsh
-        run: ./scripts/diagnose-windows-loader.ps1 -TargetDir desktop/target/${{ matrix.target }}/release
+        run: ./scripts/test-windows-native.ps1
       - name: Collect installers
         run: node scripts/collect-release.mjs ${{ matrix.target }}
       - uses: actions/upload-artifact@v4
