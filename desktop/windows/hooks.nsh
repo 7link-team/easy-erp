@@ -1,4 +1,5 @@
 !define ERP_WINDOWS_DIR "${__FILEDIR__}"
+!include "${ERP_WINDOWS_DIR}\shortcuts.nsh"
 
 !macro ERP_PREPARE_INSTALL OPERATION
   InitPluginsDir
