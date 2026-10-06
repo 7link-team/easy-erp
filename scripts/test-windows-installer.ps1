@@ -30,9 +30,11 @@ function AssertInstallation([string]$Directory, [string]$Hive) {
   if (-not (Test-Path (Join-Path $Directory 'easy-erp-desktop.exe'))) { throw 'Installed desktop executable missing.' }
   $shell = New-Object -ComObject WScript.Shell
   $folder = if ($Hive -eq 'HKLM') { 'CommonPrograms' } else { 'Programs' }
-  $link = Join-Path ([Environment]::GetFolderPath($folder)) '库存管理.lnk'
-  if (-not (Test-Path $link) -or $shell.CreateShortcut($link).TargetPath -ne (Join-Path $Directory 'easy-erp-desktop.exe')) {
-    throw 'Start menu shortcut does not point to the installed application.'
+  $base = [Environment]::GetFolderPath($folder)
+  $links = @(Get-ChildItem -LiteralPath $base -Filter '库存管理.lnk' -Recurse -ErrorAction SilentlyContinue)
+  $targets = @($links | ForEach-Object { [pscustomobject]@{ Path = $_.FullName; Target = $shell.CreateShortcut($_.FullName).TargetPath } })
+  if (-not @($targets | Where-Object Target -eq (Join-Path $Directory 'easy-erp-desktop.exe')).Count) {
+    throw "Start menu shortcut does not point to $Directory. Found: $($targets | ConvertTo-Json -Compress)"
   }
 }
 function RejectInstall([string]$Flags) {
