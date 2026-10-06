@@ -7,6 +7,7 @@ const app = process.argv[2];
 if (!app?.endsWith(".app")) throw new Error("Pass the built simulator .app path.");
 const simctl = (...args) => execFileSync("xcrun", ["simctl", ...args], {
   encoding: "utf8", timeout: 240_000, killSignal: "SIGKILL",
+  env: { ...process.env, SIMCTL_CHILD_RUST_BACKTRACE: "1" },
 });
 const devices = JSON.parse(simctl("list", "devices", "available", "--json"));
 const device = Object.entries(devices.devices)
@@ -18,7 +19,6 @@ const { udid } = device;
 const bundle = "com.aspeed.easy-erp";
 const logPredicate = 'process == "EasyERP" OR process == "库存管理" OR eventMessage CONTAINS[c] "easy-erp" OR eventMessage CONTAINS[c] "panic"';
 mkdirSync("simulator-evidence", { recursive: true });
-let consoleProcess;
 let systemLogProcess;
 try {
   console.log(`Booting ${device.name}`);
@@ -31,21 +31,18 @@ try {
     stdio: ["ignore", systemLog, systemLog],
   });
   closeSync(systemLog);
-  const log = openSync("simulator-evidence/console.log", "w");
-  consoleProcess = spawn("xcrun", ["simctl", "launch", "--console", udid, bundle], {
-    stdio: ["ignore", log, log],
-    env: { ...process.env, SIMCTL_CHILD_RUST_BACKTRACE: "1" },
-  });
-  closeSync(log);
-  console.log("Waiting for application startup");
+  // Wait for simctl to confirm launch before starting the survival timer.
+  // On a busy runner, --console can still be waiting to launch after 20s.
+  const launch = simctl("launch", udid, bundle);
+  writeFileSync("simulator-evidence/console.log", launch);
+  if (!launch.includes(`${bundle}: `)) throw new Error("Simulator did not confirm application launch.");
+  console.log("Application launched; checking it stays running");
   await new Promise((resolve) => setTimeout(resolve, 20000));
-  console.log(`Console process status: ${consoleProcess.exitCode}, signal: ${consoleProcess.signalCode}`);
   simctl("io", udid, "screenshot", "simulator-evidence/launch.png");
   // A crashed process cannot be terminated successfully: fail the smoke check.
   simctl("terminate", udid, bundle);
   console.log(`Simulator install and launch passed: ${device.name}`);
 } finally {
-  consoleProcess?.kill("SIGKILL");
   systemLogProcess?.kill("SIGKILL");
   try {
     writeFileSync("simulator-evidence/system.log", simctl("spawn", udid, "log", "show", "--last", "5m", "--info", "--debug", "--style", "compact", "--predicate", logPredicate));
