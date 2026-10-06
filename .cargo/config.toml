@@ -1,0 +1,4 @@
+# Both Cargo workspaces inherit this configuration, including the server
+# compiled separately from Tauri. Clean Windows PCs must not need VC Redist.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

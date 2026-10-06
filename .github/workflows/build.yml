@@ -118,6 +118,10 @@ jobs:
             if [ -z "${!name}" ]; then unset "$name"; fi
           done
           npm run desktop:build -- --target "$ERP_BUILD_TARGET" --bundles '${{ matrix.bundles }}' --config updater-build.json
+      - name: Verify Windows runtime is bundled
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/check-windows-runtime.ps1
       - name: Test native update logic
         if: runner.os != 'Windows' && matrix.target != 'aarch64-apple-darwin'
         run: cargo test --locked --release --target ${{ matrix.target }} --manifest-path desktop/Cargo.toml --lib
