@@ -33,7 +33,7 @@ jobs:
       - run: npm run build
       - run: cargo test --locked -p easy-erp-server
       - run: cargo build --locked -p easy-erp-server
-      - run: node --test scripts/tests/desktop-control.test.mjs scripts/tests/release-manifest.test.mjs
+      - run: node --test scripts/tests/desktop-control.test.mjs scripts/tests/release-manifest.test.mjs scripts/tests/update-permissions.test.mjs
 
   web:
     runs-on: ubuntu-24.04
@@ -106,9 +106,6 @@ jobs:
           UPDATER_PUBLIC_KEY: ${{ vars.UPDATER_PUBLIC_KEY }}
           UPDATER_ENDPOINT: ${{ vars.UPDATER_ENDPOINT }}
         run: node scripts/configure-updater.mjs
-      - name: Test native update logic
-        if: matrix.target != 'aarch64-apple-darwin'
-        run: cargo test --locked --manifest-path desktop/Cargo.toml --lib
       - if: runner.os == 'macOS' && env.APPLE_CERTIFICATE != ''
         uses: apple-actions/import-codesign-certs@v3
         with:
@@ -121,6 +118,9 @@ jobs:
             if [ -z "${!name}" ]; then unset "$name"; fi
           done
           npm run desktop:build -- --target "$ERP_BUILD_TARGET" --bundles '${{ matrix.bundles }}' --config updater-build.json
+      - name: Test native update logic
+        if: matrix.target != 'aarch64-apple-darwin'
+        run: cargo test --locked --manifest-path desktop/Cargo.toml --lib
       - name: Collect installers
         run: node scripts/collect-release.mjs ${{ matrix.target }}
       - uses: actions/upload-artifact@v4

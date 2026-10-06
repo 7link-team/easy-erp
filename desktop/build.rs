@@ -11,6 +11,7 @@ fn main() {
             "open_web_address",
             "update_info",
             "check_update",
+            "set_update_channel",
             "download_update",
             "install_update",
             "mobile_settings",

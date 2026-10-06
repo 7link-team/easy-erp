@@ -15,6 +15,7 @@
     "allow-open-browser",
     "allow-update-info",
     "allow-check-update",
+    "allow-set-update-channel",
     "allow-download-update",
     "allow-install-update"
   ]

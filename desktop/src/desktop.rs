@@ -115,7 +115,7 @@ fn open_business(app: &tauri::AppHandle, url: url::Url, visible: bool) -> Result
             "local": false,
             "remote": { "urls": [format!("{}/*", url.origin().ascii_serialization())] },
             "windows": ["inventory"],
-            "permissions": ["allow-open-web-address", "allow-update-info", "allow-check-update", "allow-download-update", "allow-install-update"]
+            "permissions": ["allow-open-web-address", "allow-update-info", "allow-check-update", "allow-set-update-channel", "allow-download-update", "allow-install-update"]
         })
         .to_string(),
     )
