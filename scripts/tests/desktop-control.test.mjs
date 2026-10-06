@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -72,6 +73,11 @@ test(
           body: JSON.stringify(body),
         });
       const identity = await (await fetch(base + "/api/status")).json();
+      const backupOnly = () => promisify(execFile)(
+        resolve(`target/debug/easy-erp-server${process.platform === "win32" ? ".exe" : ""}`),
+        ["--backup-only", "--data-dir", directory],
+      );
+      await assert.rejects(backupOnly, /已有服务运行/);
       const setup = await post("/api/setup", {
         username: "manager",
         password: "Update-test-2026",
@@ -126,6 +132,11 @@ test(
       );
       const [code] = await exited;
       assert.equal(code, 0);
+      const beforeOffline = await readdir(join(directory, "backups"));
+      const offline = await backupOnly();
+      const archived = JSON.parse(offline.stdout.trim());
+      assert.ok(archived.name.endsWith(".zip"));
+      assert.equal((await readdir(join(directory, "backups"))).length, beforeOffline.length + 1);
       base = await start();
       const status = await (await fetch(base + "/api/status")).json();
       assert.equal(status.initialized, true);

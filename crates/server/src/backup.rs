@@ -105,12 +105,29 @@ async fn schemas(db: &sea_orm::DatabaseConnection) -> Result<Vec<String>> {
 }
 pub async fn create(s: &AppState, actor: &User) -> Result<BackupInfo> {
     let _backup = s.backup_lock.lock().await;
-    let dir = s.data_dir.join("backups");
+    let info = snapshot(&s.db, &s.data_dir).await?;
+    audit(
+        &s.db,
+        actor,
+        "完成备份",
+        &info.name,
+        json!({"size":info.size}),
+    )
+    .await?;
+    save_value(s, "backup_last_success", &info.created_at.to_string()).await?;
+    save_value(s, "backup_last_error", "").await?;
+    prune(s).await?;
+    Ok(info)
+}
+
+/// Also used before installer migrations, while holding the data-directory lock.
+pub async fn snapshot(db: &sea_orm::DatabaseConnection, data_dir: &FsPath) -> Result<BackupInfo> {
+    let dir = data_dir.join("backups");
     tokio::fs::create_dir_all(&dir).await?;
     let stage = tempfile::tempdir_in(&dir)?;
     let snapshot = stage.path().join("inventory.sqlite");
     execute(
-        &s.db,
+        db,
         "VACUUM INTO ?",
         vec![snapshot.to_string_lossy().to_string().into()],
     )
@@ -123,7 +140,7 @@ pub async fn create(s: &AppState, actor: &User) -> Result<BackupInfo> {
         chrono::Utc::now().format("%Y%m%d-%H%M%S"),
         &id()[..8]
     );
-    let schema = schemas(&s.db).await?;
+    let schema = schemas(db).await?;
     let temporary = stage.path().join("snapshot.zip");
     let target = dir.join(&name);
     tokio::task::spawn_blocking(move || -> std::io::Result<()> {
@@ -152,10 +169,6 @@ pub async fn create(s: &AppState, actor: &User) -> Result<BackupInfo> {
         created_at,
         size: tokio::fs::metadata(dir.join(&name)).await?.len(),
     };
-    audit(&s.db, actor, "完成备份", &name, json!({"size":info.size})).await?;
-    save_value(s, "backup_last_success", &created_at.to_string()).await?;
-    save_value(s, "backup_last_error", "").await?;
-    prune(s).await?;
     Ok(info)
 }
 async fn validate_database(path: &FsPath) -> Result<sea_orm::DatabaseConnection> {

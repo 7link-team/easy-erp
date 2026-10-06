@@ -26,6 +26,15 @@
   },
   "bundle": {
     "active": true,
+    "windows": {
+      "allowDowngrades": false,
+      "nsis": {
+        "languages": ["SimpChinese"],
+        "installMode": "currentUser",
+        "template": "windows/installer.nsi",
+        "installerHooks": "windows/hooks.nsh"
+      }
+    },
     "macOS": {
       "signingIdentity": "-"
     },

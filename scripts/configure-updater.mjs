@@ -16,9 +16,6 @@ const config = {
     ...(process.env.APPLE_SIGNING_IDENTITY
       ? { macOS: { signingIdentity: process.env.APPLE_SIGNING_IDENTITY } }
       : {}),
-    windows: {
-      nsis: { languages: ["SimpChinese"], installMode: "currentUser" },
-    },
   },
   ...(signed
     ? { plugins: { updater: { pubkey, endpoints: [endpoint], requireSignedVersion: true } } }

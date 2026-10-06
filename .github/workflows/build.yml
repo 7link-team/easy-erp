@@ -129,6 +129,11 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./scripts/test-windows-native.ps1
+      - name: Test Windows upgrade and data retention
+        if: runner.os == 'Windows'
+        timeout-minutes: 15
+        shell: pwsh
+        run: ./scripts/test-windows-installer.ps1
       - name: Collect installers
         run: node scripts/collect-release.mjs ${{ matrix.target }}
       - uses: actions/upload-artifact@v4

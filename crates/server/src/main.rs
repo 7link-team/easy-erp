@@ -34,6 +34,9 @@ use tower_http::{
 #[derive(Parser)]
 #[command(version, about = "库存管理后台服务")]
 struct Config {
+    /// Create a standard ZIP backup without starting HTTP or running migrations.
+    #[arg(long)]
+    backup_only: bool,
     #[arg(long, env = "ERP_DATA_DIR", default_value = "data")]
     data_dir: PathBuf,
     #[arg(long, env = "ERP_BIND", default_value = "127.0.0.1:4280")]
@@ -55,6 +58,9 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
     let cfg = Config::parse();
+    if cfg.backup_only && !cfg.data_dir.join("inventory.sqlite").exists() {
+        return Ok(());
+    }
     std::fs::create_dir_all(&cfg.data_dir)?;
     #[cfg(unix)]
     {
@@ -69,6 +75,20 @@ async fn main() -> anyhow::Result<()> {
         .open(cfg.data_dir.join("server.lock"))?;
     lock.try_lock_exclusive()
         .map_err(|_| anyhow::anyhow!("该数据目录已有服务运行，不能重复启动。"))?;
+    if cfg.backup_only {
+        let path = cfg.data_dir.canonicalize()?.join("inventory.sqlite");
+        let mut options = ConnectOptions::new("sqlite://inventory");
+        options
+            .max_connections(1)
+            .sqlx_logging(false)
+            .map_sqlx_sqlite_opts(move |options| options.filename(&path).read_only(true));
+        let db = Database::connect(options).await?;
+        let result = backup::snapshot(&db, &cfg.data_dir).await;
+        db.close().await?;
+        let info = result.map_err(|error| anyhow::anyhow!(error.1))?;
+        println!("{}", serde_json::to_string(&info)?);
+        return Ok(());
+    }
     let identity_path = cfg.data_dir.join("instance-id");
     let instance_id = match std::fs::read_to_string(&identity_path) {
         Ok(value) => uuid::Uuid::parse_str(value.trim())?.to_string(),

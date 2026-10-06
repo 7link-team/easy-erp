@@ -377,6 +377,25 @@ fn open_browser(window: tauri::WebviewWindow, app: tauri::AppHandle) -> Result<(
     browser(&app)
 }
 
+pub(crate) async fn wait_for_local_exit(app: &tauri::AppHandle) -> Result<(), String> {
+    for _ in 0..120 {
+        {
+            let runtime = app.state::<Runtime>();
+            let mut child = runtime.child.lock().unwrap();
+            if let Some(process) = child.as_mut() {
+                if process.try_wait().map_err(|e| e.to_string())?.is_some() {
+                    *child = None;
+                    return Ok(());
+                }
+            } else {
+                return Ok(());
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    Err("库存服务进程尚未结束，请稍后重试。".into())
+}
+
 fn menu_action(app: &tauri::AppHandle, id: &str) {
     match id {
         "open" => show_app(app),
@@ -398,6 +417,18 @@ fn menu_action(app: &tauri::AppHandle, id: &str) {
             });
         }
         "quit" => app.exit(0),
+        "quit-all" => {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = updates::quit_all(&app).await {
+                    if let Some(window) = app.get_webview_window("launcher") {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                        let _ = window.emit("startup-error", format!("未能全部退出：{error}"));
+                    }
+                }
+            });
+        }
         _ => {}
     }
 }
@@ -451,20 +482,22 @@ pub fn run() {
             let open = MenuItem::with_id(app, "open", "打开库存管理", true, None::<&str>)?;
             let connection =
                 MenuItem::with_id(app, "connection", "连接与启动设置", true, None::<&str>)?;
-            let quit = MenuItem::with_id(
+            let quit =
+                MenuItem::with_id(app, "quit", "仅退出界面（共享继续）", true, None::<&str>)?;
+            let quit_all = MenuItem::with_id(
                 app,
-                "quit",
-                "退出应用（库存共享继续运行）",
+                "quit-all",
+                "全部退出（停止本机共享）",
                 true,
                 None::<&str>,
             )?;
             let browser = MenuItem::with_id(app, "browser", "在浏览器中打开", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&open, &browser, &connection, &quit])?;
+            let menu = Menu::with_items(app, &[&open, &browser, &connection, &quit, &quit_all])?;
             let application_menu = Submenu::with_items(
                 app,
                 "库存管理",
                 true,
-                &[&open, &browser, &connection, &quit],
+                &[&open, &browser, &connection, &quit, &quit_all],
             )?;
             let edit = Submenu::with_items(
                 app,

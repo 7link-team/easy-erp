@@ -35,7 +35,7 @@ pub async fn prepare_update(
     let actor = User {
         id: "system".into(),
         username: "system".into(),
-        name: "应用更新前备份".into(),
+        name: "退出或升级前备份".into(),
         role: "admin".into(),
         can_in: false,
         can_out: false,

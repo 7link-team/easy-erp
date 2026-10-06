@@ -219,7 +219,7 @@ pub fn new_control_token(dir: &Path) -> Result<String, String> {
     Ok(token)
 }
 
-async fn stop_local(app: &tauri::AppHandle) -> Result<bool, String> {
+async fn stop_local(app: &tauri::AppHandle, for_update: bool) -> Result<bool, String> {
     let dir = app
         .path()
         .app_local_data_dir()
@@ -228,6 +228,16 @@ async fn stop_local(app: &tauri::AppHandle) -> Result<bool, String> {
     let lock_path = dir.join("server.lock");
     if !lock_path.exists() {
         return Ok(false);
+    }
+    if !for_update {
+        let lock = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&lock_path)
+            .map_err(|e| e.to_string())?;
+        if lock.try_lock_exclusive().is_ok() {
+            return Ok(false);
+        }
     }
     // Even an offline local database must be backed up before its next migration.
     // Starting the current service also validates ownership of the local port.
@@ -238,10 +248,10 @@ async fn stop_local(app: &tauri::AppHandle) -> Result<bool, String> {
         .open(lock_path)
         .map_err(|e| e.to_string())?;
     if lock.try_lock_exclusive().is_ok() {
-        return Err("库存服务意外退出，尚未安装更新，请检查日志。".into());
+        return Err("库存服务意外退出，请检查日志。".into());
     }
     let token = std::fs::read_to_string(dir.join("desktop-control-token"))
-        .map_err(|_| "旧版库存服务不支持安全自动更新，请先备份并手动退出库存服务后再试。")?;
+        .map_err(|_| "旧版库存服务不支持安全停止，请先备份并手动退出库存服务后再试。")?;
     let client = reqwest::Client::builder()
         .no_proxy()
         .timeout(Duration::from_secs(120))
@@ -268,11 +278,11 @@ async fn stop_local(app: &tauri::AppHandle) -> Result<bool, String> {
         .send()
         .await
         .map_err(|e| {
-            format!("无法确认库存服务是否完成更新准备，已停止安装。请重新打开应用后重试。{e}")
+            format!("无法确认库存服务是否完成备份与停止，操作已中止。请重新打开应用后重试。{e}")
         })?;
     if !response.status().is_success() {
         clear_resume_marker(app);
-        return Err("库存服务未能完成更新前备份，请检查服务日志；尚未安装更新。".into());
+        return Err("库存服务未能完成备份，请检查服务日志；操作已中止。".into());
     }
     for _ in 0..120 {
         if lock.try_lock_exclusive().is_ok() {
@@ -280,7 +290,7 @@ async fn stop_local(app: &tauri::AppHandle) -> Result<bool, String> {
         }
         tokio::time::sleep(Duration::from_millis(250)).await;
     }
-    Err("库存服务还未退出，已停止安装。请检查服务状态后重试。".into())
+    Err("库存服务还未退出，操作已中止。请检查服务状态后重试。".into())
 }
 
 #[tauri::command]
@@ -317,7 +327,8 @@ pub async fn install_update(
     let bytes = tokio::fs::read(package)
         .await
         .map_err(|_| "读取更新包失败，请重新下载。")?;
-    let stopped = stop_local(&app).await?;
+    let stopped = stop_local(&app, true).await?;
+    desktop::wait_for_local_exit(&app).await?;
     let (update, _package) = state.pending.lock().unwrap().take().unwrap();
     let result = tauri::async_runtime::spawn_blocking(move || update.install(bytes))
         .await
@@ -333,6 +344,21 @@ pub async fn install_update(
         return Err(format!("安装失败，原有库存数据保留：{error}"));
     }
     app.restart();
+}
+
+pub async fn quit_all(app: &tauri::AppHandle) -> Result<(), String> {
+    let state = app.state::<Updates>();
+    let _operation = state
+        .operation
+        .try_lock()
+        .map_err(|_| "正在处理更新或退出，请稍后再试。".to_string())?;
+    let runtime = app.state::<desktop::Runtime>();
+    let _connection = runtime.connection_lock.lock().await;
+    stop_local(app, false).await?;
+    desktop::wait_for_local_exit(app).await?;
+    clear_resume_marker(app);
+    app.exit(0);
+    Ok(())
 }
 
 fn clear_resume_marker(app: &tauri::AppHandle) {
