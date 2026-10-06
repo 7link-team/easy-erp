@@ -368,6 +368,9 @@ mod tests {
                         std::thread::sleep(Duration::from_millis(5));
                         continue;
                     };
+                    // BSD/macOS inherits O_NONBLOCK on accepted sockets.
+                    // This fixture reads complete HTTP lines synchronously.
+                    stream.set_nonblocking(false).unwrap();
                     stream
                         .set_read_timeout(Some(Duration::from_secs(2)))
                         .unwrap();
