@@ -1,14 +1,14 @@
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
+import { releasePolicy } from "./release-channel.mjs";
 
 const tag = process.env.RELEASE_TAG;
 const repo = process.env.RELEASE_REPOSITORY;
 const version = JSON.parse(
   readFileSync("desktop/tauri.conf.json", "utf8"),
 ).version;
-if (tag !== `v${version}`)
-  throw new Error(`Tag must match application version v${version}.`);
+const policy = releasePolicy(tag, version);
 if (!/^[\w.-]+\/[\w.-]+$/.test(repo ?? ""))
   throw new Error("Invalid release repository.");
 const platforms = {};
@@ -37,6 +37,7 @@ writeFileSync(
   JSON.stringify(
     {
       version,
+      channel: policy.channel,
       notes: "更新前请保存当前操作，并通知同事短暂暂停使用。",
       pub_date: new Date().toISOString(),
       platforms,

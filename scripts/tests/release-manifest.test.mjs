@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
+import { releasePolicy } from "../release-channel.mjs";
 
 const script = resolve("scripts/release-manifest.mjs");
 const names = [
@@ -89,5 +90,40 @@ test("release manifest maps architectures and includes manifest checksum", () =>
       readFileSync(join(directory, "release-assets/SHA256SUMS.txt"), "utf8"),
       /^[a-f0-9]{64}  latest\.json$/m,
     );
+  });
+});
+
+test("release channel follows SemVer and rejects mismatched or invalid versions", () => {
+  assert.deepEqual(releasePolicy("v1.2.0", "1.2.0"), {
+    channel: "stable",
+    prerelease: false,
+  });
+  for (const version of ["1.2.0-beta.1", "1.2.0-rc.2", "1.2.0-alpha.3+build.1"])
+    assert.deepEqual(releasePolicy(`v${version}`, version), {
+      channel: "preview",
+      prerelease: true,
+    });
+  assert.equal(
+    releasePolicy("v1.2.0+build.1", "1.2.0+build.1").channel,
+    "stable",
+  );
+  for (const version of ["1.2", "01.2.0", "1.2.0-beta.01", "1.2.0-", "random"])
+    assert.throws(() => releasePolicy(`v${version}`, version));
+  assert.throws(() => releasePolicy("v1.2.0", "1.2.0-rc.1"));
+});
+
+test("prerelease manifests identify preview channel and use immutable version URLs", () => {
+  fixture((directory, build) => {
+    writeFileSync(
+      join(directory, "desktop/tauri.conf.json"),
+      JSON.stringify({ version: "0.2.0-rc.1" }),
+    );
+    const result = build("v0.2.0-rc.1");
+    assert.equal(result.status, 0, result.stderr);
+    const manifest = JSON.parse(
+      readFileSync(join(directory, "release-assets/latest.json"), "utf8"),
+    );
+    assert.equal(manifest.channel, "preview");
+    assert.match(manifest.platforms["darwin-x86_64"].url, /\/v0\.2\.0-rc\.1\//);
   });
 });

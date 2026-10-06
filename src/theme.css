@@ -1,4 +1,33 @@
 /* Application surfaces: compact, quiet and inexpensive to paint. */
+.update-routes {
+  margin-block: 16px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.update-routes > p {
+  margin: 0 0 12px;
+}
+.update-routes dl {
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+.update-routes dl > div {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 20px;
+  row-gap: 4px;
+}
+.update-routes dt {
+  min-width: 84px;
+  color: var(--muted);
+}
+.update-routes dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-weight: 500;
+}
 .web-address-list {
   display: grid;
   gap: 12px;

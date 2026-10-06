@@ -1,7 +1,14 @@
 import { Form, Input, Button, Checkbox } from "./ui";
-import { NativeTools } from "./NativeTools";
+import { NativeTools, UpdateProvider } from "./NativeTools";
 import { ServiceUpdate } from "./ServiceUpdate";
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import { useNavigation, useVisualViewport, type Page } from "./navigation";
 import { browserLogin, openDesktopBrowser } from "./browserLogin";
 import {
@@ -49,6 +56,7 @@ const Records = lazy(() => import("./pages/Records"));
 const Stocktakes = lazy(() => import("./pages/Stocktakes"));
 const Users = lazy(() => import("./pages/Users"));
 const SettingsPage = lazy(() => import("./pages/Settings"));
+const UpdatesPage = lazy(() => import("./pages/Updates"));
 import WebAccess from "./WebAccess";
 
 function Login({
@@ -331,12 +339,20 @@ function Home({
 }
 
 export default function App() {
+  const dirty = useRef(false);
+  return (
+    <UpdateProvider dirty={dirty}>
+      <Application dirty={dirty} />
+    </UpdateProvider>
+  );
+}
+
+function Application({ dirty }: { dirty: RefObject<boolean> }) {
   const [user, setUser] = useState<User>();
   const [initialized, setInitialized] = useState(true);
   const [starting, setStarting] = useState(true);
   const [startError, setStartError] = useState("");
   const [browserError, setBrowserError] = useState("");
-  const dirty = useRef(false);
   const {
     route: { page, initialItem },
     navigate,
@@ -413,7 +429,7 @@ export default function App() {
   if (startError)
     return (
       <main className="recovery">
-        <NativeTools dirty={dirty} />
+        <NativeTools />
         <Notice>{startError}</Notice>
         <Button className="button" onClick={() => location.reload()}>
           重新连接库存电脑
@@ -424,7 +440,7 @@ export default function App() {
     return (
       <>
         <div className="native-login-tools">
-          <NativeTools dirty={dirty} />
+          <NativeTools />
         </div>
         <Login
           initialized={initialized}
@@ -450,6 +466,7 @@ export default function App() {
           { id: "settings", label: "数据与备份", icon: Settings },
         ]
       : []),
+    { id: "updates", label: "版本更新", icon: RefreshCw },
   ];
   return (
     <div className="app-shell" data-flow={page === "in" || page === "out"}>
@@ -470,7 +487,7 @@ export default function App() {
           {nav.map(({ id, label, icon: Icon }) => (
             <Button
               key={id}
-              className={`${page === id ? "nav-item active" : "nav-item"} ${id === "users" || id === "settings" ? "secondary-nav" : ""}`}
+              className={`${page === id ? "nav-item active" : "nav-item"} ${["users", "settings", "updates"].includes(id) ? "secondary-nav" : ""}`}
               onClick={() => navigate(id as Page)}
               aria-current={page === id ? "page" : undefined}
             >
@@ -479,7 +496,7 @@ export default function App() {
             </Button>
           ))}
           <Button
-            className={`nav-item mobile-more ${moreOpen || page === "users" || page === "settings" ? "active" : ""}`}
+            className={`nav-item mobile-more ${moreOpen || ["users", "settings", "updates"].includes(page) ? "active" : ""}`}
             aria-haspopup="dialog"
             aria-expanded={moreOpen}
             onClick={() => setMoreOpen(true)}
@@ -512,7 +529,7 @@ export default function App() {
             已连接库存电脑
           </span>
           <div className="topbar-actions">
-            <NativeTools dirty={dirty} />
+            <NativeTools pageOpen={page === "updates"} />
             <Button
               className="icon-button"
               onClick={refresh}
@@ -549,6 +566,7 @@ export default function App() {
         <main id="main" tabIndex={-1}>
           {logout.error && <Notice>{logout.error}</Notice>}
           <Suspense fallback={<Loading />}>
+            {page === "updates" && <UpdatesPage />}
             {page === "home" && (
               <Home user={user} revision={revision} navigate={navigate} />
             )}
@@ -608,7 +626,9 @@ export default function App() {
           </div>
           <nav className="more-menu" aria-label="更多功能">
             {nav
-              .filter((item) => item.id === "users" || item.id === "settings")
+              .filter((item) =>
+                ["users", "settings", "updates"].includes(item.id),
+              )
               .map(({ id, label, icon: Icon }) => (
                 <Button
                   className="more-menu-item"

@@ -1,0 +1,89 @@
+.updates-page {
+  max-width: 960px;
+  margin-inline: auto;
+}
+.update-overview {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 28px;
+  margin-bottom: 20px;
+  border-radius: 12px;
+  background: var(--brand-gradient);
+  color: var(--on-brand);
+}
+.update-overview h2 {
+  font-size: 32px;
+  margin: 6px 0;
+  color: inherit;
+  font-variant-numeric: tabular-nums;
+}
+.update-overview p,
+.update-overview span {
+  margin: 0;
+  color: var(--on-brand-muted);
+}
+.update-app-icon {
+  display: grid;
+  place-items: center;
+  width: 60px;
+  height: 60px;
+  flex-shrink: 0;
+  border: 1px solid currentColor;
+  border-radius: 16px;
+}
+.update-details h2 {
+  margin-top: 0;
+}
+.update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 24px;
+}
+.update-progress {
+  margin-block: 20px;
+}
+.update-progress progress {
+  width: 100%;
+  accent-color: var(--accent);
+}
+.update-notes p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.8;
+}
+.update-safety {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 8px 4px 24px;
+  color: var(--muted);
+}
+.update-safety svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+.update-safety p {
+  margin: 0;
+  line-height: 1.7;
+}
+@media (max-width: 600px) {
+  .update-overview {
+    padding: 20px;
+    gap: 16px;
+  }
+  .update-overview h2 {
+    font-size: 26px;
+    overflow-wrap: anywhere;
+  }
+  .update-overview > div {
+    min-width: 0;
+  }
+  .update-actions {
+    flex-direction: column;
+  }
+  .update-actions .button {
+    width: 100%;
+  }
+}

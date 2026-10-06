@@ -1,3 +1,4 @@
+use crate::update_channel::Channel;
 use crate::{desktop, preferences::LOCAL_URL};
 use fs2::FileExt;
 use rand::RngCore;
@@ -8,7 +9,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::Manager;
-use tauri_plugin_updater::{Update, UpdaterExt};
+use tauri_plugin_updater::Update;
 
 #[derive(Default)]
 pub struct Updates {
@@ -53,8 +54,33 @@ fn configured(app: &tauri::AppHandle) -> bool {
 pub fn update_info(window: tauri::WebviewWindow, app: tauri::AppHandle) -> Result<Value, String> {
     authorize(&window, &app)?;
     Ok(
-        json!({"version": app.package_info().version.to_string(), "enabled": configured(&app), "mobile": false}),
+        json!({"version": app.package_info().version.to_string(), "enabled": configured(&app), "mobile": false, "channel": Channel::load(&channel_path(&app)?)?}),
     )
+}
+
+fn channel_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    Ok(app
+        .path()
+        .app_config_dir()
+        .map_err(|e| e.to_string())?
+        .join("update-channel.json"))
+}
+
+#[tauri::command]
+pub async fn set_update_channel(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    channel: Channel,
+) -> Result<(), String> {
+    authorize(&window, &app)?;
+    let state = app.state::<Updates>();
+    let _operation = state
+        .operation
+        .try_lock()
+        .map_err(|_| "正在处理更新，请稍后再切换渠道。")?;
+    channel.save(&channel_path(&app)?)?;
+    *state.pending.lock().unwrap() = None;
+    Ok(())
 }
 
 #[tauri::command]
@@ -72,11 +98,15 @@ pub async fn check_update(
         .operation
         .try_lock()
         .map_err(|_| "正在处理更新，请稍后再试。")?;
+    let channel = Channel::load(&channel_path(&app)?)?;
     let stamp = app
         .path()
         .app_config_dir()
         .map_err(|e| e.to_string())?
-        .join("update-check.json");
+        .join(match channel {
+            Channel::Stable => "update-check-stable.json",
+            Channel::Preview => "update-check-preview.json",
+        });
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -94,14 +124,9 @@ pub async fn check_update(
             None => json!({"skipped":true}),
         });
     }
-    let update = app
-        .updater_builder()
-        .timeout(Duration::from_secs(20))
-        .build()
-        .map_err(|e| e.to_string())?
-        .check()
-        .await
-        .map_err(|e| format!("暂时无法检查更新，请检查网络后重试。{e}"))?;
+    let update =
+        crate::update_network::check(&app, channel, |status| emit_route(&window, "check", status))
+            .await?;
     let response = match &update {
         Some(update) => json!({"enabled":true,"version":update.version,"notes":update.body}),
         None => json!({"enabled":true,"current":true}),
@@ -132,15 +157,22 @@ pub async fn download_update(
         .as_ref()
         .map(|(u, _)| u.clone())
         .ok_or("请先检查新版本。")?;
-    let mut downloaded = 0;
     let mut last = std::time::Instant::now();
-    let bytes = update.download(|chunk, total| {
-        downloaded += chunk as u64;
-        if last.elapsed() < Duration::from_millis(200) { return; }
-        last = std::time::Instant::now();
-        let progress = json!({"downloaded": downloaded, "total":total});
-        let _ = window.eval(format!("window.dispatchEvent(new CustomEvent('erp:update-progress',{{detail:{progress}}}))"));
-    }, || {}).await.map_err(|e| format!("下载或签名验证失败，未修改已安装的应用。{e}"))?;
+    let bytes = crate::update_network::download(
+        &update,
+        |downloaded, total, fallback| {
+            if downloaded > 0 && last.elapsed() < Duration::from_millis(200) {
+                return;
+            }
+            last = std::time::Instant::now();
+            let progress = json!({"downloaded": downloaded, "total":total, "fallback":fallback});
+            let _ = window.eval(format!(
+                "window.dispatchEvent(new CustomEvent('erp:update-progress',{{detail:{progress}}}))"
+            ));
+        },
+        |status| emit_route(&window, "download", status),
+    )
+    .await?;
     let cache = app.path().app_cache_dir().map_err(|e| e.to_string())?;
     let package = tauri::async_runtime::spawn_blocking(move || -> Result<_, String> {
         use std::io::Write;
@@ -154,6 +186,17 @@ pub async fn download_update(
     .map_err(|e| e.to_string())??;
     *state.pending.lock().unwrap() = Some((update, Some(package)));
     Ok(())
+}
+
+fn emit_route(
+    window: &tauri::WebviewWindow,
+    operation: &str,
+    status: crate::update_network::RouteStatus,
+) {
+    let detail = json!({"operation":operation,"status":status});
+    let _ = window.eval(format!(
+        "window.dispatchEvent(new CustomEvent('erp:update-route',{{detail:{detail}}}))"
+    ));
 }
 
 pub fn new_control_token(dir: &Path) -> Result<String, String> {

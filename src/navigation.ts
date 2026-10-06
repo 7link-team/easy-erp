@@ -9,6 +9,7 @@ const pages = [
   "stocktakes",
   "users",
   "settings",
+  "updates",
   "in",
   "out",
 ] as const;

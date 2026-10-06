@@ -106,6 +106,9 @@ jobs:
           UPDATER_PUBLIC_KEY: ${{ vars.UPDATER_PUBLIC_KEY }}
           UPDATER_ENDPOINT: ${{ vars.UPDATER_ENDPOINT }}
         run: node scripts/configure-updater.mjs
+      - name: Test native update logic
+        if: matrix.target != 'aarch64-apple-darwin'
+        run: cargo test --locked --manifest-path desktop/Cargo.toml --lib
       - if: runner.os == 'macOS' && env.APPLE_CERTIFICATE != ''
         uses: apple-actions/import-codesign-certs@v3
         with:
@@ -316,11 +319,19 @@ jobs:
         run: |
           test "$(gh api "repos/$RELEASE_REPOSITORY" --jq .private)" = false || { echo 'Automatic update assets require a public release repository.' >&2; exit 1; }
           node scripts/release-manifest.mjs
+      - name: Classify release channel
+        id: channel
+        run: node scripts/release-channel.mjs >> "$GITHUB_OUTPUT"
       - name: Create draft release
+        env:
+          IS_PRERELEASE: ${{ steps.channel.outputs.prerelease }}
         run: |
           if gh release view "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY" >/dev/null 2>&1; then
             test "$(gh release view "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY" --json isDraft --jq .isDraft)" = true || { echo 'Refusing to replace a published release.' >&2; exit 1; }
           else
-            gh release create "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY" --draft --title "库存管理 $RELEASE_TAG" --notes "安装前请备份库存。Web 包需配合库存服务使用。iOS 模拟器包不是真机安装包；IPA 仅在已配置分发签名时提供。构建来源：$GITHUB_SHA"
+            channel_flags=()
+            if [ "$IS_PRERELEASE" = true ]; then channel_flags+=(--prerelease --latest=false); fi
+            gh release create "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY" --draft "${channel_flags[@]}" --title "库存管理 $RELEASE_TAG" --notes "安装前请备份库存。Web 包需配合库存服务使用。iOS 模拟器包不是真机安装包；IPA 仅在已配置分发签名时提供。构建来源：$GITHUB_SHA"
           fi
+          gh release edit "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY" --prerelease="$IS_PRERELEASE"
           gh release upload "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY" release-assets/* --clobber

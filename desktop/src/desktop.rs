@@ -438,6 +438,7 @@ pub fn run() {
             open_web_address,
             updates::update_info,
             updates::check_update,
+            updates::set_update_channel,
             updates::download_update,
             updates::install_update
         ])
