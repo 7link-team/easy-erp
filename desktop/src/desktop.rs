@@ -403,10 +403,11 @@ fn menu_action(app: &tauri::AppHandle, id: &str) {
 }
 
 fn show_app(app: &tauri::AppHandle) {
-    if let Some(window) = app.get_webview_window("inventory") {
-        let _ = window.show();
-        let _ = window.set_focus();
-    } else if let Some(window) = app.get_webview_window("launcher") {
+    if let Some(window) = app
+        .get_webview_window("inventory")
+        .or_else(|| app.get_webview_window("launcher"))
+    {
+        let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
     }
@@ -509,6 +510,14 @@ pub fn run() {
                 let _ = window.hide();
             }
         })
-        .run(tauri::generate_context!())
-        .expect("桌面应用启动失败");
+        .build(tauri::generate_context!())
+        .expect("桌面应用启动失败")
+        .run(|_app, _event| {
+            // macOS sends Reopen when the running application's Dock icon is
+            // clicked; the single-instance callback does not receive it.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = _event {
+                show_app(_app);
+            }
+        });
 }
