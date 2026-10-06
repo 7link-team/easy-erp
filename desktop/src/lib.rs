@@ -1,3 +1,5 @@
+#[cfg(all(desktop, any(windows, test)))]
+mod data_location;
 #[cfg(desktop)]
 mod desktop;
 #[cfg(mobile)]
@@ -6,9 +8,9 @@ mod preferences;
 #[cfg(desktop)]
 mod update_channel;
 #[cfg(desktop)]
-mod updates;
-#[cfg(desktop)]
 mod update_network;
+#[cfg(desktop)]
+mod updates;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

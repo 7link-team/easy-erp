@@ -35,21 +35,13 @@ struct Manifest {
 }
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Schedule {
-    pub enabled: bool,
-    pub hour: u32,
-    pub interval: String,
-    pub keep_daily: usize,
-    pub keep_weekly: usize,
+    // Read older saved settings without keeping their obsolete scheduling options.
+    #[serde(alias = "keep_daily")]
+    pub keep_days: usize,
 }
 impl Default for Schedule {
     fn default() -> Self {
-        Self {
-            enabled: true,
-            hour: 18,
-            interval: "daily".into(),
-            keep_daily: 7,
-            keep_weekly: 4,
-        }
+        Self { keep_days: 7 }
     }
 }
 #[derive(Serialize)]
@@ -245,14 +237,8 @@ pub async fn update_schedule(
     local(peer)?;
     let actor = current(&s, &headers).await?;
     actor.admin()?;
-    if input.hour > 23
-        || !matches!(input.interval.as_str(), "hourly" | "daily")
-        || !(1..=365).contains(&input.keep_daily)
-        || !(1..=52).contains(&input.keep_weekly)
-    {
-        return Err(ApiError::bad(
-            "请设置 0–23 时、1–365 个日备份和 1–52 个周备份。",
-        ));
+    if !(1..=365).contains(&input.keep_days) {
+        return Err(ApiError::bad("备份保留天数须为 1–365 的整数。"));
     }
     let _lock = s.writes.lock().await;
     save_value(
@@ -296,18 +282,11 @@ async fn files(s: &AppState) -> Result<Vec<BackupInfo>> {
 async fn prune(s: &AppState) -> Result<()> {
     let settings = settings(s).await?;
     let files = files(s).await?;
-    let mut days = std::collections::HashSet::new();
-    let mut weeks = std::collections::HashSet::new();
-    let mut hours = std::collections::HashSet::new();
-    for f in files {
-        let d = chrono::DateTime::from_timestamp_millis(f.created_at).unwrap();
-        let day = d.format("%Y-%m-%d").to_string();
-        let week = d.format("%G-%V").to_string();
-        let hour = d.format("%Y-%m-%d-%H").to_string();
-        let keep_day = days.len() < settings.keep_daily && days.insert(day);
-        let keep_week = weeks.len() < settings.keep_weekly && weeks.insert(week);
-        let keep_hour = settings.interval == "hourly" && hours.len() < 24 && hours.insert(hour);
-        if !keep_day && !keep_week && !keep_hour {
+    let cutoff = now() - settings.keep_days as i64 * 86_400_000;
+    // Keep every snapshot within the requested period, and always retain the newest.
+    // create() calls this only after a complete, validated ZIP has been saved.
+    for f in files.into_iter().skip(1) {
+        if f.created_at < cutoff {
             tokio::fs::remove_file(archive_path(s, &f.name)?).await?;
         }
     }
@@ -473,8 +452,11 @@ pub async fn restore(
         json!({"ok":true,"message":"数据已恢复，请重新登录。"}),
     ))
 }
+fn backup_due(last_success: i64, current_time: i64) -> bool {
+    current_time.saturating_sub(last_success) >= 3_600_000
+}
+
 pub async fn scheduler(s: AppState) {
-    use chrono::Timelike;
     let mut timer = tokio::time::interval(std::time::Duration::from_secs(60));
     loop {
         timer.tick().await;
@@ -489,26 +471,11 @@ pub async fn scheduler(s: AppState) {
             {
                 return Ok(());
             }
-            let cfg = settings(&s).await?;
-            if !cfg.enabled {
-                return Ok(());
-            }
             let last = value(&s, "backup_last_success")
                 .await?
                 .parse::<i64>()
                 .unwrap_or(0);
-            let now_local = chrono::Local::now();
-            let due = if cfg.interval == "hourly" {
-                now() - last >= 3_600_000
-            } else {
-                now_local.hour() >= cfg.hour
-                    && chrono::DateTime::from_timestamp_millis(last)
-                        .map(|d| {
-                            d.with_timezone(&chrono::Local).date_naive() != now_local.date_naive()
-                        })
-                        .unwrap_or(true)
-            };
-            if due {
+            if backup_due(last, now()) {
                 let system = User {
                     id: "system".into(),
                     username: "system".into(),
@@ -528,5 +495,32 @@ pub async fn scheduler(s: AppState) {
             tracing::error!(?error, "scheduled backup failed");
             let _ = save_value(&s, "backup_last_error", &error.1).await;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hourly_schedule_handles_restart_and_clock_rollback() {
+        assert!(!backup_due(1_000, 3_600_999));
+        assert!(backup_due(1_000, 3_601_000));
+        assert!(backup_due(1_000, 9_000_000));
+        assert!(!backup_due(9_000_000, 1_000));
+    }
+
+    #[test]
+    fn old_settings_keep_retention_but_no_longer_control_frequency() {
+        let schedule: Schedule = serde_json::from_value(json!({
+            "enabled": false, "hour": 18, "interval": "daily",
+            "keep_daily": 14, "keep_weekly": 4
+        }))
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(schedule).unwrap(),
+            json!({"keep_days": 14})
+        );
+        assert_eq!(Schedule::default().keep_days, 7);
     }
 }

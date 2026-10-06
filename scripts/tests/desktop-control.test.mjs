@@ -2,7 +2,16 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  mkdtemp,
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -12,9 +21,9 @@ test(
   "native update control rejects browsers, backs up and drains the server",
   { timeout: 60000 },
   async () => {
-    const directory = await mkdtemp(
-      join(tmpdir(), "easy-erp-update-%20-库存-"),
-    );
+    let directory = await mkdtemp(join(tmpdir(), "easy-erp-update-%20-库存-"));
+    const originalDirectory = directory;
+    const migratedDirectory = `${directory}-EasyErp`;
     const token = randomBytes(32).toString("hex");
     let child;
     let exited;
@@ -73,11 +82,22 @@ test(
           body: JSON.stringify(body),
         });
       const identity = await (await fetch(base + "/api/status")).json();
-      const backupOnly = () => promisify(execFile)(
-        resolve(`target/debug/easy-erp-server${process.platform === "win32" ? ".exe" : ""}`),
-        ["--backup-only", "--data-dir", directory],
-      );
+      const backupOnly = () =>
+        promisify(execFile)(
+          resolve(
+            `target/debug/easy-erp-server${process.platform === "win32" ? ".exe" : ""}`,
+          ),
+          ["--backup-only", "--data-dir", directory],
+        );
       await assert.rejects(backupOnly, /已有服务运行/);
+      const migrate = () =>
+        promisify(execFile)(
+          resolve(
+            `target/debug/easy-erp-server${process.platform === "win32" ? ".exe" : ""}`,
+          ),
+          ["--data-dir", directory, "--migrate-data-to", migratedDirectory],
+        );
+      await assert.rejects(migrate, /已有服务运行/);
       const setup = await post("/api/setup", {
         username: "manager",
         password: "Update-test-2026",
@@ -136,7 +156,27 @@ test(
       const offline = await backupOnly();
       const archived = JSON.parse(offline.stdout.trim());
       assert.ok(archived.name.endsWith(".zip"));
-      assert.equal((await readdir(join(directory, "backups"))).length, beforeOffline.length + 1);
+      assert.equal(
+        (await readdir(join(directory, "backups"))).length,
+        beforeOffline.length + 1,
+      );
+      await mkdir(migratedDirectory);
+      await writeFile(
+        join(migratedDirectory, "sentinel"),
+        "preserve this directory",
+      );
+      await assert.rejects(migrate, /目标数据目录已存在/);
+      assert.equal(
+        await readFile(join(migratedDirectory, "sentinel"), "utf8"),
+        "preserve this directory",
+      );
+      await rm(migratedDirectory, { recursive: true });
+      await migrate();
+      await assert.rejects(readdir(originalDirectory), { code: "ENOENT" });
+      directory = migratedDirectory;
+      assert.ok(
+        (await readdir(join(directory, "backups"))).includes(archived.name),
+      );
       base = await start();
       const status = await (await fetch(base + "/api/status")).json();
       assert.equal(status.initialized, true);
@@ -145,12 +185,52 @@ test(
         await fetch(base + "/api/items", { headers: { Cookie: cookie } })
       ).json();
       assert.equal(items.items[0].name, "更新保留物料");
+      const getBackups = async () =>
+        (
+          await fetch(base + "/api/backups", { headers: { Cookie: cookie } })
+        ).json();
+      assert.deepEqual((await getBackups()).schedule, { keep_days: 7 });
+      const saveRetention = (keep_days) =>
+        fetch(base + "/api/backups/schedule", {
+          method: "PUT",
+          headers: {
+            Cookie: cookie,
+            "Content-Type": "application/json",
+            "X-ERP-Request": "1",
+          },
+          body: JSON.stringify({ keep_days }),
+        });
+      for (const invalid of [0, 366, 1.5])
+        assert.equal((await saveRetention(invalid)).ok, false);
+      const oldFile = join(directory, "backups", "backup-expired.zip");
+      const recentFile = join(directory, "backups", "backup-recent.zip");
+      const archive = join(directory, "backups", archived.name);
+      await copyFile(archive, oldFile);
+      await copyFile(archive, recentFile);
+      const daysAgo = (days) => new Date(Date.now() - days * 86400000);
+      await utimes(oldFile, daysAgo(8), daysAgo(8));
+      await utimes(recentFile, daysAgo(2), daysAgo(2));
+      assert.equal(
+        (await post("/api/backups", {}, { Cookie: cookie })).status,
+        200,
+      );
+      await assert.rejects(readFile(oldFile), { code: "ENOENT" });
+      assert.ok((await readFile(recentFile)).length);
+      assert.equal((await saveRetention(1)).status, 200);
+      assert.deepEqual((await getBackups()).schedule, { keep_days: 1 });
+      assert.equal(
+        (await post("/api/backups", {}, { Cookie: cookie })).status,
+        200,
+      );
+      await assert.rejects(readFile(recentFile), { code: "ENOENT" });
+      assert.ok((await getBackups()).items.length >= 1);
     } finally {
       if (child?.exitCode === null) {
         child.kill("SIGTERM");
         await exited;
       }
-      await rm(directory, { recursive: true, force: true });
+      await rm(originalDirectory, { recursive: true, force: true });
+      await rm(migratedDirectory, { recursive: true, force: true });
     }
   },
 );

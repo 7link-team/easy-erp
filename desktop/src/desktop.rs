@@ -25,6 +25,24 @@ pub(crate) fn config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir.join("connection.json"))
 }
+pub(crate) fn data_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let legacy = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("server");
+    #[cfg(windows)]
+    {
+        let preferred = app
+            .path()
+            .home_dir()
+            .map_err(|e| e.to_string())?
+            .join("EasyErp");
+        crate::data_location::select(&preferred, &legacy)
+    }
+    #[cfg(not(windows))]
+    Ok(legacy)
+}
 fn trusted(window: &tauri::WebviewWindow) -> Result<(), String> {
     if window.label() == "launcher" {
         Ok(())
@@ -178,11 +196,7 @@ fn server_binary() -> Result<PathBuf, String> {
 }
 pub(crate) async fn ensure_local(app: &tauri::AppHandle) -> Result<url::Url, String> {
     let url = url::Url::parse(LOCAL_URL).unwrap();
-    let dir = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|e| e.to_string())?
-        .join("server");
+    let dir = data_dir(app)?;
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     if let Ok(actual) = verify_server(&url).await {
         verify_local_identity(&dir, &actual)?;

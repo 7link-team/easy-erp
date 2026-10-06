@@ -32,6 +32,7 @@ const labels: Record<string, string> = {
   hour: "每日备份时间",
   keep_daily: "每日备份保留份数",
   keep_weekly: "每周备份保留份数",
+  keep_days: "备份保留天数",
   restore_point: "恢复到的时间",
   before_backup: "恢复前备份文件",
   counting: "正在清点",
@@ -55,6 +56,7 @@ function display(
   if (typeof value === "number") {
     if (key === "size") return `${Math.ceil(value / 1024)} KB`;
     if (key === "hour") return `${String(value).padStart(2, "0")}:00`;
+    if (key === "keep_days") return `${value} 天`;
     if (key === "restore_point") return dateTime(value);
     if (["balance", "minimum", "quantity", "balance_after"].includes(key)) {
       if (key === "minimum" && value < 0) return "不提醒";

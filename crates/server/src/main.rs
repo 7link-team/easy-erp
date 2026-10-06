@@ -37,6 +37,9 @@ struct Config {
     /// Create a standard ZIP backup without starting HTTP or running migrations.
     #[arg(long)]
     backup_only: bool,
+    /// Back up and move an offline inventory directory without changing its schema.
+    #[arg(long, conflicts_with = "backup_only")]
+    migrate_data_to: Option<PathBuf>,
     #[arg(long, env = "ERP_DATA_DIR", default_value = "data")]
     data_dir: PathBuf,
     #[arg(long, env = "ERP_BIND", default_value = "127.0.0.1:4280")]
@@ -58,6 +61,16 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
     let cfg = Config::parse();
+    if let Some(target) = &cfg.migrate_data_to {
+        anyhow::ensure!(
+            cfg.data_dir.join("inventory.sqlite").is_file(),
+            "未找到要迁移的库存数据库。"
+        );
+        anyhow::ensure!(
+            !target.exists(),
+            "目标数据目录已存在，已停止迁移，不会覆盖任何文件。"
+        );
+    }
     if cfg.backup_only && !cfg.data_dir.join("inventory.sqlite").exists() {
         return Ok(());
     }
@@ -75,7 +88,7 @@ async fn main() -> anyhow::Result<()> {
         .open(cfg.data_dir.join("server.lock"))?;
     lock.try_lock_exclusive()
         .map_err(|_| anyhow::anyhow!("该数据目录已有服务运行，不能重复启动。"))?;
-    if cfg.backup_only {
+    if cfg.backup_only || cfg.migrate_data_to.is_some() {
         let path = cfg.data_dir.canonicalize()?.join("inventory.sqlite");
         let mut options = ConnectOptions::new("sqlite://inventory");
         options
@@ -86,6 +99,12 @@ async fn main() -> anyhow::Result<()> {
         let result = backup::snapshot(&db, &cfg.data_dir).await;
         db.close().await?;
         let info = result.map_err(|error| anyhow::anyhow!(error.1))?;
+        if let Some(target) = &cfg.migrate_data_to {
+            // Keep the server lock held across the rename. Moving the whole directory
+            // retains identity, tokens, backups and SQLite WAL/SHM sidecars together.
+            // Cross-volume moves fail safely; never fall back to a partial file copy.
+            std::fs::rename(&cfg.data_dir, target)?;
+        }
         println!("{}", serde_json::to_string(&info)?);
         return Ok(());
     }

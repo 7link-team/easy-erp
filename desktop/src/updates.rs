@@ -220,11 +220,7 @@ pub fn new_control_token(dir: &Path) -> Result<String, String> {
 }
 
 async fn stop_local(app: &tauri::AppHandle, for_update: bool) -> Result<bool, String> {
-    let dir = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|e| e.to_string())?
-        .join("server");
+    let dir = desktop::data_dir(app)?;
     let lock_path = dir.join("server.lock");
     if !lock_path.exists() {
         return Ok(false);

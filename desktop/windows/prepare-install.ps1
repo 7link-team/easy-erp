@@ -9,7 +9,9 @@
 $ErrorActionPreference = 'Stop'
 $appPath = [IO.Path]::GetFullPath((Join-Path $InstallDir 'easy-erp-desktop.exe'))
 $restartApp = $appPath
-$data = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'com.aspeed.easy-erp/server'
+$legacyData = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'com.aspeed.easy-erp/server'
+$preferredData = Join-Path ([Environment]::GetFolderPath('UserProfile')) 'EasyErp'
+$data = $preferredData
 $config = Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'com.aspeed.easy-erp'
 $stoppedService = $false
 $stoppedApp = $false
@@ -31,6 +33,12 @@ function InstalledCopies {
 
 function FinalizeMigration {
   if (-not $StateFile -or -not (Test-Path -LiteralPath $StateFile)) { throw '缺少程序迁移记录。' }
+  if ($data -eq $legacyData) {
+    # Only move data after the new program has been installed successfully.
+    # The new app can still read legacy data if this step is interrupted.
+    & $BackupTool --data-dir $legacyData --migrate-data-to $preferredData
+    if ($LASTEXITCODE -ne 0) { throw '库存目录迁移未完成，原数据仍可使用，请检查目录权限后重试安装。' }
+  }
   $copies = @(Get-Content -LiteralPath $StateFile -Raw | ConvertFrom-Json | Where-Object { $_ -and $_.Root })
   foreach ($copy in $copies) {
     if ($copy.Root -eq $installRoot) { continue }
@@ -53,19 +61,19 @@ function FinalizeMigration {
     if ($auto -and ($auto -eq $oldApp -or $auto.StartsWith('"' + $oldApp + '"', [StringComparison]::OrdinalIgnoreCase))) {
       Set-ItemProperty -LiteralPath $runKey -Name '库存管理' -Value ($auto.Replace($oldApp, $appPath))
     }
-    $shell = New-Object -ComObject WScript.Shell
+    $shell = New-Object -ComObject Shell.Application
     foreach ($folder in @('DesktopDirectory', 'CommonDesktopDirectory', 'Programs', 'CommonPrograms')) {
       $base = [Environment]::GetFolderPath($folder)
       foreach ($relative in @('库存管理.lnk', '库存管理\库存管理.lnk')) {
         $link = Join-Path $base $relative
         if (Test-Path -LiteralPath $link) {
-          $shortcut = $shell.CreateShortcut($link)
-          if ($shortcut.TargetPath -eq $oldApp) {
+          $shortcut = $shell.NameSpace([IO.Path]::GetDirectoryName($link)).ParseName([IO.Path]::GetFileName($link)).GetLink
+          if ($shortcut.Path -eq $oldApp) {
             $common = $folder.StartsWith('Common')
             if ($common -ne ($InstallScope -eq 'AllUsers')) {
               Remove-Item -LiteralPath $link
             } else {
-              $shortcut.TargetPath = $appPath
+              $shortcut.Path = $appPath
               $shortcut.WorkingDirectory = $installRoot
               $shortcut.Save()
             }
@@ -74,7 +82,7 @@ function FinalizeMigration {
       }
     }
   }
-  Write-Output '程序目录迁移完成，原有库存和备份保持不变。'
+  Write-Output "程序安装完成，库存和备份保存在 $preferredData。"
 }
 
 function LocalRequest([string]$Method, [string]$Path, [string]$Token = '') {
@@ -94,6 +102,12 @@ function LocalRequest([string]$Method, [string]$Path, [string]$Token = '') {
 }
 
 try {
+  if (Test-Path -LiteralPath (Join-Path $legacyData 'inventory.sqlite')) {
+    if (Test-Path -LiteralPath $preferredData) {
+      throw "旧库存目录和目标目录同时存在，已停止安装，不会覆盖。请先确认 $legacyData 和 $preferredData 中的数据。"
+    }
+    $data = $legacyData
+  }
   if ($Phase -eq 'Finalize') {
     FinalizeMigration
     exit 0

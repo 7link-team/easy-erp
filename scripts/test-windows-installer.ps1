@@ -5,9 +5,11 @@ $machineDir = $installDir
 $userDir = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs/EasyERP'
 $legacyDir = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) '库存管理'
 $uninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\库存管理'
-$data = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'com.aspeed.easy-erp/server'
+$legacyData = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'com.aspeed.easy-erp/server'
+$preferredData = Join-Path ([Environment]::GetFolderPath('UserProfile')) 'EasyErp'
+$data = $preferredData
 $config = Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'com.aspeed.easy-erp'
-if (Test-Path $data) { throw 'Installer test requires a clean runner data directory.' }
+if ((Test-Path $data) -or (Test-Path $legacyData)) { throw 'Installer test requires clean runner data directories.' }
 $token = [Guid]::NewGuid().ToString('N') + [Guid]::NewGuid().ToString('N')
 $session = [Microsoft.PowerShell.Commands.WebRequestSession]::new()
 $base = 'http://127.0.0.1:4280'
@@ -28,11 +30,14 @@ function AssertInstallation([string]$Directory, [string]$Hive) {
   if ($entry.InstallLocation.Trim('"') -ne $Directory) { throw "Incorrect installation location: $($entry.InstallLocation)" }
   if ($Directory -match '[^\x20-\x7E]') { throw 'Non-ASCII installation path.' }
   if (-not (Test-Path (Join-Path $Directory 'easy-erp-desktop.exe'))) { throw 'Installed desktop executable missing.' }
-  $shell = New-Object -ComObject WScript.Shell
+  $shell = New-Object -ComObject Shell.Application
   $folder = if ($Hive -eq 'HKLM') { 'CommonPrograms' } else { 'Programs' }
   $base = [Environment]::GetFolderPath($folder)
   $links = @(Get-ChildItem -LiteralPath $base -Filter '库存管理.lnk' -Recurse -ErrorAction SilentlyContinue)
-  $targets = @($links | ForEach-Object { [pscustomobject]@{ Path = $_.FullName; Target = $shell.CreateShortcut($_.FullName).TargetPath } })
+  $targets = @($links | ForEach-Object {
+    $link = $shell.NameSpace($_.DirectoryName).ParseName($_.Name).GetLink
+    [pscustomobject]@{ Path = $_.FullName; Target = $link.Path }
+  })
   if (-not @($targets | Where-Object Target -eq (Join-Path $Directory 'easy-erp-desktop.exe')).Count) {
     throw "Start menu shortcut does not point to $Directory. Found: $($targets | ConvertTo-Json -Compress)"
   }
@@ -76,6 +81,7 @@ Write-Output 'PASS: fresh install defaults to all users and Program Files/EasyER
 $oldInstaller = Join-Path $env:RUNNER_TEMP 'easy-erp-0.1.2.exe'
 Invoke-WebRequest 'https://github.com/7link-team/easy-erp/releases/download/v0.1.2/easy-erp-x86_64-pc-windows-msvc.exe' -OutFile $oldInstaller
 Install $oldInstaller
+$data = $legacyData
 $null = New-Item -ItemType Directory -Force -Path $data
 [IO.File]::WriteAllText((Join-Path $data 'desktop-control-token'), $token)
 $old = StartServer (Join-Path $legacyDir 'easy-erp-server.exe')
@@ -85,7 +91,18 @@ $null = Post '/api/login' @{username='installer_test';password='Installer-test-2
 $null = Post '/api/items' @{name='installer-stock-sentinel';kind='原材料';unit='个';precision=0}
 
 # Upgrade retains current-user scope and migrates the old Chinese program directory.
+# Refuse to overwrite an existing target directory before stopping a live service.
+$null = New-Item -ItemType Directory -Path $preferredData
+[IO.File]::WriteAllText((Join-Path $preferredData 'sentinel.txt'), 'must survive')
+RejectInstall '/S'
+AssertStock
+if ([IO.File]::ReadAllText((Join-Path $preferredData 'sentinel.txt')) -ne 'must survive') { throw 'Data migration overwrote the target.' }
+Remove-Item -LiteralPath (Join-Path $preferredData 'sentinel.txt')
+[IO.Directory]::Delete($preferredData)
 Install $installer
+$data = $preferredData
+if (Test-Path (Join-Path $legacyData 'inventory.sqlite')) { throw 'Inventory was not migrated to the user profile.' }
+if (-not (Test-Path (Join-Path $preferredData 'inventory.sqlite'))) { throw 'Migrated inventory is missing.' }
 AssertInstallation $userDir 'HKCU'
 if (Test-Path (Join-Path $legacyDir 'easy-erp-desktop.exe')) { throw 'Legacy program was not migrated.' }
 if (-not $old.WaitForExit(10000)) { throw 'Old detached service still running.' }
@@ -93,7 +110,7 @@ $server = StartServer (Join-Path $userDir 'easy-erp-server.exe')
 if ((Ready).instance_id -ne $identity) { throw 'Inventory identity changed.' }
 AssertStock
 if (@(Get-ChildItem "$data/backups/*.zip").Count -lt 2) { throw 'Live/offline upgrade backups missing.' }
-Write-Output 'PASS: manual EXE upgrade stops old detached service and preserves inventory and login.'
+Write-Output 'PASS: manual upgrade migrates inventory to UserProfile/EasyErp and preserves identity, stock, login and ZIP backups.'
 
 # Explicitly switching scope migrates the program, not the inventory directory.
 Install $installer '/S /AllUsers'

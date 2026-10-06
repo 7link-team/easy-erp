@@ -1,5 +1,5 @@
 import { Disclosure } from "../ui";
-import { Form, Checkbox, Select, Input, Button } from "../ui";
+import { Form, Select, Input, Button } from "../ui";
 import { useEffect, useState } from "react";
 import { api, send, dateTime } from "../api";
 import {
@@ -14,11 +14,7 @@ import {
 } from "../components";
 
 interface Schedule {
-  enabled: boolean;
-  hour: number;
-  interval: string;
-  keep_daily: number;
-  keep_weekly: number;
+  keep_days: number;
 }
 interface Backup {
   name: string;
@@ -44,11 +40,7 @@ export default function Settings({
   const [restoring, setRestoring] = useState<Backup>();
   const [confirmation, setConfirmation] = useState("");
   const [schedule, setSchedule] = useState<Schedule>({
-    enabled: true,
-    hour: 18,
-    interval: "daily",
-    keep_daily: 7,
-    keep_weekly: 4,
+    keep_days: 7,
   });
   const [mode, setMode] = useState("items");
   const [file, setFile] = useState<File>();
@@ -82,71 +74,24 @@ export default function Settings({
       <section className="panel">
         <h2>自动备份</h2>
         <p>
-          保存库存的电脑会自动备份，关闭应用窗口后也会继续。电脑休眠或关机时暂停备份。
+          每小时自动备份一次。库存服务在后台运行时，关闭窗口也会继续备份；电脑休眠或关机时暂停，恢复运行后补做已到期的备份。
         </p>
         <Form
           onSubmit={(e) =>
             form(e, () =>
               action.run(async () => {
                 await send("/backups/schedule", schedule, "PUT");
-                setMessage("自动备份计划已保存。");
+                setMessage("备份保留天数已保存。");
                 refresh();
               }),
             )
           }
         >
-          <label className="checkbox">
-            <Checkbox
-              checked={schedule.enabled}
-              onChange={(e) =>
-                setSchedule((s) => ({ ...s, enabled: e.target.checked }))
-              }
-            />
-            开启定时备份
-          </label>
-          <div className="form-grid">
-            <Field label="备份频率" required>
-              {(p) => (
-                <Select
-                  {...p}
-                  value={schedule.interval}
-                  onChange={(e) =>
-                    setSchedule((s) => ({ ...s, interval: e.target.value }))
-                  }
-                >
-                  <option value="daily">每天一次</option>
-                  <option value="hourly">每小时一次</option>
-                </Select>
-              )}
-            </Field>
-            <Field
-              label="每日备份时间"
-              required
-              hint="按库存电脑当地时间执行。"
-            >
-              {(p) => (
-                <Select
-                  {...p}
-                  value={schedule.hour}
-                  disabled={schedule.interval === "hourly"}
-                  onChange={(e) =>
-                    setSchedule((s) => ({ ...s, hour: Number(e.target.value) }))
-                  }
-                >
-                  {Array.from({ length: 24 }, (_, n) => (
-                    <option key={n} value={n}>
-                      {String(n).padStart(2, "0")}:00
-                    </option>
-                  ))}
-                </Select>
-              )}
-            </Field>
-          </div>
           <div className="form-grid">
             <Field
-              label="每日备份保留份数"
+              label="保留天数"
               required
-              hint="1–365 份。每个有备份的日期保留最新一份，例如填 7，保留最近 7 个备份日期的备份。"
+              hint="填写 1–365 的整数，默认 7 天。保留这些天内的全部备份；超期文件在下一次备份成功后清理，备份失败不会删除旧文件。"
             >
               {(p) => (
                 <Input
@@ -154,41 +99,21 @@ export default function Settings({
                   type="number"
                   min={1}
                   max={365}
+                  step={1}
+                  inputMode="numeric"
                   required
-                  value={schedule.keep_daily}
+                  value={schedule.keep_days || ""}
                   onChange={(e) =>
                     setSchedule((s) => ({
                       ...s,
-                      keep_daily: Number(e.target.value),
-                    }))
-                  }
-                />
-              )}
-            </Field>
-            <Field
-              label="每周备份保留份数"
-              required
-              hint="1–52 份。每个有备份的星期保留最新一份；与每日备份重复时只保存一份。新备份失败不会删除旧备份。"
-            >
-              {(p) => (
-                <Input
-                  {...p}
-                  type="number"
-                  min={1}
-                  max={52}
-                  required
-                  value={schedule.keep_weekly}
-                  onChange={(e) =>
-                    setSchedule((s) => ({
-                      ...s,
-                      keep_weekly: Number(e.target.value),
+                      keep_days: Number(e.target.value),
                     }))
                   }
                 />
               )}
             </Field>
           </div>
-          <Submit busy={action.busy}>保存备份计划</Submit>
+          <Submit busy={action.busy}>保存设置</Submit>
         </Form>
         {data?.last_success && (
           <p className="hint">

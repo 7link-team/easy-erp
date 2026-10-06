@@ -46,6 +46,6 @@
   DetailPrint "$1"
   ${If} $0 != 0
     IfSilent +2 0
-    MessageBox MB_OK|MB_ICONEXCLAMATION "新版已安装，旧程序目录清理未完成。库存数据不受影响。$\r$\n$1"
+    MessageBox MB_OK|MB_ICONEXCLAMATION "新版已安装，但目录迁移或旧程序清理未完成。原有库存仍保留，可重新运行安装器重试。$\r$\n$1"
   ${EndIf}
 !macroend
