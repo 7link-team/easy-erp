@@ -15,7 +15,8 @@
   ${If} $1 P<> 0
     System::Call 'Oleaut32::SysAllocString(w "${BUNDLEID}") p.r2'
     System::Call '*${SYSSTRUCT_PROPERTYKEY}(${PKEY_AppUserModel_ID})p.r3'
-    System::Call '*${SYSSTRUCT_PROPVARIANT}(${VT_BSTR},,&p $2)p.r4'
+    ; Tauri's NSIS installer and System plugin run as 32-bit processes.
+    System::Call '*${SYSSTRUCT_PROPVARIANT}(${VT_BSTR},,&i4 $2)p.r4'
     ${IPropertyStore::SetValue} $1 '($3,$4)'
     ${IPropertyStore::Commit} $1 ""
     ${IUnknown::Release} $1 ""
