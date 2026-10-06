@@ -100,8 +100,12 @@ async fn main() -> anyhow::Result<()> {
         db.close().await?;
         let info = result.map_err(|error| anyhow::anyhow!(error.1))?;
         if let Some(target) = &cfg.migrate_data_to {
-            // Keep the server lock held across the rename. Moving the whole directory
-            // retains identity, tokens, backups and SQLite WAL/SHM sidecars together.
+            // The offline snapshot is complete and every SQLite connection is closed.
+            // Windows requires closing our lock-file handle before moving its parent.
+            // The installer has already stopped desktop and service processes.
+            #[cfg(windows)]
+            drop(lock);
+            // Move all files together, including WAL/SHM, identity and backups.
             // Cross-volume moves fail safely; never fall back to a partial file copy.
             std::fs::rename(&cfg.data_dir, target)?;
         }

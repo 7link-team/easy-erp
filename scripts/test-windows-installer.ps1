@@ -101,7 +101,10 @@ Remove-Item -LiteralPath (Join-Path $preferredData 'sentinel.txt')
 [IO.Directory]::Delete($preferredData)
 Install $installer
 $data = $preferredData
-if (Test-Path (Join-Path $legacyData 'inventory.sqlite')) { throw 'Inventory was not migrated to the user profile.' }
+if (Test-Path (Join-Path $legacyData 'inventory.sqlite')) {
+  Get-Content -LiteralPath (Join-Path $config 'installer.log') -ErrorAction SilentlyContinue
+  throw 'Inventory was not migrated to the user profile.'
+}
 if (-not (Test-Path (Join-Path $preferredData 'inventory.sqlite'))) { throw 'Migrated inventory is missing.' }
 AssertInstallation $userDir 'HKCU'
 if (Test-Path (Join-Path $legacyDir 'easy-erp-desktop.exe')) { throw 'Legacy program was not migrated.' }

@@ -174,9 +174,14 @@ try {
   if ($StateFile) { ConvertTo-Json -InputObject @($copies) | Set-Content -LiteralPath $StateFile -Encoding UTF8 }
   Write-Output '库存已备份，旧程序已关闭，可以安全安装。'
 } catch {
+  $failure = $_.Exception.Message
+  try {
+    $null = New-Item -ItemType Directory -Force -Path $config
+    Add-Content -LiteralPath (Join-Path $config 'installer.log') -Encoding UTF8 -Value "[$([DateTime]::UtcNow.ToString('o'))] $Operation/$Phase : $failure"
+  } catch { }
   if ($Phase -eq 'Prepare' -and ($stoppedService -or $stoppedApp) -and (Test-Path $restartApp)) {
     Start-Process -FilePath $restartApp
   }
-  Write-Output $_.Exception.Message
+  Write-Output $failure
   exit 1
 }
