@@ -6,6 +6,11 @@ on:
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      windows_only:
+        description: Only build and validate the Windows installer (no release)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -16,6 +21,7 @@ concurrency:
 
 jobs:
   checks:
+    if: ${{ !inputs.windows_only }}
     strategy:
       fail-fast: false
       matrix:
@@ -36,6 +42,7 @@ jobs:
       - run: node --test scripts/tests/desktop-control.test.mjs scripts/tests/release-manifest.test.mjs scripts/tests/update-permissions.test.mjs
 
   web:
+    if: ${{ !inputs.windows_only }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -56,19 +63,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - runner: windows-2022
-            target: x86_64-pc-windows-msvc
-            bundles: nsis
-          - runner: macos-15-intel
-            target: x86_64-apple-darwin
-            bundles: dmg,app
-          - runner: macos-15-intel
-            target: aarch64-apple-darwin
-            bundles: dmg,app
-          - runner: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            bundles: appimage,deb
+        include: >-
+          ${{ fromJSON(inputs.windows_only &&
+          '[{"runner":"windows-2022","target":"x86_64-pc-windows-msvc","bundles":"nsis"}]' ||
+          '[{"runner":"windows-2022","target":"x86_64-pc-windows-msvc","bundles":"nsis"},
+            {"runner":"macos-15-intel","target":"x86_64-apple-darwin","bundles":"dmg,app"},
+            {"runner":"macos-15-intel","target":"aarch64-apple-darwin","bundles":"dmg,app"},
+            {"runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","bundles":"appimage,deb"}]') }}
     runs-on: ${{ matrix.runner }}
     env:
       ERP_BUILD_TARGET: ${{ matrix.target }}
@@ -143,6 +144,7 @@ jobs:
           if-no-files-found: error
 
   android:
+    if: ${{ !inputs.windows_only }}
     runs-on: ubuntu-24.04
     env:
       ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -214,6 +216,7 @@ jobs:
           if-no-files-found: error
 
   ios-simulator:
+    if: ${{ !inputs.windows_only }}
     runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v4
@@ -262,7 +265,7 @@ jobs:
           if-no-files-found: error
 
   ios-device:
-    if: vars.IOS_SIGNING_ENABLED == 'true'
+    if: vars.IOS_SIGNING_ENABLED == 'true' && !inputs.windows_only
     runs-on: macos-15-intel
     env:
       APPLE_DEVELOPMENT_TEAM: ${{ vars.APPLE_DEVELOPMENT_TEAM }}

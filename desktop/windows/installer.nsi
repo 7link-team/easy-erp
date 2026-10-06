@@ -1,5 +1,5 @@
 ; Based on Tauri CLI 2.12.1 installer.nsi (MIT), see TAURI-LICENSE-MIT.
-; Local changes: in-place upgrades, uniform downgrade guard, always preserve app data.
+; Local changes: safe upgrades, selectable scope, ASCII program paths, preserve app data.
 Unicode true
 ManifestDPIAware true
 ; Add in `dpiAwareness` `PerMonitorV2` to manifest for Windows 10 1607+ (note this should not affect lower versions since they should be able to ignore this and pick up `dpiAware` `true` set by `ManifestDPIAware true`)
@@ -42,6 +42,7 @@ ${StrLoc}
 
 !define MANUFACTURER "{{manufacturer}}"
 !define PRODUCTNAME "{{product_name}}"
+!define INSTALLFOLDER "EasyERP"
 !define VERSION "{{version}}"
 !define VERSIONWITHBUILD "{{version_with_build}}"
 !define HOMEPAGE "{{homepage}}"
@@ -78,6 +79,7 @@ Var UpdateMode
 Var NoShortcutMode
 Var WixMode
 Var OldMainBinaryName
+Var RequestedInstallDir
 
 Name "${PRODUCTNAME}"
 BrandingText "${COPYRIGHT}"
@@ -86,7 +88,7 @@ OutFile "${OUTFILE}"
 ; We don't actually use this value as default install path,
 ; it's just for nsis to append the product name folder in the directory selector
 ; https://nsis.sourceforge.io/Reference/InstallDir
-!define PLACEHOLDER_INSTALL_DIR "placeholder\${PRODUCTNAME}"
+!define PLACEHOLDER_INSTALL_DIR "placeholder\${INSTALLFOLDER}"
 InstallDir "${PLACEHOLDER_INSTALL_DIR}"
 
 VIProductVersion "${VERSIONWITHBUILD}"
@@ -115,7 +117,7 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 
 !if "${INSTALLMODE}" == "both"
   !define MULTIUSER_MUI
-  !define MULTIUSER_INSTALLMODE_INSTDIR "${PRODUCTNAME}"
+  !define MULTIUSER_INSTALLMODE_INSTDIR "${INSTALLFOLDER}"
   !define MULTIUSER_INSTALLMODE_COMMANDLINE
   !if "${ARCH}" == "x64"
     !define MULTIUSER_USE_PROGRAMFILES64
@@ -123,7 +125,8 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
     !define MULTIUSER_USE_PROGRAMFILES64
   !endif
   !define MULTIUSER_INSTALLMODE_DEFAULT_REGISTRY_KEY "${UNINSTKEY}"
-  !define MULTIUSER_INSTALLMODE_DEFAULT_REGISTRY_VALUENAME "CurrentUser"
+  ; Also recognizes releases before install scope was stored explicitly.
+  !define MULTIUSER_INSTALLMODE_DEFAULT_REGISTRY_VALUENAME "DisplayVersion"
   !define MULTIUSER_INSTALLMODEPAGE_SHOWUSERNAME
   !define MULTIUSER_INSTALLMODE_FUNCTION RestorePreviousInstallLocation
   !define MULTIUSER_EXECUTIONLEVEL Highest
@@ -180,6 +183,9 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 
 ; 3. Install mode (if it is set to `both`)
 !if "${INSTALLMODE}" == "both"
+  !define MULTIUSER_INSTALLMODEPAGE_TEXT_TOP "选择谁可以使用本程序。首次安装默认所有用户；升级沿用上次选择。库存数据保留在原用户目录，不会因安装范围变化而移动。"
+  !define MULTIUSER_INSTALLMODEPAGE_TEXT_ALLUSERS "所有用户（推荐，需要管理员权限）"
+  !define MULTIUSER_INSTALLMODEPAGE_TEXT_CURRENTUSER "仅当前用户"
   !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
   !insertmacro MULTIUSER_PAGE_INSTALLMODE
 !endif
@@ -255,6 +261,10 @@ FunctionEnd
 {{/each}}
 
 Function .onInit
+  ; NSIS parses /D before .onInit; MultiUser initialization otherwise overwrites it.
+  ${If} $INSTDIR != "${PLACEHOLDER_INSTALL_DIR}"
+    StrCpy $RequestedInstallDir $INSTDIR
+  ${EndIf}
   ${GetOptions} $CMDLINE "/P" $PassiveMode
   ${IfNot} ${Errors}
     StrCpy $PassiveMode 1
@@ -276,6 +286,10 @@ Function .onInit
 
   !insertmacro SetContext
 
+  !if "${INSTALLMODE}" == "both"
+    !insertmacro MULTIUSER_INIT
+  !endif
+
   ; Apply the same downgrade guard to interactive, passive and silent installs.
   ReadRegStr $R0 SHCTX "${UNINSTKEY}" "DisplayVersion"
   ${If} $R0 != ""
@@ -295,46 +309,40 @@ Function .onInit
     !if "${INSTALLMODE}" == "perMachine"
       ${If} ${RunningX64}
         !if "${ARCH}" == "x64"
-          StrCpy $INSTDIR "$PROGRAMFILES64\${PRODUCTNAME}"
+          StrCpy $INSTDIR "$PROGRAMFILES64\${INSTALLFOLDER}"
         !else if "${ARCH}" == "arm64"
-          StrCpy $INSTDIR "$PROGRAMFILES64\${PRODUCTNAME}"
+          StrCpy $INSTDIR "$PROGRAMFILES64\${INSTALLFOLDER}"
         !else
-          StrCpy $INSTDIR "$PROGRAMFILES\${PRODUCTNAME}"
+          StrCpy $INSTDIR "$PROGRAMFILES\${INSTALLFOLDER}"
         !endif
       ${Else}
-        StrCpy $INSTDIR "$PROGRAMFILES\${PRODUCTNAME}"
+        StrCpy $INSTDIR "$PROGRAMFILES\${INSTALLFOLDER}"
       ${EndIf}
     !else if "${INSTALLMODE}" == "currentUser"
-      StrCpy $INSTDIR "$LOCALAPPDATA\${PRODUCTNAME}"
+      StrCpy $INSTDIR "$LOCALAPPDATA\Programs\${INSTALLFOLDER}"
     !endif
 
     Call RestorePreviousInstallLocation
   ${EndIf}
-
-
-  !if "${INSTALLMODE}" == "both"
-    !insertmacro MULTIUSER_INIT
-  !endif
 FunctionEnd
 
 
-Section EarlyChecks
-  ; Abort silent installer if downgrades is disabled
-  !if "${ALLOWDOWNGRADES}" == "false"
-  ${If} ${Silent}
-    ; If downgrading
-    ${If} $R0 = -1
-      System::Call 'kernel32::AttachConsole(i -1)i.r0'
-      ${If} $0 <> 0
-        System::Call 'kernel32::GetStdHandle(i -11)i.r0'
-        System::call 'kernel32::SetConsoleTextAttribute(i r0, i 0x0004)' ; set red color
-        FileWrite $0 "$(silentDowngrades)"
-      ${EndIf}
-      Abort
+!macro ERP_CHECK_VERSION ROOT
+  ReadRegStr $R0 ${ROOT} "${UNINSTKEY}" "DisplayVersion"
+  ${If} $R0 != ""
+    nsis_tauri_utils::SemverCompare "${VERSION}" $R0
+    Pop $R1
+    ${If} $R1 = -1
+      SetErrorLevel 1638
+      Abort "已安装更高版本，不能降级，以免损坏库存数据。"
     ${EndIf}
   ${EndIf}
-  !endif
+!macroend
 
+Section EarlyChecks
+  ; A scope change must not bypass version checks on the installation being migrated.
+  !insertmacro ERP_CHECK_VERSION HKCU
+  !insertmacro ERP_CHECK_VERSION HKLM
 SectionEnd
 
 Section WebView2
@@ -430,12 +438,11 @@ Section WebView2
 SectionEnd
 
 Section Install
-  SetOutPath $INSTDIR
-
   !ifmacrodef NSIS_HOOK_PREINSTALL
     !insertmacro NSIS_HOOK_PREINSTALL
   !endif
 
+  SetOutPath $INSTDIR
   !insertmacro CheckIfAppIsRunning "$INSTDIR\${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
 
   ; Copy main executable
@@ -474,6 +481,7 @@ Section Install
 
   ; Save $INSTDIR in registry for future installations
   WriteRegStr SHCTX "${MANUPRODUCTKEY}" "" $INSTDIR
+  WriteRegDWORD SHCTX "${UNINSTKEY}" "AsciiInstallLocation" 1
 
   !if "${INSTALLMODE}" == "both"
     ; Save install mode to be selected by default for the next installation such as updating
@@ -497,7 +505,11 @@ Section Install
   WriteRegStr SHCTX "${UNINSTKEY}" "DisplayVersion" "${VERSION}"
   WriteRegStr SHCTX "${UNINSTKEY}" "Publisher" "${MANUFACTURER}"
   WriteRegStr SHCTX "${UNINSTKEY}" "InstallLocation" "$\"$INSTDIR$\""
-  WriteRegStr SHCTX "${UNINSTKEY}" "UninstallString" "$\"$INSTDIR\uninstall.exe$\""
+  !if "${INSTALLMODE}" == "both"
+    WriteRegStr SHCTX "${UNINSTKEY}" "UninstallString" "$\"$INSTDIR\uninstall.exe$\" /$MultiUser.InstallMode"
+  !else
+    WriteRegStr SHCTX "${UNINSTKEY}" "UninstallString" "$\"$INSTDIR\uninstall.exe$\""
+  !endif
   WriteRegDWORD SHCTX "${UNINSTKEY}" "NoModify" "1"
   WriteRegDWORD SHCTX "${UNINSTKEY}" "NoRepair" "1"
 
@@ -673,9 +685,22 @@ Section Uninstall
 SectionEnd
 
 Function RestorePreviousInstallLocation
-  ReadRegStr $4 SHCTX "${MANUPRODUCTKEY}" ""
-  StrCmp $4 "" +2 0
-    StrCpy $INSTDIR $4
+  !if "${INSTALLMODE}" == "both"
+    ${If} $MultiUser.InstallMode == "CurrentUser"
+      StrCpy $INSTDIR "$LOCALAPPDATA\Programs\${INSTALLFOLDER}"
+    ${EndIf}
+  !endif
+  ; Only reuse paths validated by this installer. Legacy Chinese directories migrate.
+  ReadRegDWORD $4 SHCTX "${UNINSTKEY}" "AsciiInstallLocation"
+  ${If} $4 = 1
+    ReadRegStr $4 SHCTX "${MANUPRODUCTKEY}" ""
+    ${If} $4 != ""
+      StrCpy $INSTDIR $4
+    ${EndIf}
+  ${EndIf}
+  ${If} $RequestedInstallDir != ""
+    StrCpy $INSTDIR $RequestedInstallDir
+  ${EndIf}
 FunctionEnd
 
 Function Skip
@@ -715,8 +740,7 @@ Function CreateOrUpdateStartMenuShortcut
   ; Skip creating shortcut if in update mode or no shortcut mode
   ; but always create if migrating from wix
   ${If} $WixMode = 0
-    ${If} $UpdateMode = 1
-    ${OrIf} $NoShortcutMode = 1
+    ${If} $NoShortcutMode = 1
       Return
     ${EndIf}
   ${EndIf}
@@ -744,8 +768,7 @@ Function CreateOrUpdateDesktopShortcut
   ; Skip creating shortcut if in update mode or no shortcut mode
   ; but always create if migrating from wix
   ${If} $WixMode = 0
-    ${If} $UpdateMode = 1
-    ${OrIf} $NoShortcutMode = 1
+    ${If} $NoShortcutMode = 1
       Return
     ${EndIf}
   ${EndIf}
@@ -753,4 +776,3 @@ Function CreateOrUpdateDesktopShortcut
   CreateShortcut "$DESKTOP\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
   !insertmacro SetLnkAppUserModelId "$DESKTOP\${PRODUCTNAME}.lnk"
 FunctionEnd
-

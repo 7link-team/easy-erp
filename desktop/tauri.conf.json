@@ -30,7 +30,7 @@
       "allowDowngrades": false,
       "nsis": {
         "languages": ["SimpChinese"],
-        "installMode": "currentUser",
+        "installMode": "both",
         "template": "windows/installer.nsi",
         "installerHooks": "windows/hooks.nsh"
       }
