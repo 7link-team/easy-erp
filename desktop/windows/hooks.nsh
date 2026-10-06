@@ -36,7 +36,7 @@
   ${If} ${RunningX64}
     ${DisableX64FSRedirection}
   ${EndIf}
-  nsExec::ExecToStack /TIMEOUT=30000 '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\erp-prepare.ps1" -InstallDir "$INSTDIR" -BackupTool "$PLUGINSDIR\erp-backup.exe" -Phase Finalize -StateFile "$PLUGINSDIR\erp-migration.json"'
+  nsExec::ExecToStack /TIMEOUT=30000 '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\erp-prepare.ps1" -InstallDir "$INSTDIR" -BackupTool "$PLUGINSDIR\erp-backup.exe" -Phase Finalize -InstallScope "$MultiUser.InstallMode" -StateFile "$PLUGINSDIR\erp-migration.json"'
   Pop $0
   Pop $1
   ${If} ${RunningX64}

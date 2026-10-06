@@ -3,6 +3,7 @@
   [Parameter(Mandatory=$true)][string]$BackupTool,
   [ValidateSet('Install', 'Uninstall')][string]$Operation = 'Install',
   [ValidateSet('Prepare', 'Finalize')][string]$Phase = 'Prepare',
+  [ValidateSet('AllUsers', 'CurrentUser')][string]$InstallScope = 'CurrentUser',
   [string]$StateFile
 )
 $ErrorActionPreference = 'Stop'
@@ -60,9 +61,14 @@ function FinalizeMigration {
         if (Test-Path -LiteralPath $link) {
           $shortcut = $shell.CreateShortcut($link)
           if ($shortcut.TargetPath -eq $oldApp) {
-            $shortcut.TargetPath = $appPath
-            $shortcut.WorkingDirectory = $installRoot
-            $shortcut.Save()
+            $common = $folder.StartsWith('Common')
+            if ($common -ne ($InstallScope -eq 'AllUsers')) {
+              Remove-Item -LiteralPath $link
+            } else {
+              $shortcut.TargetPath = $appPath
+              $shortcut.WorkingDirectory = $installRoot
+              $shortcut.Save()
+            }
           }
         }
       }

@@ -135,8 +135,19 @@ AssertInstallation $userDir 'HKCU'
 Install $installer '/S /UPDATE'
 AssertInstallation $userDir 'HKCU'
 if (Test-Path "HKLM:\$uninstallKey") { throw 'Current-user update unexpectedly installed for all users.' }
+Install $installer '/S /AllUsers'
+AssertInstallation $machineDir 'HKLM'
+Install $installer '/S /CurrentUser'
+AssertInstallation $userDir 'HKCU'
+if (Test-Path "HKLM:\$uninstallKey") { throw 'All-users registration remains after switching to current user.' }
+if (Test-Path (Join-Path $machineDir 'easy-erp-desktop.exe')) { throw 'All-users program remains after switching to current user.' }
+foreach ($folder in @('CommonPrograms', 'CommonDesktopDirectory')) {
+  if (Test-Path (Join-Path ([Environment]::GetFolderPath($folder)) '库存管理.lnk')) {
+    throw 'Public shortcut remains after switching to a private installation.'
+  }
+}
 Uninstall $userDir 'CurrentUser'
-Write-Output 'PASS: current-user installation and automatic update preserve the selected scope.'
+Write-Output 'PASS: current-user updates preserve scope; reverse scope migration removes public shortcuts.'
 
 # Explicit ASCII paths survive updates; invalid paths must fail before copying files.
 $customDir = Join-Path $env:RUNNER_TEMP 'EasyERP Custom Path'
