@@ -737,8 +737,7 @@ Function CreateOrUpdateStartMenuShortcut
     Return
   ${EndIf}
 
-  ; Skip creating shortcut if in update mode or no shortcut mode
-  ; but always create if migrating from wix
+  ; Recreate shortcuts after a directory/scope migration unless explicitly disabled.
   ${If} $WixMode = 0
     ${If} $NoShortcutMode = 1
       Return
@@ -765,8 +764,7 @@ Function CreateOrUpdateDesktopShortcut
     Return
   ${EndIf}
 
-  ; Skip creating shortcut if in update mode or no shortcut mode
-  ; but always create if migrating from wix
+  ; Recreate shortcuts after a directory/scope migration unless explicitly disabled.
   ${If} $WixMode = 0
     ${If} $NoShortcutMode = 1
       Return

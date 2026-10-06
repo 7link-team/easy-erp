@@ -28,6 +28,17 @@ function AssertInstallation([string]$Directory, [string]$Hive) {
   if ($entry.InstallLocation.Trim('"') -ne $Directory) { throw "Incorrect installation location: $($entry.InstallLocation)" }
   if ($Directory -match '[^\x20-\x7E]') { throw 'Non-ASCII installation path.' }
   if (-not (Test-Path (Join-Path $Directory 'easy-erp-desktop.exe'))) { throw 'Installed desktop executable missing.' }
+  $shell = New-Object -ComObject WScript.Shell
+  $folder = if ($Hive -eq 'HKLM') { 'CommonPrograms' } else { 'Programs' }
+  $link = Join-Path ([Environment]::GetFolderPath($folder)) '库存管理.lnk'
+  if (-not (Test-Path $link) -or $shell.CreateShortcut($link).TargetPath -ne (Join-Path $Directory 'easy-erp-desktop.exe')) {
+    throw 'Start menu shortcut does not point to the installed application.'
+  }
+}
+function RejectInstall([string]$Flags) {
+  $process = Start-Process -FilePath $installer -ArgumentList $Flags -PassThru
+  if (-not $process.WaitForExit(180000)) { throw 'Rejected installer did not finish.' }
+  if ($process.ExitCode -eq 0) { throw 'Unsafe installation was not rejected.' }
 }
 function Ready {
   for ($i = 0; $i -lt 120; $i++) {
@@ -126,3 +137,21 @@ AssertInstallation $userDir 'HKCU'
 if (Test-Path "HKLM:\$uninstallKey") { throw 'Current-user update unexpectedly installed for all users.' }
 Uninstall $userDir 'CurrentUser'
 Write-Output 'PASS: current-user installation and automatic update preserve the selected scope.'
+
+# Explicit ASCII paths survive updates; invalid paths must fail before copying files.
+$customDir = Join-Path $env:RUNNER_TEMP 'EasyERP Custom Path'
+Install $installer "/S /CurrentUser /D=$customDir"
+AssertInstallation $customDir 'HKCU'
+Install $installer '/S /UPDATE'
+AssertInstallation $customDir 'HKCU'
+$installedVersion = (Get-ItemProperty "HKCU:\$uninstallKey").DisplayVersion
+Set-ItemProperty "HKCU:\$uninstallKey" -Name DisplayVersion -Value '99.0.0'
+RejectInstall '/S /AllUsers'
+AssertInstallation $customDir 'HKCU'
+if (Test-Path "HKLM:\$uninstallKey") { throw 'Scope change bypassed downgrade protection.' }
+Set-ItemProperty "HKCU:\$uninstallKey" -Name DisplayVersion -Value $installedVersion
+Uninstall $customDir 'CurrentUser'
+$invalidDir = Join-Path $env:RUNNER_TEMP '中文目录'
+RejectInstall "/S /CurrentUser /D=$invalidDir"
+if (Test-Path (Join-Path $invalidDir 'easy-erp-desktop.exe')) { throw 'Installed into a non-ASCII path.' }
+Write-Output 'PASS: custom ASCII paths persist, Chinese paths and cross-scope downgrades are rejected.'
