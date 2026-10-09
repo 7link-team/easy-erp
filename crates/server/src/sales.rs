@@ -73,6 +73,10 @@ pub struct SaleInput {
     pub customer_id: String,
     pub type_id: String,
     #[serde(default)]
+    pub type_name: String,
+    #[serde(default)]
+    pub type_billable: Option<bool>,
+    #[serde(default)]
     pub department_id: String,
     #[serde(default)]
     pub salesperson_id: String,
@@ -267,20 +271,21 @@ pub async fn save_catalog(
         }
         data["department_id"] = json!(department_id);
     }
-    if one(
+    let duplicate = all(
         &txn,
-        "SELECT id FROM sales_catalog WHERE kind=? AND name=? AND id<>? AND (?<>'salesperson' OR json_extract(data,'$.department_id')=?)",
-        vec![
-            input.kind.clone().into(),
-            name.clone().into(),
-            eid.clone().into(),
-            input.kind.clone().into(),
-            data["department_id"].as_str().unwrap_or("").into(),
-        ],
+        "SELECT * FROM sales_catalog WHERE kind=? AND id<>?",
+        vec![input.kind.clone().into(), eid.clone().into()],
     )
     .await?
-    .is_some()
-    {
+    .iter()
+    .any(|r| {
+        crate::options::key(&text(r, "name")) == crate::options::key(&name)
+            && (input.kind != "salesperson"
+                || parsed(&text(r, "data"))
+                    .ok()
+                    .is_some_and(|v| v["department_id"] == data["department_id"]))
+    });
+    if duplicate {
         return Err(ApiError::conflict(
             "该名称已存在，请选择已有记录或使用不同名称。",
         ));
@@ -698,7 +703,7 @@ pub async fn get(
 pub async fn command(
     State(s): State<AppState>,
     headers: HeaderMap,
-    Json(input): Json<Command>,
+    Json(mut input): Json<Command>,
 ) -> Result<Json<Value>> {
     if uuid::Uuid::parse_str(&input.request_id).is_err() {
         return Err(ApiError::bad("请求编号无效。"));
@@ -770,6 +775,49 @@ pub async fn command(
             }
             if input.action == "revise" && !old.as_ref().is_some_and(|o| o.status == "posted") {
                 return Err(ApiError::bad("只能修订已确认单据。"));
+            }
+            if let Some(ref mut data) = input.input {
+                if !data.type_name.trim().is_empty() {
+                    let name = clean(&data.type_name, "单据类型", 100, true)?;
+                    let existing = all(
+                        &txn,
+                        "SELECT * FROM sales_catalog WHERE kind='type'",
+                        vec![],
+                    )
+                    .await?
+                    .into_iter()
+                    .find(|r| crate::options::key(&text(r, "name")) == crate::options::key(&name));
+                    data.type_id = if let Some(r) = existing {
+                        if int(&r, "active") != 1 {
+                            return Err(ApiError::bad("该单据类型已停用，请管理员启用后使用。"));
+                        }
+                        text(&r, "id")
+                    } else {
+                        let billable = data
+                            .type_billable
+                            .ok_or_else(|| ApiError::bad("新单据类型请选择是否计款。"))?;
+                        let eid = id();
+                        execute(
+                            &txn,
+                            "INSERT INTO sales_catalog VALUES (?,'type',?,1,1,?)",
+                            vec![
+                                eid.clone().into(),
+                                name.clone().into(),
+                                json!({"billable":billable,"sort":0}).to_string().into(),
+                            ],
+                        )
+                        .await?;
+                        audit(
+                            &txn,
+                            &actor,
+                            "开单新增类型",
+                            &eid,
+                            json!({"name":name,"billable":billable}),
+                        )
+                        .await?;
+                        eid
+                    };
+                }
             }
             sale = prepare(
                 &txn,

@@ -429,3 +429,49 @@ a.button {
   min-height: var(--control-height);
   color: var(--primary);
 }
+
+.ui-combobox {
+  position: relative;
+}
+.ui-combobox > .ui-input {
+  padding-right: 44px;
+}
+.ui-combobox-toggle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  background: transparent;
+  border: 0;
+}
+.ui-combobox-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 80;
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px #0002;
+  padding: 4px;
+}
+.ui-combobox-option {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 8px 12px;
+  color: inherit;
+  border-radius: 5px;
+}
+.ui-combobox-option:hover,
+.ui-combobox-option[aria-selected="true"] {
+  background: var(--accent-soft, #e9f3ed);
+}
+.ui-combobox-list p {
+  margin: 8px;
+}

@@ -260,6 +260,14 @@ export function Modal({
         <Dialog.Content
           className={`ui-dialog ${variant === "print" ? "sales-print-overlay" : ""}`}
           aria-describedby={undefined}
+          onEscapeKeyDown={(e) => {
+            if (
+              document.activeElement?.matches(
+                '[role="combobox"][aria-expanded="true"]',
+              )
+            )
+              e.preventDefault();
+          }}
           onPointerDownOutside={(e) => e.preventDefault()}
           onCloseAutoFocus={(e) => {
             e.preventDefault();
@@ -410,5 +418,135 @@ export function ConfirmationProvider({ children }: { children: ReactNode }) {
         </Modal>
       )}
     </ConfirmContext.Provider>
+  );
+}
+
+/** Editable suggestions. Values are persisted by the surrounding business form. */
+export function ComboBox({
+  options,
+  value = "",
+  onValueChange,
+  ...props
+}: Omit<InputHTMLAttributes<HTMLInputElement>, "onChange" | "value"> & {
+  value: string;
+  options: { value: string; label: string }[];
+  onValueChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(-1);
+  const listId = useId();
+  const clearError = useContext(ClearValidationContext);
+  const selected = options.find((o) => o.value === value);
+  const shown = selected
+    ? options
+    : options.filter((o) =>
+        o.label.toLowerCase().includes(value.toLowerCase()),
+      );
+  const choose = (next: string) => {
+    onValueChange(next);
+    if (props.id) clearError(props.id);
+    setOpen(false);
+    setActive(-1);
+  };
+  return (
+    <div
+      className="ui-combobox"
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget)) setOpen(false);
+      }}
+    >
+      <Input
+        {...props}
+        role="combobox"
+        autoComplete="off"
+        aria-autocomplete="list"
+        aria-expanded={open}
+        aria-controls={open ? listId : undefined}
+        aria-activedescendant={
+          open && active >= 0 ? `${listId}-${active}` : undefined
+        }
+        value={selected?.label ?? value}
+        onClick={() => {
+          setOpen(true);
+          setActive(-1);
+        }}
+        onChange={(e) => {
+          onValueChange(e.target.value);
+          setOpen(true);
+          setActive(-1);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+            e.preventDefault();
+            setOpen(true);
+            setActive((n) =>
+              shown.length
+                ? n < 0
+                  ? e.key === "ArrowDown"
+                    ? 0
+                    : shown.length - 1
+                  : (n + (e.key === "ArrowDown" ? 1 : -1) + shown.length) %
+                    shown.length
+                : -1,
+            );
+          }
+          if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            setOpen(false);
+          }
+          if (e.key === "Enter" && open && active >= 0 && shown[active]) {
+            e.preventDefault();
+            choose(shown[active].value);
+          }
+        }}
+      />
+      <Button
+        className="ui-combobox-toggle icon-button"
+        aria-label="展开候选选项"
+        disabled={props.disabled}
+        tabIndex={-1}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => {
+          setOpen(!open);
+          setActive(-1);
+        }}
+      >
+        <ChevronDown size={17} />
+      </Button>
+      {open && (
+        <div
+          className="ui-combobox-list"
+          role="listbox"
+          id={listId}
+          aria-label="候选选项"
+        >
+          {shown.map((o, i) => (
+            <Button
+              key={o.value}
+              className="ui-combobox-option"
+              role="option"
+              tabIndex={-1}
+              data-value={o.value}
+              id={`${listId}-${i}`}
+              aria-selected={active === i || o.value === value}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => choose(o.value)}
+            >
+              {o.label}
+            </Button>
+          ))}
+          {!selected &&
+            value.trim() &&
+            !shown.some(
+              (o) =>
+                o.label.trim().toLowerCase() === value.trim().toLowerCase(),
+            ) && <p className="muted">保存时新增“{value.trim()}”</p>}
+          {!shown.length && !value.trim() && (
+            <p className="muted">可直接输入新选项</p>
+          )}
+        </div>
+      )}
+    </div>
   );
 }

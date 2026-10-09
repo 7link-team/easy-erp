@@ -1,5 +1,5 @@
 import { Disclosure } from "../ui";
-import { Form, Input, Select, Button, Checkbox } from "../ui";
+import { Form, Input, Select, ComboBox, Button, Checkbox } from "../ui";
 import { useEffect, useState } from "react";
 import {
   Plus,
@@ -7,6 +7,7 @@ import {
   ArrowDownToLine,
   ArrowUpFromLine,
   Pencil,
+  ReceiptText,
 } from "lucide-react";
 import { type Item, type User, api, send, kinds, quantity } from "../api";
 import {
@@ -31,6 +32,13 @@ export function ItemForm({
   onDone: () => void;
   onClose: () => void;
 }) {
+  const choices = useResource<{ items: { field: string; name: string }[] }>(
+    "/material-options",
+  );
+  const options = (field: string) =>
+    (choices.data?.items || [])
+      .filter((c) => c.field === field)
+      .map((c) => ({ value: c.name, label: c.name }));
   const [name, setName] = useState(item?.name ?? "");
   const [spec, setSpec] = useState(item?.spec ?? "");
   const [kind, setKind] = useState(item?.kind ?? "其他");
@@ -87,10 +95,11 @@ export function ItemForm({
         <div className="form-grid">
           <Field label="规格" hint="例如：M6 × 20 mm">
             {(p) => (
-              <Input
+              <ComboBox
                 {...p}
+                options={options("spec")}
                 value={spec}
-                onChange={(e) => setSpec(e.target.value)}
+                onValueChange={setSpec}
                 maxLength={100}
               />
             )}
@@ -100,25 +109,24 @@ export function ItemForm({
             help="只用于分类查找，不会自动扣原料或增加成品数量。"
           >
             {(p) => (
-              <Select
+              <ComboBox
                 {...p}
+                options={options("kind")}
                 value={kind}
-                onChange={(e) => setKind(e.target.value)}
-              >
-                {kinds.map((k) => (
-                  <option key={k}>{k}</option>
-                ))}
-              </Select>
+                onValueChange={setKind}
+                maxLength={100}
+              />
             )}
           </Field>
         </div>
         <div className="form-grid">
           <Field label="基本单位" required hint="已有出入库记录后不能更改。">
             {(p) => (
-              <Input
+              <ComboBox
                 {...p}
+                options={options("unit")}
                 value={unit}
-                onChange={(e) => setUnit(e.target.value)}
+                onValueChange={setUnit}
                 required
                 maxLength={16}
               />
@@ -181,12 +189,27 @@ export default function Inventory({
   revision,
   refresh,
   move,
+  openSale,
 }: {
   user: User;
   revision: number;
   refresh: () => void;
   move: (direction: "in" | "out", item?: Item) => void;
+  openSale: (item: Item) => void;
 }) {
+  const choices = useResource<{
+    items: { field: string; name: string }[];
+    kinds: string[];
+  }>("/material-options", revision);
+  const typeOptions = Array.from(
+    new Set([
+      ...kinds,
+      ...(choices.data?.kinds || []),
+      ...(choices.data?.items || [])
+        .filter((c) => c.field === "kind")
+        .map((c) => c.name),
+    ]),
+  );
   const [search, setSearch] = useState("");
   const [debounced, setDebounced] = useState("");
   const [kind, setKind] = useState("");
@@ -243,7 +266,7 @@ export default function Inventory({
             }}
           >
             <option value="">全部类型</option>
-            {kinds.map((k) => (
+            {typeOptions.map((k) => (
               <option key={k}>{k}</option>
             ))}
           </Select>
@@ -328,6 +351,17 @@ export default function Inventory({
                           >
                             <ArrowUpFromLine size={16} />
                             出库
+                          </Button>
+                        )}
+                        {(user.role === "admin" ||
+                          (user.role === "worker" && user.can_out)) && (
+                          <Button
+                            className="button small"
+                            disabled={item.counting}
+                            onClick={() => openSale(item)}
+                          >
+                            <ReceiptText size={16} />
+                            开单出库
                           </Button>
                         )}
                         {user.role === "admin" && (

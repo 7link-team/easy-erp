@@ -8,6 +8,7 @@ import {
   TabsPanel,
   Input,
   Select,
+  ComboBox,
   Textarea,
   Form,
   Checkbox,
@@ -25,6 +26,7 @@ import {
   useResource,
   Empty,
 } from "../components";
+import MaterialOptions from "./MaterialOptions";
 import { api, send, quantity, dateTime, type User, type Item } from "../api";
 import {
   moneyText,
@@ -212,6 +214,7 @@ function SaleEditor({
   onClose,
   onDirtyChange,
   onNewCustomer,
+  initialItem,
 }: {
   user: User;
   sale?: Sale;
@@ -220,6 +223,7 @@ function SaleEditor({
   onClose: () => void;
   onDirtyChange: (v: boolean) => void;
   onNewCustomer: () => void;
+  initialItem?: Item;
 }) {
   const initial: SaleInput = {
     customer_id: sale?.customer_id || "",
@@ -241,7 +245,10 @@ function SaleEditor({
         item_id: l.item_id,
         quantity: decimalText(l.quantity, 3),
         price: decimalText(l.price, 4),
-      })) || [],
+      })) ||
+      (initialItem
+        ? [{ item_id: initialItem.id, quantity: "1", price: "0" }]
+        : []),
   };
   const [input, setInput] = useState(initial);
   const [search, setSearch] = useState("");
@@ -251,8 +258,10 @@ function SaleEditor({
   const [account, setAccount] = useState("");
   const [refundDate, setRefundDate] = useState(localDate());
   const action = useAction();
-  const [material, setMaterial] = useState<Record<string, Item>>({});
-  const [changed, setChanged] = useState(false);
+  const [material, setMaterial] = useState<Record<string, Item>>(
+    initialItem ? { [initialItem.id]: initialItem } : {},
+  );
+  const [changed, setChanged] = useState(!!initialItem);
   const request = useRef<{ fingerprint: string; id: string } | undefined>(
     undefined,
   );
@@ -285,7 +294,7 @@ function SaleEditor({
   const billable =
     sale && sale.type_id === input.type_id
       ? sale.billable
-      : (typ?.data.billable ?? false);
+      : (typ?.data.billable ?? input.type_billable ?? false);
   const amounts = preview(input, billable);
   const posted = sale?.status === "posted";
   const options = (kind: CatalogEntry["kind"], selected: string) =>
@@ -327,29 +336,58 @@ function SaleEditor({
         <div className="form-grid">
           <Field label="单据类型" required>
             {(p) => (
-              <Select
+              <ComboBox
                 {...p}
-                value={input.type_id}
-                onChange={(e) => {
-                  change("type_id", e.target.value);
-                  if (
-                    !catalog.find((c) => c.id === e.target.value)?.data.billable
-                  ) {
+                required
+                maxLength={100}
+                value={input.type_name || input.type_id}
+                options={options("type", input.type_id).map((c) => ({
+                  value: c.id,
+                  label: c.name,
+                }))}
+                onValueChange={(value) => {
+                  const entry = options("type", input.type_id).find(
+                    (c) =>
+                      c.id === value ||
+                      c.name.trim().toLowerCase() ===
+                        value.trim().toLowerCase(),
+                  );
+                  change("type_id", entry?.id || "");
+                  change("type_name", entry ? "" : value);
+                  if (!entry?.data.billable) {
                     change("discount_rate", "100");
                     change("rounding", "0");
                   }
                 }}
-              >
-                {options("type", input.type_id)
-                  .sort((a, b) => (a.data.sort ?? 0) - (b.data.sort ?? 0))
-                  .map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-              </Select>
+              />
             )}
           </Field>
+          {input.type_name && (
+            <Field
+              label="新类型是否计款"
+              required
+              hint="计款会产生应收；不计款只记录出库。"
+            >
+              {(p) => (
+                <Select
+                  {...p}
+                  required
+                  value={
+                    input.type_billable === undefined
+                      ? ""
+                      : String(input.type_billable)
+                  }
+                  onChange={(e) =>
+                    change("type_billable", e.target.value === "true")
+                  }
+                >
+                  <option value="">请选择</option>
+                  <option value="true">计款</option>
+                  <option value="false">不计款</option>
+                </Select>
+              )}
+            </Field>
+          )}
           <Field label="客户" required>
             {(p) => (
               <Select
@@ -1488,20 +1526,26 @@ export default function Sales({
   refresh,
   onDirtyChange,
   view = "sales",
+  initialItem,
 }: {
-  view?: "sales" | "finance";
+  view?: "sales" | "finance" | "customers" | "catalog";
+  initialItem?: Item;
   user: User;
   revision: number;
   refresh: () => void;
   onDirtyChange: (v: boolean) => void;
 }) {
   const financeView = view === "finance";
-  const [tab, setTab] = useState(financeView ? "finance" : "list");
+  const configView = view === "customers" || view === "catalog";
+  const [tab, setTab] = useState(
+    configView ? "config" : financeView ? "finance" : "list",
+  );
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Sale>();
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(!!initialItem);
+  const [prefill, setPrefill] = useState(initialItem);
   const [config, setConfig] = useState<{
     kind: CatalogEntry["kind"];
     entry?: CatalogEntry;
@@ -1561,10 +1605,14 @@ export default function Sales({
     ) {
       onDirtyChange(false);
       setEditing(false);
+      setPrefill(undefined);
     }
   };
-  const [configKind, setConfigKind] = useState<CatalogEntry["kind"]>("type");
-  const visibleConfigKind = user.role === "admin" ? configKind : "customer";
+  const [configKind, setConfigKind] = useState<
+    CatalogEntry["kind"] | "spec" | "kind" | "unit"
+  >(view === "customers" ? "customer" : "type");
+  const visibleConfigKind =
+    view === "customers" || user.role !== "admin" ? "customer" : configKind;
   return (
     <Tabs
       className="sales-page"
@@ -1576,14 +1624,24 @@ export default function Sales({
     >
       <div className="page-heading">
         <div>
-          <h1>{financeView ? "财务" : "开单与收款"}</h1>
+          <h1>
+            {configView
+              ? view === "customers"
+                ? "客户"
+                : "基础资料"
+              : financeView
+                ? "财务"
+                : "开单与收款"}
+          </h1>
           <p>
-            {financeView
-              ? "核对客户欠款、收款账户流水与部门业务员业绩。"
-              : "一张单开齐物料，库存与收款同步记录。"}
+            {configView
+              ? "直接维护常用资料；修改候选不重写历史单据。"
+              : financeView
+                ? "核对客户欠款、收款账户流水与部门业务员业绩。"
+                : "一张单开齐物料，库存与收款同步记录。"}
           </p>
         </div>
-        {!editing && !financeView && (
+        {!editing && !financeView && !configView && (
           <Button
             className="button primary"
             onClick={() => {
@@ -1597,10 +1655,12 @@ export default function Sales({
           </Button>
         )}
       </div>
-      <TabsList aria-label="开单与收款栏目" hidden={editing || financeView}>
+      <TabsList
+        aria-label="开单与收款栏目"
+        hidden={editing || financeView || configView}
+      >
         <Tab value="list">单据列表</Tab>
         {user.role === "admin" && <Tab value="finance">收款与欠款</Tab>}
-        <Tab value="config">客户与配置</Tab>
       </TabsList>
       <TabsPanel value={tab}>
         {(catalog.error || action.error) && (
@@ -1610,6 +1670,7 @@ export default function Sales({
           <SaleEditor
             key={selected?.id || "new"}
             sale={selected}
+            initialItem={selected ? undefined : prefill}
             user={user}
             catalog={entries}
             onDirtyChange={onDirtyChange}
@@ -1617,6 +1678,7 @@ export default function Sales({
             onClose={() => void closeEditor()}
             onDone={(s) => {
               changed(s);
+              setPrefill(undefined);
               setEditing(false);
             }}
           />
@@ -1705,15 +1767,15 @@ export default function Sales({
           <Tabs
             className="panel"
             value={visibleConfigKind}
-            onValueChange={(value) =>
-              setConfigKind(value as CatalogEntry["kind"])
-            }
+            onValueChange={(value) => setConfigKind(value as typeof configKind)}
           >
-            <TabsList aria-label="销售配置栏目">
-              {(user.role === "admin"
+            <TabsList aria-label="销售配置栏目" hidden={view === "customers"}>
+              {(user.role === "admin" && view !== "customers"
                 ? [
-                    "customer",
                     "type",
+                    "spec",
+                    "kind",
+                    "unit",
                     "account",
                     "department",
                     "salesperson",
@@ -1725,6 +1787,9 @@ export default function Sales({
                   {
                     (
                       {
+                        spec: "规格",
+                        kind: "物料类型",
+                        unit: "单位",
                         customer: "客户",
                         type: "单据类型",
                         account: "收款账户",
@@ -1738,59 +1803,75 @@ export default function Sales({
               ))}
             </TabsList>
             <TabsPanel value={visibleConfigKind}>
-              <div className="section-title">
-                <h2>
-                  {
-                    {
-                      customer: "客户",
-                      type: "单据类型",
-                      account: "收款账户",
-                      company: "公司信息",
-                      department: "部门",
-                      salesperson: "业务员",
-                    }[visibleConfigKind]
-                  }
-                </h2>
-                <Button
-                  className="button"
-                  onClick={() =>
-                    setConfig({
-                      kind: visibleConfigKind,
-                      entry:
-                        visibleConfigKind === "company"
-                          ? entries.find((c) => c.kind === "company")
-                          : undefined,
-                    })
-                  }
-                >
-                  新增 / 设置
-                </Button>
-              </div>
-              {entries
-                .filter((c) => c.kind === visibleConfigKind)
-                .map((c) => (
-                  <div className="sale-revision" key={c.id}>
-                    <span>
-                      <strong>{c.name}</strong> · {c.active ? "启用" : "停用"}
-                      {c.kind === "type"
-                        ? c.data.billable
-                          ? " · 计款"
-                          : " · 不计款"
-                        : ""}{" "}
-                      {c.kind === "salesperson" &&
-                        ` · ${entries.find((d) => d.id === c.data.department_id)?.name || "未指定部门"}`}
-                      {c.data.phone} {c.data.address}
-                    </span>
-                    {user.role === "admin" && (
-                      <Button
-                        className="button"
-                        onClick={() => setConfig({ kind: c.kind, entry: c })}
-                      >
-                        修改
-                      </Button>
-                    )}
+              {["spec", "kind", "unit"].includes(visibleConfigKind) ? (
+                <MaterialOptions
+                  field={visibleConfigKind as "spec" | "kind" | "unit"}
+                  revision={revision + local}
+                  refresh={() => {
+                    setLocal((n) => n + 1);
+                    refresh();
+                  }}
+                />
+              ) : (
+                <>
+                  <div className="section-title">
+                    <h2>
+                      {
+                        {
+                          customer: "客户",
+                          type: "单据类型",
+                          account: "收款账户",
+                          company: "公司信息",
+                          department: "部门",
+                          salesperson: "业务员",
+                        }[visibleConfigKind as CatalogEntry["kind"]]
+                      }
+                    </h2>
+                    <Button
+                      className="button"
+                      onClick={() =>
+                        setConfig({
+                          kind: visibleConfigKind as CatalogEntry["kind"],
+                          entry:
+                            visibleConfigKind === "company"
+                              ? entries.find((c) => c.kind === "company")
+                              : undefined,
+                        })
+                      }
+                    >
+                      新增 / 设置
+                    </Button>
                   </div>
-                ))}
+                  {entries
+                    .filter((c) => c.kind === visibleConfigKind)
+                    .map((c) => (
+                      <div className="sale-revision" key={c.id}>
+                        <span>
+                          <strong>{c.name}</strong> ·{" "}
+                          {c.active ? "启用" : "停用"}
+                          {c.kind === "type"
+                            ? c.data.billable
+                              ? " · 计款"
+                              : " · 不计款"
+                            : ""}{" "}
+                          {c.kind === "salesperson" &&
+                            ` · ${entries.find((d) => d.id === c.data.department_id)?.name || "未指定部门"}`}
+                          {c.data.phone} {c.data.address}
+                        </span>
+                        {user.role === "admin" && (
+                          <Button
+                            className="button"
+                            onClick={() =>
+                              setConfig({ kind: c.kind, entry: c })
+                            }
+                          >
+                            修改
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                </>
+              )}
             </TabsPanel>
           </Tabs>
         )}

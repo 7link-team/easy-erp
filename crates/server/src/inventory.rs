@@ -119,7 +119,8 @@ fn validate_item(input: &ItemInput) -> Result<()> {
     clean(&input.spec, "规格", 100, false)?;
     clean(&input.unit, "单位", 16, true)?;
     clean(&input.barcode, "条码", 128, false)?;
-    if !domain::ITEM_KINDS.contains(&input.kind.as_str()) || !(0..=3).contains(&input.precision) {
+    clean(&input.kind, "物料类型", 100, false)?;
+    if !(0..=3).contains(&input.precision) {
         return Err(ApiError::bad("请选择有效类型及 0–3 位小数位数。"));
     }
     Ok(())
@@ -145,6 +146,9 @@ pub(crate) async fn create_item_record(
     input: ItemInput,
 ) -> Result<String> {
     validate_item(&input)?;
+    let spec = crate::options::ensure(txn, "spec", &input.spec).await?;
+    let kind = crate::options::ensure(txn, "kind", &input.kind).await?;
+    let unit = crate::options::ensure(txn, "unit", &input.unit).await?;
     let iid = id();
     let code = input
         .code
@@ -165,9 +169,9 @@ pub(crate) async fn create_item_record(
             iid.clone().into(),
             code.into(),
             input.name.trim().into(),
-            input.spec.trim().into(),
-            input.kind.into(),
-            input.unit.trim().into(),
+            spec.into(),
+            kind.into(),
+            unit.into(),
             input.precision.into(),
             input.barcode.trim().into(),
             minimum.into(),
@@ -245,7 +249,19 @@ pub async fn update_item(
         Some(v) => domain::quantity(v, input.precision, true)?,
         None => -1,
     };
-    execute(&txn,"UPDATE items SET code=?,name=?,spec=?,kind=?,unit=?,precision=?,barcode=?,minimum=?,version=version+1 WHERE id=?",vec![code.into(),input.name.trim().into(),input.spec.trim().into(),input.kind.into(),input.unit.trim().into(),input.precision.into(),input.barcode.trim().into(),minimum.into(),iid.clone().into()]).await?;
+    let mut values = Vec::new();
+    for (field, value) in [
+        ("spec", &input.spec),
+        ("kind", &input.kind),
+        ("unit", &input.unit),
+    ] {
+        values.push(if value.trim() == text(&old, field) {
+            value.trim().to_string()
+        } else {
+            crate::options::ensure(&txn, field, value).await?
+        });
+    }
+    execute(&txn,"UPDATE items SET code=?,name=?,spec=?,kind=?,unit=?,precision=?,barcode=?,minimum=?,version=version+1 WHERE id=?",vec![code.into(),input.name.trim().into(),values[0].clone().into(),values[1].clone().into(),values[2].clone().into(),input.precision.into(),input.barcode.trim().into(),minimum.into(),iid.clone().into()]).await?;
     audit(
         &txn,
         &actor,

@@ -347,7 +347,7 @@ tbody tr:hover {
   }
   .form-grid {
     grid-template-columns: minmax(0, 1fr);
-    gap: 0;
+    gap: 18px;
   }
   .home-columns {
     gap: 16px;

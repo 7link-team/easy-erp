@@ -4,7 +4,12 @@ pub struct Migrator;
 #[async_trait::async_trait]
 impl MigratorTrait for Migrator {
     fn migrations() -> Vec<Box<dyn MigrationTrait>> {
-        vec![Box::new(Initial), Box::new(SessionIdle), Box::new(Sales)]
+        vec![
+            Box::new(Initial),
+            Box::new(SessionIdle),
+            Box::new(Sales),
+            Box::new(MaterialOptions),
+        ]
     }
 }
 
@@ -268,5 +273,47 @@ impl MigrationTrait for Initial {
         Err(DbErr::Custom(
             "禁止自动删除库存业务表；请使用已验证的备份恢复。".into(),
         ))
+    }
+}
+
+struct MaterialOptions;
+impl MigrationName for MaterialOptions {
+    fn name(&self) -> &str {
+        "material_options_v1"
+    }
+}
+#[async_trait::async_trait]
+impl MigrationTrait for MaterialOptions {
+    async fn up(&self, m: &SchemaManager) -> std::result::Result<(), DbErr> {
+        let db = m.get_connection();
+        db.execute_unprepared("CREATE TABLE material_options (id TEXT PRIMARY KEY, field TEXT NOT NULL, name TEXT NOT NULL, key TEXT NOT NULL, version INTEGER NOT NULL, UNIQUE(field,key))").await?;
+        // Seed existing values using the same Unicode normalization as future writes.
+        for field in ["spec", "kind", "unit"] {
+            let rows = crate::db::all(
+                db,
+                &format!("SELECT DISTINCT {field} AS name FROM items"),
+                vec![],
+            )
+            .await
+            .map_err(|e| DbErr::Custom(e.to_string()))?;
+            let defaults: &[&str] = match field {
+                "kind" => &crate::domain::ITEM_KINDS,
+                "unit" => &["个", "件", "公斤", "米", "箱"],
+                _ => &[],
+            };
+            let names = rows
+                .iter()
+                .map(|r| crate::db::text(r, "name"))
+                .chain(defaults.iter().map(|v| String::from(*v)));
+            for name in names {
+                crate::options::ensure(db, field, &name)
+                    .await
+                    .map_err(|e| DbErr::Custom(e.to_string()))?;
+            }
+        }
+        Ok(())
+    }
+    async fn down(&self, _: &SchemaManager) -> std::result::Result<(), DbErr> {
+        Err(DbErr::Custom("不自动回退基础资料".into()))
     }
 }

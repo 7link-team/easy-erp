@@ -292,6 +292,8 @@ for (const viewport of [
       "工作台",
       "库存",
       "开单与收款",
+      "客户",
+      "基础资料",
       "财务",
       "记录",
       "清点库存",
@@ -301,9 +303,15 @@ for (const viewport of [
     ]) {
       if (
         viewport.width <= 760 &&
-        ["开单与收款", "财务", "人员与权限", "数据与备份", "版本更新"].includes(
-          name,
-        )
+        [
+          "开单与收款",
+          "客户",
+          "基础资料",
+          "财务",
+          "人员与权限",
+          "数据与备份",
+          "版本更新",
+        ].includes(name)
       ) {
         await page.getByRole("button", { name: "更多", exact: true }).click();
       }
@@ -340,8 +348,11 @@ for (const viewport of [
         await expect(page.getByRole("tabpanel")).toBeVisible();
       }
       if (name === "开单与收款") {
+        if (viewport.width <= 760)
+          await page.getByRole("button", { name: "更多", exact: true }).click();
         await page
-          .getByRole("tab", { name: "客户与配置", exact: true })
+          .getByRole("navigation")
+          .getByRole("button", { name: "基础资料", exact: true })
           .click();
         const configTabs = page.getByRole("tablist", {
           name: "销售配置栏目",
@@ -588,7 +599,7 @@ test("全站栏目选中样式一致、侧栏分区与普通页面打印", async
         fullPage: true,
       });
     }
-    await page.getByRole("tab", { name: "客户与配置", exact: true }).click();
+    await page.goto("/#/catalog");
     const config = page.getByRole("tablist", {
       name: "销售配置栏目",
       exact: true,
@@ -666,15 +677,13 @@ test("普通开单人的配置栏目只提供客户并能快速建档", async ({
     await expect(
       worker.getByRole("tab", { name: "收款与欠款", exact: true }),
     ).toHaveCount(0);
-    await worker.getByRole("tab", { name: "客户与配置", exact: true }).click();
+    await worker.goto("/#/customers");
     const config = worker.getByRole("tablist", {
       name: "销售配置栏目",
       exact: true,
     });
-    await expect(config.getByRole("tab")).toHaveCount(1);
-    await expect(
-      worker.getByRole("heading", { name: "客户", exact: true }),
-    ).toBeVisible();
+    await expect(config).toBeHidden();
+    await expect(worker.locator("main h1")).toBeVisible();
     await worker
       .getByRole("button", { name: "新增 / 设置", exact: true })
       .click();

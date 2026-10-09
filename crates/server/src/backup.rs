@@ -382,12 +382,21 @@ pub async fn restore(
     .await
     .map_err(|_| ApiError::bad("无法读取备份。"))??;
     let current_schema = schemas(&s.db).await?;
-    let legacy_schema: Vec<_> = current_schema
-        .iter()
-        .filter(|v| v.as_str() != "sales_v1")
-        .cloned()
-        .collect();
-    let legacy = manifest.schema == legacy_schema;
+    // Only known older business schemas can be staged forward.
+    let legacy = manifest.schema.len() < current_schema.len()
+        && [
+            current_schema
+                .iter()
+                .filter(|v| v.as_str() != "material_options_v1")
+                .cloned()
+                .collect::<Vec<_>>(),
+            current_schema
+                .iter()
+                .filter(|v| !["material_options_v1", "sales_v1"].contains(&v.as_str()))
+                .cloned()
+                .collect::<Vec<_>>(),
+        ]
+        .contains(&manifest.schema);
     if manifest.schema != current_schema && !legacy {
         return Err(ApiError::bad(
             "备份数据库版本不同，请使用匹配版本的软件恢复。",
@@ -433,6 +442,7 @@ pub async fn restore(
             "sales_revisions",
             "sales",
             "sales_catalog",
+            "material_options",
             "sessions",
             "document_lines",
             "stocktake_lines",

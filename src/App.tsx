@@ -18,6 +18,8 @@ import {
   ClipboardList,
   ReceiptText,
   Wallet,
+  ContactRound,
+  ListChecks,
   ClipboardCheck,
   UsersRound,
   Settings,
@@ -467,6 +469,9 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
     ...(user.role === "admin" || (user.role === "worker" && user.can_out)
       ? [{ id: "sales", label: "开单与收款", icon: ReceiptText }]
       : []),
+    ...(user.role === "admin" || (user.role === "worker" && user.can_out)
+      ? [{ id: "customers", label: "客户", icon: ContactRound }]
+      : []),
     ...(user.role === "admin"
       ? [{ id: "finance", label: "财务", icon: Wallet }]
       : []),
@@ -476,6 +481,7 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
       : []),
     ...(user.role === "admin"
       ? [
+          { id: "catalog", label: "基础资料", icon: ListChecks },
           { id: "users", label: "人员与权限", icon: UsersRound },
           { id: "settings", label: "数据与备份", icon: Settings },
         ]
@@ -506,11 +512,15 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
                 "inventory",
                 "sales",
                 "finance",
+                "customers",
                 "records",
                 "stocktakes",
               ],
             },
-            { label: "管理与设置", ids: ["users", "settings", "updates"] },
+            {
+              label: "管理与设置",
+              ids: ["catalog", "users", "settings", "updates"],
+            },
           ].map((group) => (
             <div
               className="nav-group"
@@ -526,7 +536,7 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
                 .map(({ id, label, icon: Icon }) => (
                   <Button
                     key={id}
-                    className={`${page === id ? "nav-item active" : "nav-item"} ${["sales", "finance", "users", "settings", "updates"].includes(id) ? "secondary-nav" : ""}`}
+                    className={`${page === id ? "nav-item active" : "nav-item"} ${["sales", "finance", "customers", "catalog", "users", "settings", "updates"].includes(id) ? "secondary-nav" : ""}`}
                     onClick={() => navigate(id as Page)}
                     aria-current={page === id ? "page" : undefined}
                   >
@@ -537,7 +547,7 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
             </div>
           ))}
           <Button
-            className={`nav-item mobile-more ${moreOpen || ["sales", "finance", "users", "settings", "updates"].includes(page) ? "active" : ""}`}
+            className={`nav-item mobile-more ${moreOpen || ["sales", "finance", "customers", "catalog", "users", "settings", "updates"].includes(page) ? "active" : ""}`}
             aria-haspopup="dialog"
             aria-expanded={moreOpen}
             onClick={() => setMoreOpen(true)}
@@ -616,6 +626,9 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
                 user={user}
                 revision={revision}
                 refresh={refresh}
+                openSale={(item) => {
+                  void navigate("sales", item);
+                }}
                 move={(direction, item) => {
                   navigate(direction, item);
                 }}
@@ -635,14 +648,15 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
                 }}
               />
             )}
-            {(page === "sales" || page === "finance") &&
+            {["sales", "finance", "customers", "catalog"].includes(page) &&
               (user.role === "admin" ||
-                (page === "sales" &&
+                (["sales", "customers"].includes(page) &&
                   user.role === "worker" &&
                   user.can_out)) && (
                 <Sales
-                  key={page}
-                  view={page === "finance" ? "finance" : "sales"}
+                  key={`${page}-${initialItem?.id || ""}`}
+                  initialItem={page === "sales" ? initialItem : undefined}
+                  view={page as "sales" | "finance" | "customers" | "catalog"}
                   user={user}
                   revision={revision}
                   refresh={refresh}
@@ -651,6 +665,9 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
                   }}
                 />
               )}
+            {page === "catalog" && user.role !== "admin" && (
+              <Notice>基础资料管理仅管理员可操作。</Notice>
+            )}
             {page === "finance" && user.role !== "admin" && (
               <Notice>财务汇总仅管理员可查看。</Notice>
             )}
@@ -687,9 +704,15 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
           <nav className="more-menu" aria-label="更多功能">
             {nav
               .filter((item) =>
-                ["sales", "finance", "users", "settings", "updates"].includes(
-                  item.id,
-                ),
+                [
+                  "sales",
+                  "finance",
+                  "customers",
+                  "catalog",
+                  "users",
+                  "settings",
+                  "updates",
+                ].includes(item.id),
               )
               .map(({ id, label, icon: Icon }) => (
                 <Button

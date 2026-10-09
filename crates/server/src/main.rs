@@ -9,6 +9,7 @@ mod inventory;
 mod migration;
 mod money;
 mod network;
+mod options;
 mod sales;
 mod state;
 mod stocktake;
@@ -159,14 +160,14 @@ async fn main() -> anyhow::Result<()> {
     .is_some()
         && db::one(
             &db,
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='sales'",
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='material_options'",
             vec![],
         )
         .await?
         .is_none()
     {
         let before = backup::snapshot(&db, &cfg.data_dir).await?;
-        tracing::info!(backup=?serde_json::to_value(before)?, "销售模块升级前备份已完成");
+        tracing::info!(backup=?serde_json::to_value(before)?, "业务模块升级前备份已完成");
     }
     migration::Migrator::up(&db, None).await?;
     let s = Arc::new(state::State {
@@ -225,6 +226,14 @@ async fn main() -> anyhow::Result<()> {
             put(inventory::update_item).delete(inventory::archive_item),
         )
         .route("/api/movements", post(inventory::movement))
+        .route(
+            "/api/material-options",
+            get(options::list).post(options::save),
+        )
+        .route(
+            "/api/material-options/{id}",
+            axum::routing::delete(options::remove),
+        )
         .route("/api/sales", get(sales::list))
         .route(
             "/api/sales/catalog",

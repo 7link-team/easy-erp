@@ -484,7 +484,7 @@ fn row_item(row: &[String]) -> Result<ItemInput> {
             .parse::<i64>()
             .map_err(|_| ApiError::bad("小数位数请填 0、1、2 或 3。"))?
     };
-    if !(0..=3).contains(&precision) || !domain::ITEM_KINDS.contains(&row[3].as_str()) {
+    if !(0..=3).contains(&precision) {
         return Err(ApiError::bad("类型或小数位数不正确。"));
     }
     if !row[7].is_empty() {
@@ -494,7 +494,7 @@ fn row_item(row: &[String]) -> Result<ItemInput> {
         code: Some(clean(&row[0], "物料编码", 64, true)?),
         name: clean(&row[1], "物料名称", 100, true)?,
         spec: clean(&row[2], "规格", 100, false)?,
-        kind: row[3].clone(),
+        kind: clean(&row[3], "物料类型", 100, false)?,
         unit: clean(&row[4], "单位", 16, true)?,
         precision,
         barcode: clean(&row[6], "条码", 128, false)?,

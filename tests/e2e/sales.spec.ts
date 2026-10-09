@@ -492,10 +492,6 @@ test("真实界面多品类开单、收款、打印、手机版式与离开保�
       exact: true,
     }),
   ).toBeVisible();
-  await page.keyboard.press("End");
-  await expect(
-    page.getByRole("tab", { name: "客户与配置", exact: true }),
-  ).toHaveAttribute("aria-selected", "true");
   await page.keyboard.press("Home");
   await expect(listTab).toHaveAttribute("aria-selected", "true");
   await page.getByRole("button", { name: "新建单据", exact: true }).click();
@@ -680,7 +676,7 @@ root=sys.argv[1]
 with tempfile.TemporaryDirectory() as d:
  src=sqlite3.connect(os.path.join(root,'inventory.sqlite')); dest=sqlite3.connect(os.path.join(d,'legacy.sqlite')); src.backup(dest); src.close()
  for (name,) in dest.execute("SELECT name FROM sqlite_master WHERE type='table' AND (name='sales' OR name LIKE 'sales_%')").fetchall(): dest.execute('DROP TABLE '+name)
- dest.execute("DELETE FROM seaql_migrations WHERE version='sales_v1'"); dest.execute('UPDATE items SET precision=0'); dest.commit()
+ dest.execute("DELETE FROM seaql_migrations WHERE version IN ('sales_v1','material_options_v1')"); dest.execute("DROP TABLE material_options"); dest.execute('UPDATE items SET precision=0'); dest.commit()
  schema=[r[0] for r in dest.execute("SELECT version FROM seaql_migrations WHERE version <> 'session_idle_v1' ORDER BY version")]; dest.close()
  data=open(os.path.join(d,'legacy.sqlite'),'rb').read()
  with zipfile.ZipFile(os.path.join(root,'backups',sys.argv[2]),'w') as z:

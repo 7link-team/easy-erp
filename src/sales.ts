@@ -19,6 +19,8 @@ export interface SaleInput {
   department_id?: string;
   salesperson_id?: string;
   type_id: string;
+  type_name?: string;
+  type_billable?: boolean;
   business_date: string;
   note: string;
   discount_rate: string;

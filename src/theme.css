@@ -841,3 +841,15 @@ button:active:not(:disabled) {
     display: none;
   }
 }
+
+@media (min-width: 761px) {
+  .sidebar nav {
+    min-height: 0;
+    overflow-y: auto;
+    flex-shrink: 1;
+  }
+  .sidebar .brand,
+  .sidebar-bottom {
+    flex-shrink: 0;
+  }
+}
