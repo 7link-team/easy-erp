@@ -292,6 +292,7 @@ for (const viewport of [
       "工作台",
       "库存",
       "开单与收款",
+      "财务",
       "记录",
       "清点库存",
       "人员与权限",
@@ -300,7 +301,9 @@ for (const viewport of [
     ]) {
       if (
         viewport.width <= 760 &&
-        ["开单与收款", "人员与权限", "数据与备份", "版本更新"].includes(name)
+        ["开单与收款", "财务", "人员与权限", "数据与备份", "版本更新"].includes(
+          name,
+        )
       ) {
         await page.getByRole("button", { name: "更多", exact: true }).click();
       }
@@ -310,6 +313,23 @@ for (const viewport of [
         .click();
       await expect(page.locator("main h1")).toBeVisible();
       await fits(page);
+      if (name === "财务") {
+        const tabs = page.getByRole("tablist", {
+          name: "财务栏目",
+          exact: true,
+        });
+        await expect(tabs.getByRole("tab")).toHaveCount(3);
+        await tabs.getByRole("tab", { name: "账户流水", exact: true }).click();
+        await expect(
+          page.getByRole("combobox", { name: "筛选账户", exact: false }),
+        ).toBeVisible();
+        await fits(page);
+        await tabs.getByRole("tab", { name: "部门业绩", exact: true }).click();
+        await expect(
+          page.getByRole("table", { name: "业绩归属汇总" }),
+        ).toBeVisible();
+        await fits(page);
+      }
       if (name === "记录") {
         const tab = page.getByRole("tab", { name: "出入库记录", exact: true });
         await tab.focus();
@@ -624,6 +644,16 @@ test("普通开单人的配置栏目只提供客户并能快速建档", async ({
       headers: { "X-ERP-Request": "1" },
       data: { username, password: "Worker-test-2026" },
     });
+    await worker.goto("/#/finance");
+    await expect(
+      worker.getByText("财务汇总仅管理员可查看。", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      worker
+        .getByRole("navigation")
+        .getByRole("button", { name: "财务", exact: true }),
+    ).toHaveCount(0);
+    expect((await worker.request.get("/api/sales/finance")).status()).toBe(403);
     await worker.goto("/#/sales");
     await expect(
       worker.getByRole("tab", { name: "收款与欠款", exact: true }),

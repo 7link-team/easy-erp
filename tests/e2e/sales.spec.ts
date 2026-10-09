@@ -486,7 +486,12 @@ test("真实界面多品类开单、收款、打印、手机版式与离开保�
   await expect(
     page.getByRole("tab", { name: "收款与欠款", exact: true }),
   ).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByRole("tabpanel")).toContainText("账户收退款流水");
+  await expect(
+    page.getByRole("heading", {
+      name: "客户对账（全部有效单据）",
+      exact: true,
+    }),
+  ).toBeVisible();
   await page.keyboard.press("End");
   await expect(
     page.getByRole("tab", { name: "客户与配置", exact: true }),
@@ -950,6 +955,7 @@ test("部门业务员归属、跨部门校验、历史快照及业绩退货作�
   ).toMatchObject({ count: 1, due: 80000, paid: 5000, debt: 75000 });
   await page.getByRole("button", { name: "返回列表", exact: true }).click();
   await page.getByRole("tab", { name: "收款与欠款", exact: true }).click();
+  await page.getByRole("tab", { name: "部门业绩", exact: true }).click();
   const row = page
     .getByRole("table", { name: "业绩归属汇总" })
     .getByRole("row")
@@ -971,7 +977,7 @@ test("部门业务员归属、跨部门校验、历史快照及业绩退货作�
 });
 
 test("账户筛选对账与 CSV 退款保持数值", async ({ request, page }) => {
-  const { input } = await fixture(request);
+  const { input, customer } = await fixture(request);
   const account = await post(request, "/sales/catalog", {
     kind: "account",
     name: `对账-${randomUUID().slice(0, 8)}`,
@@ -991,8 +997,21 @@ test("账户筛选对账与 CSV 退款保持数值", async ({ request, page }) =
     account_id: account.id,
     amount: "20",
   });
-  await page.goto("/#/sales");
-  await page.getByRole("tab", { name: "收款与欠款", exact: true }).click();
+  await page.goto("/");
+  await page
+    .getByRole("navigation", { name: "主要导航" })
+    .getByRole("group", { name: "常用功能" })
+    .getByRole("button", { name: "财务", exact: true })
+    .click();
+  await expect(page).toHaveURL(/#\/finance$/);
+  await expect(
+    page.getByRole("heading", { name: "财务", exact: true }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(
+    page.getByRole("tab", { name: "客户欠款", exact: true }),
+  ).toHaveAttribute("aria-selected", "true");
+  await page.getByRole("tab", { name: "账户流水", exact: true }).click();
   await chooseSelect(
     page.getByRole("combobox", { name: "筛选账户", exact: false }),
     account.id,
@@ -1000,6 +1019,12 @@ test("账户筛选对账与 CSV 退款保持数值", async ({ request, page }) =
   await expect(
     page.getByText("筛选净收款：¥30.00", { exact: true }),
   ).toBeVisible();
+  await expect(
+    page
+      .getByRole("table", { name: "账户累计汇总" })
+      .getByRole("row")
+      .filter({ hasText: account.name }),
+  ).toContainText("¥30.00");
   const downloading = page.waitForEvent("download");
   await page.getByRole("button", { name: "导出对账 CSV", exact: true }).click();
   const download = await downloading;
@@ -1010,4 +1035,46 @@ test("账户筛选对账与 CSV 退款保持数值", async ({ request, page }) =
   expect(csv).toContain('"-20.00"');
   expect(csv).not.toContain('"\'-20.00"');
   expect(csv).toContain('"50.00"');
+  await page.getByRole("tab", { name: "客户欠款", exact: true }).click();
+  await page.getByRole("button", { name: customer.name, exact: true }).click();
+  const ledger = page.getByRole("dialog", {
+    name: `${customer.name} · 单据对账`,
+    exact: true,
+  });
+  await expect(
+    ledger.getByRole("table", { name: "客户单据对账" }),
+  ).toContainText("¥970.00");
+  await page.setViewportSize({ width: 375, height: 667 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth + 1,
+    ),
+  ).toBeTruthy();
+  await ledger.getByRole("button", { name: sale.number, exact: true }).click();
+  await expect(ledger).toHaveCount(0);
+  await page.getByRole("button", { name: "登记收款", exact: true }).click();
+  const payment = page.getByRole("dialog", { name: "登记收款", exact: true });
+  await payment.getByLabel("金额", { exact: false }).fill("10");
+  await chooseSelect(
+    payment.getByRole("combobox", { name: "收款账户", exact: false }),
+    account.id,
+  );
+  await payment
+    .getByLabel("操作原因", { exact: false })
+    .fill("财务客户对账补收");
+  await payment.getByRole("button", { name: "登记收款", exact: true }).click();
+  await expect(payment).toHaveCount(0);
+  await page.getByRole("button", { name: "返回财务", exact: true }).click();
+  await page.getByRole("button", { name: customer.name, exact: true }).click();
+  await expect(
+    ledger.getByRole("table", { name: "客户单据对账" }),
+  ).toContainText("¥960.00");
+  await page.keyboard.press("Escape");
+  await page.getByRole("tab", { name: "账户流水", exact: true }).click();
+  await expect(
+    page
+      .getByRole("table", { name: "账户累计汇总" })
+      .getByRole("row")
+      .filter({ hasText: account.name }),
+  ).toContainText("¥40.00");
 });

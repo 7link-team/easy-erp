@@ -844,6 +844,7 @@ function Detail({
   onChange,
   onEdit,
   onClose,
+  backLabel = "返回列表",
 }: {
   sale: Sale;
   user: User;
@@ -851,6 +852,7 @@ function Detail({
   onChange: (sale: Sale) => void;
   onEdit: () => void;
   onClose: () => void;
+  backLabel?: string;
 }) {
   const [print, setPrint] = useState(
     new URLSearchParams(location.search).get("sale_print") === sale.id,
@@ -881,7 +883,7 @@ function Detail({
           </p>
         </div>
         <Button className="button" onClick={onClose}>
-          返回列表
+          {backLabel}
         </Button>
       </div>
       <div className="sale-detail-meta">
@@ -1164,6 +1166,82 @@ function Detail({
   );
 }
 
+function CustomerLedger({
+  customer,
+  revision,
+  onSelect,
+  onClose,
+}: {
+  customer: Finance["customers"][number];
+  revision: number;
+  onSelect: (id: string) => void;
+  onClose: () => void;
+}) {
+  const [page, setPage] = useState(1);
+  const resource = useResource<{ items: Sale[] }>(
+    `/sales?customer_id=${encodeURIComponent(customer.id)}&page=${page}`,
+    revision,
+  );
+  return (
+    <Modal title={`${customer.name} · 单据对账`} onClose={onClose}>
+      <p>
+        应收 ¥{moneyText(customer.due)} · 净实收 ¥{moneyText(customer.paid)} ·
+        欠款 ¥{moneyText(customer.debt)}
+      </p>
+      {resource.error && <Notice>{resource.error}</Notice>}
+      {resource.loading && <Loading />}
+      <TableScroll>
+        <table aria-label="客户单据对账">
+          <thead>
+            <tr>
+              <th>单据</th>
+              <th>日期</th>
+              <th>状态</th>
+              <th>应收</th>
+              <th>净实收</th>
+              <th>欠款</th>
+            </tr>
+          </thead>
+          <tbody>
+            {resource.data?.items.map((s) => (
+              <tr key={s.id}>
+                <td>
+                  <Button
+                    className="text-button"
+                    onClick={() => onSelect(s.id)}
+                  >
+                    {s.number}
+                  </Button>
+                </td>
+                <td>{s.business_date}</td>
+                <td>{saleStatus(s)}</td>
+                <td>{s.status === "posted" ? `¥${moneyText(s.due)}` : "—"}</td>
+                <td>{s.status === "posted" ? `¥${moneyText(s.paid)}` : "—"}</td>
+                <td>{s.status === "posted" ? `¥${moneyText(s.debt)}` : "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </TableScroll>
+      <p className="muted">
+        草稿、作废单不计入客户应收。点击单号查看明细、补收欠款或更正收退款。
+      </p>
+      <div className="form-actions">
+        <Button disabled={page === 1} onClick={() => setPage((p) => p - 1)}>
+          上一页
+        </Button>
+        <span>第 {page} 页</span>
+        <Button
+          disabled={(resource.data?.items.length || 0) < 50}
+          onClick={() => setPage((p) => p + 1)}
+        >
+          下一页
+        </Button>
+      </div>
+    </Modal>
+  );
+}
+
 function FinancePanel({
   revision,
   onSelect,
@@ -1171,6 +1249,7 @@ function FinancePanel({
   revision: number;
   onSelect: (id: string) => void;
 }) {
+  const [customer, setCustomer] = useState<Finance["customers"][number]>();
   const resource = useResource<Finance>("/sales/finance", revision);
   const [account, setAccount] = useState("");
   const [start, setStart] = useState("");
@@ -1226,116 +1305,178 @@ function FinancePanel({
   return (
     <section className="panel">
       <h2>收款与欠款</h2>
-      <div className="sale-amounts">
-        <span>应收：¥{moneyText(data.due)}</span>
-        <span>净实收：¥{moneyText(data.paid)}</span>
-        <strong>客户欠款：¥{moneyText(data.debt)}</strong>
+      <div className="finance-summary">
+        <div>
+          <span>销售应收</span>
+          <strong>¥{moneyText(data.due)}</strong>
+        </div>
+        <div>
+          <span>净实收</span>
+          <strong>¥{moneyText(data.paid)}</strong>
+        </div>
+        <div>
+          <span>客户欠款</span>
+          <strong>¥{moneyText(data.debt)}</strong>
+        </div>
       </div>
-      <h3>部门与业务员业绩</h3>
-      <p className="muted">
-        按有效计款单据统计，业绩金额扣除退货，作废单不计入。实收为净收款。
-      </p>
-      <TableScroll>
-        <table aria-label="业绩归属汇总">
-          <thead>
-            <tr>
-              <th>部门</th>
-              <th>业务员</th>
-              <th>单数</th>
-              <th>业绩金额</th>
-              <th>净实收</th>
-              <th>欠款</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.performance.map((p) => (
-              <tr key={`${p.department_id}:${p.salesperson_id}`}>
-                <td>{p.department_name || "未指定"}</td>
-                <td>{p.salesperson_name || "未指定"}</td>
-                <td>{p.count}</td>
-                <td>¥{moneyText(p.due)}</td>
-                <td>¥{moneyText(p.paid)}</td>
-                <td>¥{moneyText(p.debt)}</td>
-              </tr>
+      <Tabs defaultValue="customers">
+        <TabsList aria-label="财务栏目">
+          <Tab value="customers">客户欠款</Tab>
+          <Tab value="accounts">账户流水</Tab>
+          <Tab value="performance">部门业绩</Tab>
+        </TabsList>
+        <TabsPanel value="customers">
+          <h3>客户对账（全部有效单据）</h3>
+          <div className="sale-detail-lines">
+            {data.customers.map((c) => (
+              <div key={c.id}>
+                <Button className="text-button" onClick={() => setCustomer(c)}>
+                  {c.name}
+                </Button>
+                <span>
+                  应收 ¥{moneyText(c.due)} · 净实收 ¥{moneyText(c.paid)} · 欠款
+                  ¥{moneyText(c.debt)}
+                </span>
+              </div>
             ))}
-          </tbody>
-        </table>
-      </TableScroll>
-      <h3>客户对账（全部有效单据）</h3>
-      <div className="sale-detail-lines">
-        {data.customers.map((c) => (
-          <div key={c.id}>
-            <strong>{c.name}</strong>
-            <span>
-              应收 ¥{moneyText(c.due)} · 净实收 ¥{moneyText(c.paid)} · 欠款 ¥
-              {moneyText(c.debt)}
-            </span>
           </div>
-        ))}
-      </div>
-      <h3>账户收退款流水</h3>
-      <div className="form-grid">
-        <Field label="筛选账户">
-          {(p) => (
-            <Select
-              {...p}
-              value={account}
-              onChange={(e) => setAccount(e.target.value)}
-            >
-              <option value="">全部账户</option>
-              {data.accounts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </Select>
-          )}
-        </Field>
-        <TextField
-          label="开始日期"
-          type="date"
-          value={start}
-          onChange={setStart}
+        </TabsPanel>
+        <TabsPanel value="accounts">
+          <h3>账户累计汇总</h3>
+          <TableScroll>
+            <table aria-label="账户累计汇总">
+              <thead>
+                <tr>
+                  <th>账户</th>
+                  <th>累计收款</th>
+                  <th>累计退款</th>
+                  <th>净收款</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.accounts.map((a) => (
+                  <tr key={a.id}>
+                    <td>{a.name}</td>
+                    <td>¥{moneyText(a.received)}</td>
+                    <td>¥{moneyText(a.refunded)}</td>
+                    <td>¥{moneyText(a.net)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TableScroll>
+          <h3>账户收退款流水</h3>
+          <div className="form-grid">
+            <Field label="筛选账户">
+              {(p) => (
+                <Select
+                  {...p}
+                  value={account}
+                  onChange={(e) => setAccount(e.target.value)}
+                >
+                  <option value="">全部账户</option>
+                  {data.accounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+            <TextField
+              label="开始日期"
+              type="date"
+              value={start}
+              onChange={setStart}
+            />
+            <TextField
+              label="结束日期"
+              type="date"
+              value={end}
+              onChange={setEnd}
+            />
+          </div>
+          <div className="form-actions">
+            <strong>筛选净收款：¥{moneyText(total)}</strong>
+            <Button className="button" onClick={download}>
+              导出对账 CSV
+            </Button>
+          </div>
+          <TableScroll>
+            <table>
+              <thead>
+                <tr>
+                  <th>单号</th>
+                  <th>日期</th>
+                  <th>账户</th>
+                  <th>收款 / 退款</th>
+                  <th>经办人</th>
+                </tr>
+              </thead>
+              <tbody>
+                {entries.map((e) => (
+                  <tr key={e.id}>
+                    <td>
+                      <Button
+                        className="text-button"
+                        onClick={() => onSelect(e.sale_id)}
+                      >
+                        {e.number}
+                      </Button>
+                    </td>
+                    <td>{e.business_date}</td>
+                    <td>{e.account_name}</td>
+                    <td>¥{moneyText(e.amount)}</td>
+                    <td>{e.actor_name}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TableScroll>
+        </TabsPanel>
+        <TabsPanel value="performance">
+          <h3>部门与业务员业绩</h3>
+          <p className="muted">
+            按有效计款单据统计，业绩金额扣除退货，作废单不计入。实收为净收款。
+          </p>
+          <TableScroll>
+            <table aria-label="业绩归属汇总">
+              <thead>
+                <tr>
+                  <th>部门</th>
+                  <th>业务员</th>
+                  <th>单数</th>
+                  <th>业绩金额</th>
+                  <th>净实收</th>
+                  <th>欠款</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.performance.map((p) => (
+                  <tr key={`${p.department_id}:${p.salesperson_id}`}>
+                    <td>{p.department_name || "未指定"}</td>
+                    <td>{p.salesperson_name || "未指定"}</td>
+                    <td>{p.count}</td>
+                    <td>¥{moneyText(p.due)}</td>
+                    <td>¥{moneyText(p.paid)}</td>
+                    <td>¥{moneyText(p.debt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TableScroll>
+        </TabsPanel>
+      </Tabs>
+      {customer && (
+        <CustomerLedger
+          customer={
+            data.customers.find((c) => c.id === customer.id) || customer
+          }
+          revision={revision}
+          onClose={() => setCustomer(undefined)}
+          onSelect={onSelect}
         />
-        <TextField label="结束日期" type="date" value={end} onChange={setEnd} />
-      </div>
-      <div className="form-actions">
-        <strong>筛选净收款：¥{moneyText(total)}</strong>
-        <Button className="button" onClick={download}>
-          导出对账 CSV
-        </Button>
-      </div>
-      <TableScroll>
-        <table>
-          <thead>
-            <tr>
-              <th>单号</th>
-              <th>日期</th>
-              <th>账户</th>
-              <th>收款 / 退款</th>
-              <th>经办人</th>
-            </tr>
-          </thead>
-          <tbody>
-            {entries.map((e) => (
-              <tr key={e.id}>
-                <td>
-                  <Button
-                    className="text-button"
-                    onClick={() => onSelect(e.sale_id)}
-                  >
-                    {e.number}
-                  </Button>
-                </td>
-                <td>{e.business_date}</td>
-                <td>{e.account_name}</td>
-                <td>¥{moneyText(e.amount)}</td>
-                <td>{e.actor_name}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </TableScroll>
+      )}
     </section>
   );
 }
@@ -1345,13 +1486,16 @@ export default function Sales({
   revision,
   refresh,
   onDirtyChange,
+  view = "sales",
 }: {
+  view?: "sales" | "finance";
   user: User;
   revision: number;
   refresh: () => void;
   onDirtyChange: (v: boolean) => void;
 }) {
-  const [tab, setTab] = useState("list");
+  const financeView = view === "finance";
+  const [tab, setTab] = useState(financeView ? "finance" : "list");
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
@@ -1387,7 +1531,7 @@ export default function Sales({
   const select = (id: string) =>
     action.run(async () => {
       setSelected(await api<Sale>(`/sales/${id}`));
-      setTab("list");
+      setTab(financeView ? "finance" : "list");
     });
   useEffect(() => {
     const id = new URLSearchParams(location.search).get("sale_print");
@@ -1426,10 +1570,14 @@ export default function Sales({
     >
       <div className="page-heading">
         <div>
-          <h1>开单与收款</h1>
-          <p>一张单开齐物料，库存与收款同步记录。</p>
+          <h1>{financeView ? "财务" : "开单与收款"}</h1>
+          <p>
+            {financeView
+              ? "核对客户欠款、收款账户流水与部门业务员业绩。"
+              : "一张单开齐物料，库存与收款同步记录。"}
+          </p>
         </div>
-        {!editing && (
+        {!editing && !financeView && (
           <Button
             className="button primary"
             onClick={() => {
@@ -1443,7 +1591,7 @@ export default function Sales({
           </Button>
         )}
       </div>
-      <TabsList aria-label="开单与收款栏目" hidden={editing}>
+      <TabsList aria-label="开单与收款栏目" hidden={editing || financeView}>
         <Tab value="list">单据列表</Tab>
         {user.role === "admin" && <Tab value="finance">收款与欠款</Tab>}
         <Tab value="config">客户与配置</Tab>
@@ -1468,6 +1616,7 @@ export default function Sales({
           />
         ) : selected ? (
           <Detail
+            backLabel={financeView ? "返回财务" : "返回列表"}
             sale={selected}
             user={user}
             catalog={entries}
