@@ -1539,11 +1539,16 @@ export default function Sales({
     if (id) void select(id);
   }, []);
   useEffect(() => {
-    if (selected && !editing)
-      void api<Sale>(`/sales/${selected.id}`)
-        .then(setSelected)
-        .catch(() => {});
-  }, [revision]);
+    const id = selected?.id;
+    if (!id || editing) return;
+    const controller = new AbortController();
+    void api<Sale>(`/sales/${id}`, { signal: controller.signal })
+      .then((sale) => {
+        if (!controller.signal.aborted) setSelected(sale);
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [revision, selected?.id, editing]);
   const confirm = useConfirm();
   const closeEditor = async () => {
     if (

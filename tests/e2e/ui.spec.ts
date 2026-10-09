@@ -491,10 +491,11 @@ test("手机物料列表不横滑即可入库，底栏不遮挡操作", async ({
   await page.setViewportSize({ width: 375, height: 667 });
   await login(page);
   await page.screenshot({ path: "test-results/app-home-mobile.png" });
+  const itemName = `手机物料操作验收-${Date.now()}`;
   const created = await page.request.post("/api/items", {
     headers: { "X-ERP-Request": "1" },
     data: {
-      name: "手机物料操作验收",
+      name: itemName,
       kind: "原材料",
       unit: "个",
       precision: 0,
@@ -505,8 +506,15 @@ test("手机物料列表不横滑即可入库，底栏不遮挡操作", async ({
     .getByRole("navigation", { name: "主要导航" })
     .getByRole("button", { name: "库存", exact: true })
     .click();
-  await page.getByLabel("搜索物料", { exact: true }).fill("手机物料操作验收");
-  const row = page.getByRole("row").filter({ hasText: "手机物料操作验收" });
+  const searchResults = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/items" &&
+      new URL(response.url()).searchParams.get("q") === itemName &&
+      response.request().method() === "GET",
+  );
+  await page.getByLabel("搜索物料", { exact: true }).fill(itemName);
+  await searchResults;
+  const row = page.getByRole("row").filter({ hasText: itemName });
   await expect(row).toBeVisible();
   expect(
     await page

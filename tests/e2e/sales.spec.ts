@@ -1052,6 +1052,58 @@ test("账户筛选对账与 CSV 退款保持数值", async ({ request, page }) =
   ).toBeTruthy();
   await ledger.getByRole("button", { name: sale.number, exact: true }).click();
   await expect(ledger).toHaveCount(0);
+  // A refresh that finishes after returning must not reopen the old detail.
+  const detailUrl = new RegExp(`/api/sales/${sale.id}$`);
+  let refreshStarted!: () => void;
+  let releaseRefresh!: () => void;
+  let refreshDelivered!: () => void;
+  const started = new Promise<void>((resolve) => {
+    refreshStarted = resolve;
+  });
+  const released = new Promise<void>((resolve) => {
+    releaseRefresh = resolve;
+  });
+  const delivered = new Promise<void>((resolve) => {
+    refreshDelivered = resolve;
+  });
+  let refreshRequest: import("@playwright/test").Request | undefined;
+  let refreshEnded!: () => void;
+  const ended = new Promise<void>((resolve) => {
+    refreshEnded = resolve;
+  });
+  const onRequestEnd = (request: import("@playwright/test").Request) => {
+    if (request === refreshRequest) refreshEnded();
+  };
+  page.on("requestfinished", onRequestEnd);
+  page.on("requestfailed", onRequestEnd);
+  await page.route(detailUrl, async (route) => {
+    refreshRequest = route.request();
+    const response = await route.fetch();
+    refreshStarted();
+    await released;
+    // Leaving aborts this request; WebKit may have already removed its route.
+    await route.fulfill({ response }).catch(() => {});
+    refreshDelivered();
+  });
+  await page.getByRole("button", { name: "刷新数据", exact: true }).click();
+  await started;
+  await page.getByRole("button", { name: "返回财务", exact: true }).click();
+  releaseRefresh();
+  await Promise.all([delivered, ended]);
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  page.off("requestfinished", onRequestEnd);
+  page.off("requestfailed", onRequestEnd);
+  await page.unroute(detailUrl);
+  await expect(
+    page.getByRole("button", { name: "返回财务", exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: customer.name, exact: true }).click();
+  await ledger.getByRole("button", { name: sale.number, exact: true }).click();
   await page.getByRole("button", { name: "登记收款", exact: true }).click();
   const payment = page.getByRole("dialog", { name: "登记收款", exact: true });
   await payment.getByLabel("金额", { exact: false }).fill("10");
