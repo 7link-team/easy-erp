@@ -1,5 +1,13 @@
-import { Disclosure } from "../ui";
-import { Button, Form, Textarea } from "../ui";
+import {
+  Disclosure,
+  Button,
+  Form,
+  Textarea,
+  Tabs,
+  TabsList,
+  Tab,
+  TabsPanel,
+} from "../ui";
 import { useState } from "react";
 import { AuditDetails } from "../AuditDetails";
 import {
@@ -47,7 +55,13 @@ export default function Records({
     revision,
   );
   return (
-    <>
+    <Tabs
+      value={tab}
+      onValueChange={(value) => {
+        setTab(value as "documents" | "audit");
+        setPage(1);
+      }}
+    >
       <div className="page-heading">
         <div>
           <h1>记录</h1>
@@ -58,27 +72,11 @@ export default function Records({
           </p>
         </div>
       </div>
-      <div className="tabs">
-        <Button
-          className={tab === "documents" ? "active" : ""}
-          onClick={() => {
-            setTab("documents");
-            setPage(1);
-          }}
-        >
-          出入库记录
-        </Button>
-        <Button
-          className={tab === "audit" ? "active" : ""}
-          onClick={() => {
-            setTab("audit");
-            setPage(1);
-          }}
-        >
-          操作记录
-        </Button>
-      </div>
-      <section className="panel">
+      <TabsList aria-label="记录栏目">
+        <Tab value="documents">出入库记录</Tab>
+        <Tab value="audit">操作记录</Tab>
+      </TabsList>
+      <TabsPanel value={tab} className="panel">
         {(docs.error || audit.error) && (
           <Notice>{docs.error || audit.error}</Notice>
         )}
@@ -183,7 +181,7 @@ export default function Records({
             </Button>
           </div>
         </div>
-      </section>
+      </TabsPanel>
       {detail && (
         <Modal
           title={movementLabels[detail.kind] ?? "记录详情"}
@@ -256,6 +254,6 @@ export default function Records({
             )}
         </Modal>
       )}
-    </>
+    </Tabs>
   );
 }

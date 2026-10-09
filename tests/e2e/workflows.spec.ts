@@ -247,7 +247,7 @@ test("全部收发用途、数量限制、移除物料、连续登记、记录�
   await page.getByRole("button", { name: /报损.*收发用途验收/ }).click();
   await expect(page.getByRole("dialog")).toContainText("验收原因");
   await page.getByRole("button", { name: "关闭", exact: true }).click();
-  await page.getByRole("button", { name: "操作记录", exact: true }).click();
+  await page.getByRole("tab", { name: "操作记录", exact: true }).click();
   await expect(page.getByRole("table")).toContainText("报损");
   await page.getByText("查看详情", { exact: true }).first().click();
   await expect(page.locator(".audit-detail").first()).toBeVisible();

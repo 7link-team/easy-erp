@@ -292,7 +292,8 @@ a.button {
   font-size: 13px;
   margin: 6px 0 0;
 }
-.field:has(.field-error) .ui-input {
+.field:has(.field-error) .ui-input,
+.field:has(.field-error) .ui-select {
   border-color: var(--control-danger);
 }
 .ui-help-trigger {
@@ -372,4 +373,59 @@ a.button {
   border-radius: var(--control-radius);
   background: var(--accent-soft);
   color: var(--text);
+}
+
+/* Section tabs: underline selection, automatic activation and keyboard navigation. */
+.ui-tabs-list {
+  display: flex;
+  width: 100%;
+  max-width: 100%;
+  gap: 4px;
+  margin-bottom: 20px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--control-border);
+}
+.ui-tabs-list[hidden] {
+  display: none;
+}
+.ui-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-height: var(--control-height);
+  padding: 10px 12px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
+  color: var(--muted);
+  background: transparent;
+  font: inherit;
+  font-size: var(--control-font-size);
+  font-weight: 550;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ui-tab:hover {
+  color: var(--control-text);
+  background: var(--accent-soft);
+}
+.ui-tab[data-state="active"] {
+  color: var(--control-focus);
+  border-bottom-color: var(--control-focus);
+  font-weight: 650;
+}
+.ui-tab:focus-visible {
+  outline: 2px solid var(--control-focus);
+  outline-offset: -4px;
+}
+.ui-tabs-panel:focus-visible {
+  outline: 2px solid var(--control-focus);
+  outline-offset: 3px;
+}
+
+.ui-button.text-button,
+.ui-button.back-link {
+  min-height: var(--control-height);
+  color: var(--primary);
 }

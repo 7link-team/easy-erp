@@ -105,7 +105,11 @@ export function Field({
   label: string;
   hint?: string;
   required?: boolean;
-  children: (props: { id: string; "aria-describedby"?: string }) => ReactNode;
+  children: (props: {
+    id: string;
+    required?: boolean;
+    "aria-describedby"?: string;
+  }) => ReactNode;
   help?: string;
 }) {
   const id = useId();
@@ -119,6 +123,7 @@ export function Field({
       </div>
       {children({
         id,
+        required,
         "aria-describedby":
           [hint ? `${id}-hint` : "", errors[id] ? `${id}-error` : ""]
             .filter(Boolean)

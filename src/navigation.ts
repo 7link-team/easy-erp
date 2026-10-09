@@ -5,8 +5,8 @@ import { useConfirm } from "./ui";
 const pages = [
   "home",
   "inventory",
-  "records",
   "sales",
+  "records",
   "stocktakes",
   "users",
   "settings",

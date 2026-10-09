@@ -680,21 +680,6 @@ td small {
   border-radius: 7px;
   margin: 12px 0;
 }
-.tabs {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 18px;
-}
-.tabs button {
-  background: transparent;
-  padding: 11px 20px;
-  border-radius: 7px;
-  color: #526672;
-}
-.tabs button.active {
-  background: #334155;
-  color: #fff;
-}
 .document {
   width: 100%;
   display: flex;

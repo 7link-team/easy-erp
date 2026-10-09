@@ -1,7 +1,6 @@
 .sales-page {
   min-width: 0;
 }
-.sale-tabs,
 .sale-picker {
   display: flex;
   flex-wrap: wrap;
@@ -20,7 +19,7 @@
   justify-content: space-between;
   gap: 16px;
   text-align: left;
-  border-bottom: 1px solid var(--border, #ddd);
+  border-bottom: 1px solid var(--border);
   padding: 18px 8px;
   background: transparent;
 }
@@ -34,7 +33,7 @@
   flex-shrink: 0;
 }
 .sale-list-item small {
-  color: var(--muted, #555);
+  color: var(--muted);
 }
 .sale-lines {
   margin: 20px 0;
@@ -46,7 +45,7 @@
     auto;
   align-items: center;
   gap: 16px;
-  border-bottom: 1px solid #ddd;
+  border-bottom: 1px solid var(--border);
   padding: 16px 0;
 }
 .sale-line-title {
@@ -61,14 +60,14 @@
   top: 0;
 }
 .sale-line-title small {
-  color: #555;
+  color: var(--muted);
 }
 .sale-line-amount {
   font-variant-numeric: tabular-nums;
 }
 .sale-amounts {
-  background: #edf4ee;
-  border: 1px solid #d5e2d8;
+  background: var(--accent-soft);
+  border: 1px solid var(--border);
   display: flex;
   flex-wrap: wrap;
   gap: 12px 24px;
@@ -83,7 +82,7 @@
   justify-content: space-between;
   gap: 8px 24px;
   padding: 16px 0;
-  border-bottom: 1px solid #ddd;
+  border-bottom: 1px solid var(--border);
 }
 .sale-revision {
   display: flex;
@@ -91,7 +90,7 @@
   justify-content: space-between;
   gap: 12px;
   padding: 12px 0;
-  border-bottom: 1px solid #ddd;
+  border-bottom: 1px solid var(--border);
 }
 .sale-detail h2,
 .sale-list-item strong,
@@ -113,7 +112,7 @@
   width: 100%;
   height: 160px;
   object-fit: contain;
-  border: 1px solid #ddd;
+  border: 1px solid var(--border);
 }
 .sale-snapshot {
   white-space: pre-wrap;
@@ -307,7 +306,8 @@
     align-items: start;
   }
   .sale-list-item > span:last-child {
-    flex-shrink: 1;
+    flex-shrink: 0;
+    white-space: nowrap;
   }
   .sale-revision {
     align-items: start;
@@ -329,7 +329,7 @@
   margin: 12mm;
 }
 @media print {
-  body > *:not(.sales-print-overlay) {
+  body:has(.sales-print-overlay) > *:not(.sales-print-overlay) {
     display: none !important;
   }
   .sales-print-overlay {
@@ -428,12 +428,28 @@
   }
 }
 @media print {
-  html,
-  body {
+  html:has(.sales-print-overlay),
+  body:has(.sales-print-overlay) {
     overflow: visible !important;
     height: auto !important;
   }
   .sales-print-overlay.ui-dialog {
     box-shadow: none !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .sale-list-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+  .sale-list-item > span:last-child {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px 16px;
+    text-align: left;
   }
 }

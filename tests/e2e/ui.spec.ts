@@ -291,14 +291,16 @@ for (const viewport of [
     for (const name of [
       "工作台",
       "库存",
+      "开单与收款",
       "记录",
       "清点库存",
       "人员与权限",
       "数据与备份",
+      "版本更新",
     ]) {
       if (
         viewport.width <= 760 &&
-        ["人员与权限", "数据与备份"].includes(name)
+        ["开单与收款", "人员与权限", "数据与备份", "版本更新"].includes(name)
       ) {
         await page.getByRole("button", { name: "更多", exact: true }).click();
       }
@@ -308,6 +310,53 @@ for (const viewport of [
         .click();
       await expect(page.locator("main h1")).toBeVisible();
       await fits(page);
+      if (name === "记录") {
+        const tab = page.getByRole("tab", { name: "出入库记录", exact: true });
+        await tab.focus();
+        await page.keyboard.press("ArrowRight");
+        await expect(
+          page.getByRole("tab", { name: "操作记录", exact: true }),
+        ).toHaveAttribute("aria-selected", "true");
+        await expect(page.getByRole("tabpanel")).toBeVisible();
+      }
+      if (name === "开单与收款") {
+        await page
+          .getByRole("tab", { name: "客户与配置", exact: true })
+          .click();
+        const configTabs = page.getByRole("tablist", {
+          name: "销售配置栏目",
+          exact: true,
+        });
+        await configTabs
+          .getByRole("tab", { name: "业务员", exact: true })
+          .click();
+        await expect(
+          configTabs.getByRole("tab", { name: "业务员", exact: true }),
+        ).toHaveAttribute("aria-selected", "true");
+        await page
+          .getByRole("button", { name: "新增 / 设置", exact: true })
+          .click();
+        const dialog = page.getByRole("dialog", {
+          name: "新增业务员",
+          exact: true,
+        });
+        await expect(dialog).toBeVisible();
+        await expect(
+          dialog.getByRole("combobox", { name: "所属部门 必填", exact: true }),
+        ).toBeVisible();
+        await dialog
+          .getByLabel("业务员名称", { exact: false })
+          .fill("缺部门验证");
+        await dialog
+          .getByRole("button", { name: "保存配置", exact: true })
+          .click();
+        await expect(
+          dialog.getByRole("combobox", { name: "所属部门 必填", exact: true }),
+        ).toHaveAttribute("aria-invalid", "true");
+        await expect(dialog.getByRole("alert")).toHaveText("请选择此项。");
+        await page.keyboard.press("Escape");
+        await expect(dialog).toHaveCount(0);
+      }
       if (name === "库存") {
         await page
           .getByRole("button", { name: "添加物料", exact: true })
@@ -458,4 +507,149 @@ test("手机物料列表不横滑即可入库，底栏不遮挡操作", async ({
   await page.getByRole("button", { name: "确认入库", exact: true }).click();
   await expect(page.getByRole("heading", { name: "入库已完成" })).toBeVisible();
   await expect(page.getByText("本次操作完成后的库存：2 个")).toBeVisible();
+});
+
+test("全站栏目选中样式一致、侧栏分区与普通页面打印", async ({
+  page,
+}, testInfo) => {
+  await login(page);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const navigation = page.getByRole("navigation", { name: "主要导航" });
+  await expect(
+    navigation.getByRole("group", { name: "常用功能" }),
+  ).toBeVisible();
+  await expect(
+    navigation.getByRole("group", { name: "管理与设置" }),
+  ).toBeVisible();
+  await expect(
+    navigation
+      .getByRole("group", { name: "常用功能" })
+      .getByRole("button", { name: "开单与收款", exact: true }),
+  ).toBeVisible();
+  await expect(
+    navigation
+      .getByRole("group", { name: "管理与设置" })
+      .getByRole("button", { name: "数据与备份", exact: true }),
+  ).toBeVisible();
+  for (const width of [1280, 375]) {
+    await page.setViewportSize({ width, height: 800 });
+    const styles = [];
+    for (const [route, label] of [
+      ["records", "出入库记录"],
+      ["sales", "单据列表"],
+    ]) {
+      await page.goto(`/#/${route}`);
+      const tab = page.getByRole("tab", { name: label, exact: true });
+      await expect(tab).toHaveAttribute("aria-selected", "true");
+      styles.push(
+        await tab.evaluate((el) => {
+          const style = getComputedStyle(el);
+          return {
+            color: style.color,
+            border: style.borderBottomColor,
+            thickness: style.borderBottomWidth,
+            font: style.fontSize,
+            radius: style.borderRadius,
+            height: style.minHeight,
+          };
+        }),
+      );
+      await fits(page);
+      await page.screenshot({
+        path: testInfo.outputPath(`${route}-tabs-${width}.png`),
+        fullPage: true,
+      });
+    }
+    await page.getByRole("tab", { name: "客户与配置", exact: true }).click();
+    const config = page.getByRole("tablist", {
+      name: "销售配置栏目",
+      exact: true,
+    });
+    const selected = config.getByRole("tab", { selected: true });
+    styles.push(
+      await selected.evaluate((el) => {
+        const style = getComputedStyle(el);
+        return {
+          color: style.color,
+          border: style.borderBottomColor,
+          thickness: style.borderBottomWidth,
+          font: style.fontSize,
+          radius: style.borderRadius,
+          height: style.minHeight,
+        };
+      }),
+    );
+    expect(styles[1]).toEqual(styles[0]);
+    expect(styles[2]).toEqual(styles[0]);
+    await selected.focus();
+    await page.keyboard.press("End");
+    await expect(
+      config.getByRole("tab", { name: "公司信息", exact: true }),
+    ).toHaveAttribute("aria-selected", "true");
+    await page.screenshot({
+      path: testInfo.outputPath(`config-tabs-${width}.png`),
+      fullPage: true,
+    });
+    await fits(page);
+  }
+  // Loading the sales print CSS must not make an ordinary page print blank.
+  await page.goto("/#/inventory");
+  await page.getByRole("heading", { name: "库存", exact: true }).waitFor();
+  await page.emulateMedia({ media: "print" });
+  await expect(page.locator("#root")).toBeVisible();
+  await page.emulateMedia({ media: "screen" });
+});
+
+test("普通开单人的配置栏目只提供客户并能快速建档", async ({
+  page,
+  browser,
+}) => {
+  await login(page);
+  const username = `ui_worker_${Date.now()}`;
+  const response = await page.request.post("/api/users", {
+    headers: { "X-ERP-Request": "1" },
+    data: {
+      username,
+      name: "界面开单人",
+      password: "Worker-test-2026",
+      role: "worker",
+      can_out: true,
+    },
+  });
+  expect(response.ok()).toBeTruthy();
+  const context = await browser.newContext();
+  try {
+    const worker = await context.newPage();
+    await worker.request.post("/api/login", {
+      headers: { "X-ERP-Request": "1" },
+      data: { username, password: "Worker-test-2026" },
+    });
+    await worker.goto("/#/sales");
+    await expect(
+      worker.getByRole("tab", { name: "收款与欠款", exact: true }),
+    ).toHaveCount(0);
+    await worker.getByRole("tab", { name: "客户与配置", exact: true }).click();
+    const config = worker.getByRole("tablist", {
+      name: "销售配置栏目",
+      exact: true,
+    });
+    await expect(config.getByRole("tab")).toHaveCount(1);
+    await expect(
+      worker.getByRole("heading", { name: "客户", exact: true }),
+    ).toBeVisible();
+    await worker
+      .getByRole("button", { name: "新增 / 设置", exact: true })
+      .click();
+    const dialog = worker.getByRole("dialog", {
+      name: "新增客户",
+      exact: true,
+    });
+    const name = `界面客户-${Date.now()}`;
+    await dialog.getByLabel("客户名称", { exact: false }).fill(name);
+    await dialog.getByRole("button", { name: "保存配置", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(worker.getByText(name, { exact: true })).toBeVisible();
+  } finally {
+    await context.close();
+  }
 });

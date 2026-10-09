@@ -16,6 +16,7 @@ import {
   LayoutDashboard,
   PackageSearch,
   ClipboardList,
+  ReceiptText,
   ClipboardCheck,
   UsersRound,
   Settings,
@@ -462,10 +463,10 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
   const nav = [
     { id: "home", label: "工作台", icon: LayoutDashboard },
     { id: "inventory", label: "库存", icon: PackageSearch },
-    { id: "records", label: "记录", icon: ClipboardList },
     ...(user.role === "admin" || (user.role === "worker" && user.can_out)
-      ? [{ id: "sales", label: "开单与收款", icon: ClipboardList }]
+      ? [{ id: "sales", label: "开单与收款", icon: ReceiptText }]
       : []),
+    { id: "records", label: "记录", icon: ClipboardList },
     ...(user.role === "admin" || user.can_count
       ? [{ id: "stocktakes", label: "清点库存", icon: ClipboardCheck }]
       : []),
@@ -493,16 +494,36 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
           <span>库存管理</span>
         </div>
         <nav aria-label="主要导航">
-          {nav.map(({ id, label, icon: Icon }) => (
-            <Button
-              key={id}
-              className={`${page === id ? "nav-item active" : "nav-item"} ${["sales", "users", "settings", "updates"].includes(id) ? "secondary-nav" : ""}`}
-              onClick={() => navigate(id as Page)}
-              aria-current={page === id ? "page" : undefined}
+          {[
+            {
+              label: "常用功能",
+              ids: ["home", "inventory", "sales", "records", "stocktakes"],
+            },
+            { label: "管理与设置", ids: ["users", "settings", "updates"] },
+          ].map((group) => (
+            <div
+              className="nav-group"
+              role="group"
+              aria-label={group.label}
+              key={group.label}
             >
-              <Icon size={21} />
-              <span>{label}</span>
-            </Button>
+              <p className="nav-group-title" aria-hidden="true">
+                {group.label}
+              </p>
+              {nav
+                .filter(({ id }) => group.ids.includes(id))
+                .map(({ id, label, icon: Icon }) => (
+                  <Button
+                    key={id}
+                    className={`${page === id ? "nav-item active" : "nav-item"} ${["sales", "users", "settings", "updates"].includes(id) ? "secondary-nav" : ""}`}
+                    onClick={() => navigate(id as Page)}
+                    aria-current={page === id ? "page" : undefined}
+                  >
+                    <Icon size={21} />
+                    <span>{label}</span>
+                  </Button>
+                ))}
+            </div>
           ))}
           <Button
             className={`nav-item mobile-more ${moreOpen || ["sales", "users", "settings", "updates"].includes(page) ? "active" : ""}`}

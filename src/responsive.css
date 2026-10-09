@@ -5,7 +5,7 @@
   color: var(--muted);
 }
 .table-wrap:focus-visible {
-  outline: 3px solid #2563eb;
+  outline: 2px solid var(--control-focus);
   outline-offset: 3px;
 }
 .audit-detail {
@@ -143,9 +143,6 @@ tbody tr:hover {
 }
 .detail-grid {
   grid-template-columns: 120px minmax(0, 1fr);
-}
-.tabs {
-  flex-wrap: wrap;
 }
 .help {
   margin-top: 4px;

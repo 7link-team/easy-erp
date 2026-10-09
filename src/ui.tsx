@@ -13,10 +13,12 @@ import {
   type SelectHTMLAttributes,
   type FormHTMLAttributes,
   type ReactNode,
+  type ComponentProps,
 } from "react";
 import * as SelectPrimitive from "@radix-ui/react-select";
 import * as CheckboxPrimitive from "@radix-ui/react-checkbox";
 import * as Dialog from "@radix-ui/react-dialog";
+import * as TabsPrimitive from "@radix-ui/react-tabs";
 import { Check, ChevronDown, X } from "lucide-react";
 
 export function Disclosure({
@@ -54,6 +56,35 @@ export function Button({
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement>) {
   return <button {...props} type={type} className={`ui-button ${className}`} />;
+}
+
+export function Tabs(props: ComponentProps<typeof TabsPrimitive.Root>) {
+  return <TabsPrimitive.Root {...props} />;
+}
+export function TabsList({
+  className = "",
+  ...props
+}: ComponentProps<typeof TabsPrimitive.List>) {
+  return (
+    <TabsPrimitive.List {...props} className={`ui-tabs-list ${className}`} />
+  );
+}
+export function Tab({
+  className = "",
+  ...props
+}: ComponentProps<typeof TabsPrimitive.Trigger>) {
+  return <TabsPrimitive.Trigger {...props} className={`ui-tab ${className}`} />;
+}
+export function TabsPanel({
+  className = "",
+  ...props
+}: ComponentProps<typeof TabsPrimitive.Content>) {
+  return (
+    <TabsPrimitive.Content
+      {...props}
+      className={`ui-tabs-panel ${className}`}
+    />
+  );
 }
 
 export function Input({
@@ -103,6 +134,8 @@ export function Select({
   name,
   ...props
 }: SelectProps) {
+  const errors = useContext(ValidationContext);
+  const clearError = useContext(ClearValidationContext);
   const options = Children.toArray(children).filter(
     isValidElement<{
       value?: string | number;
@@ -116,9 +149,10 @@ export function Select({
       disabled={disabled}
       required={required}
       name={name}
-      onValueChange={(value) =>
-        onChange?.({ target: { value: value === EMPTY_OPTION ? "" : value } })
-      }
+      onValueChange={(value) => {
+        clearError(id ?? "");
+        onChange?.({ target: { value: value === EMPTY_OPTION ? "" : value } });
+      }}
     >
       <SelectPrimitive.Trigger
         id={id}
@@ -126,6 +160,7 @@ export function Select({
         aria-label={props["aria-label"]}
         aria-describedby={props["aria-describedby"]}
         aria-required={required}
+        aria-invalid={errors[id ?? ""] ? true : props["aria-invalid"]}
         data-value={value}
       >
         <SelectPrimitive.Value />
@@ -255,60 +290,76 @@ export function Modal({
 }
 
 export const ValidationContext = createContext<Record<string, string>>({});
+const ClearValidationContext = createContext<(id: string) => void>(() => {});
+
 export function Form({
   onSubmit,
   children,
   ...props
 }: FormHTMLAttributes<HTMLFormElement>) {
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const clearError = useCallback((id: string) => {
+    setErrors((values) => {
+      const next = { ...values };
+      delete next[id];
+      return next;
+    });
+  }, []);
   return (
-    <ValidationContext.Provider value={errors}>
-      <form
-        {...props}
-        noValidate
-        onChange={(e) => {
-          const id = (e.target as HTMLElement).id;
-          setErrors((values) => {
-            const next = { ...values };
-            delete next[id];
-            return next;
-          });
-        }}
-        onSubmit={(event) => {
-          const errors: Record<string, string> = {};
-          let first: HTMLElement | undefined;
-          for (const el of event.currentTarget.elements) {
-            if (
-              !(
-                el instanceof HTMLInputElement ||
-                el instanceof HTMLTextAreaElement
-              ) ||
-              el.disabled ||
-              el.type === "hidden" ||
-              el.validity.valid
-            )
-              continue;
-            errors[el.id] = el.validity.valueMissing
-              ? "请填写此项。"
-              : el.validity.rangeUnderflow
-                ? `不能小于 ${el.getAttribute("min")}。`
-                : el.validity.rangeOverflow
-                  ? `不能大于 ${el.getAttribute("max")}。`
-                  : "填写格式不正确，请按提示修改。";
-            first ??= el;
-          }
-          setErrors(errors);
-          if (first) {
-            event.preventDefault();
-            first.focus();
-            return;
-          }
-          onSubmit?.(event);
-        }}
-      >
-        {children}
-      </form>
-    </ValidationContext.Provider>
+    <ClearValidationContext.Provider value={clearError}>
+      <ValidationContext.Provider value={errors}>
+        <form
+          {...props}
+          noValidate
+          onChange={(e) => clearError((e.target as HTMLElement).id)}
+          onSubmit={(event) => {
+            const errors: Record<string, string> = {};
+            let first: HTMLElement | undefined;
+            for (const el of event.currentTarget.elements) {
+              if (
+                !(
+                  el instanceof HTMLInputElement ||
+                  el instanceof HTMLTextAreaElement
+                ) ||
+                el.disabled ||
+                el.type === "hidden" ||
+                el.validity.valid
+              )
+                continue;
+              errors[el.id] = el.validity.valueMissing
+                ? "请填写此项。"
+                : el.validity.rangeUnderflow
+                  ? `不能小于 ${el.getAttribute("min")}。`
+                  : el.validity.rangeOverflow
+                    ? `不能大于 ${el.getAttribute("max")}。`
+                    : "填写格式不正确，请按提示修改。";
+              first ??= el;
+            }
+            for (const select of event.currentTarget.querySelectorAll<HTMLElement>(
+              '[role="combobox"][aria-required="true"]',
+            )) {
+              if (!select.matches(":disabled") && !select.dataset.value) {
+                errors[select.id] = "请选择此项。";
+              }
+            }
+            first = Array.from(
+              event.currentTarget.querySelectorAll<HTMLElement>(
+                'input,textarea,[role="combobox"]',
+              ),
+            ).find((el) => errors[el.id]);
+            setErrors(errors);
+            if (first) {
+              event.preventDefault();
+              first.focus();
+              return;
+            }
+            onSubmit?.(event);
+          }}
+        >
+          {children}
+        </form>
+      </ValidationContext.Provider>
+    </ClearValidationContext.Provider>
   );
 }
 

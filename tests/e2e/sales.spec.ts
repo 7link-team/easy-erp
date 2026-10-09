@@ -479,6 +479,20 @@ test("真实界面多品类开单、收款、打印、手机版式与离开保�
   await expect(
     page.getByRole("heading", { name: "开单与收款", exact: true }),
   ).toBeVisible();
+  const listTab = page.getByRole("tab", { name: "单据列表", exact: true });
+  await expect(listTab).toHaveAttribute("aria-selected", "true");
+  await listTab.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(
+    page.getByRole("tab", { name: "收款与欠款", exact: true }),
+  ).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tabpanel")).toContainText("账户收退款流水");
+  await page.keyboard.press("End");
+  await expect(
+    page.getByRole("tab", { name: "客户与配置", exact: true }),
+  ).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("Home");
+  await expect(listTab).toHaveAttribute("aria-selected", "true");
   await page.getByRole("button", { name: "新建单据", exact: true }).click();
   await chooseSelect(
     page.getByRole("combobox", { name: "客户 必填", exact: true }),
@@ -935,7 +949,7 @@ test("部门业务员归属、跨部门校验、历史快照及业绩退货作�
     ),
   ).toMatchObject({ count: 1, due: 80000, paid: 5000, debt: 75000 });
   await page.getByRole("button", { name: "返回列表", exact: true }).click();
-  await page.getByRole("button", { name: "收款与欠款", exact: true }).click();
+  await page.getByRole("tab", { name: "收款与欠款", exact: true }).click();
   const row = page
     .getByRole("table", { name: "业绩归属汇总" })
     .getByRole("row")
@@ -978,7 +992,7 @@ test("账户筛选对账与 CSV 退款保持数值", async ({ request, page }) =
     amount: "20",
   });
   await page.goto("/#/sales");
-  await page.getByRole("button", { name: "收款与欠款", exact: true }).click();
+  await page.getByRole("tab", { name: "收款与欠款", exact: true }).click();
   await chooseSelect(
     page.getByRole("combobox", { name: "筛选账户", exact: false }),
     account.id,
