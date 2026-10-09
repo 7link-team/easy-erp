@@ -35,7 +35,7 @@ export function ItemForm({
   const [spec, setSpec] = useState(item?.spec ?? "");
   const [kind, setKind] = useState(item?.kind ?? "其他");
   const [unit, setUnit] = useState(item?.unit ?? "个");
-  const [precision, setPrecision] = useState(item?.precision ?? 0);
+  const precision = item?.precision ?? 3;
   const [code, setCode] = useState(item?.code ?? "");
   const [barcode, setBarcode] = useState(item?.barcode ?? "");
   const [minimum, setMinimum] = useState(
@@ -124,20 +124,10 @@ export function ItemForm({
               />
             )}
           </Field>
-          <Field label="数量格式" required>
-            {(p) => (
-              <Select
-                {...p}
-                value={precision}
-                onChange={(e) => setPrecision(Number(e.target.value))}
-              >
-                <option value={0}>整数，例如 20 个</option>
-                <option value={1}>1 位小数，例如 1.5 公斤</option>
-                <option value={2}>2 位小数，例如 1.25 公斤</option>
-                <option value={3}>3 位小数，例如 1.250 公斤</option>
-              </Select>
-            )}
-          </Field>
+          <p className="muted">
+            数量支持整数和最多 3 位小数，例如
+            10、1.25。库存数量在入库或首次库存登记时填写。
+          </p>
         </div>
         <Field label="最低库存提醒" hint="留空不提醒；填 0 表示用完时提醒。">
           {(p) => (

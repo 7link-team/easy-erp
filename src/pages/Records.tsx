@@ -218,7 +218,7 @@ export default function Records({
           ))}
           {user.role === "admin" &&
             detail.status === "posted" &&
-            !["void", "adjustment"].includes(detail.kind) && (
+            !["void", "adjustment", "sales"].includes(detail.kind) && (
               <Disclosure className="more" title="录错了？作废这笔记录">
                 <p>
                   作废入库会减去这次入库的数量，作废出库会加回这次出库的数量；原记录仍保留。已有相关退回记录或库存不够扣减时，不能作废。

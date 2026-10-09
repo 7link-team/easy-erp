@@ -205,10 +205,12 @@ export function Modal({
   title,
   children,
   onClose,
+  variant,
 }: {
   title: string;
   children: ReactNode;
   onClose: () => void;
+  variant?: "print";
 }) {
   const opener = useRef(document.activeElement);
   return (
@@ -221,7 +223,7 @@ export function Modal({
       <Dialog.Portal>
         <Dialog.Overlay className="ui-dialog-overlay" />
         <Dialog.Content
-          className="ui-dialog"
+          className={`ui-dialog ${variant === "print" ? "sales-print-overlay" : ""}`}
           aria-describedby={undefined}
           onPointerDownOutside={(e) => e.preventDefault()}
           onCloseAutoFocus={(e) => {
@@ -233,7 +235,11 @@ export function Modal({
               opener.current.focus();
           }}
         >
-          <div className="modal-heading">
+          <div
+            className={
+              variant === "print" ? "print-dialog-heading" : "modal-heading"
+            }
+          >
             <Dialog.Title>{title}</Dialog.Title>
             <Dialog.Close asChild>
               <Button className="icon-button" aria-label="关闭">

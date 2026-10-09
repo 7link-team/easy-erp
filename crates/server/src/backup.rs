@@ -15,6 +15,7 @@ use sea_orm::{
     ConnectOptions, Database,
     sqlx::{self, Acquire},
 };
+use sea_orm_migration::MigratorTrait;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -124,6 +125,11 @@ pub async fn snapshot(db: &sea_orm::DatabaseConnection, data_dir: &FsPath) -> Re
         vec![snapshot.to_string_lossy().to_string().into()],
     )
     .await?;
+    if tokio::fs::metadata(&snapshot).await?.len() > MAX_SNAPSHOT {
+        return Err(ApiError::bad(
+            "数据库（含凭证图片）超过当前 512 MB 备份上限，请联系管理员扩容。",
+        ));
+    }
     let checked = validate_database(&snapshot).await?;
     checked.close().await?;
     let created_at = now();
@@ -185,6 +191,7 @@ async fn validate_database(path: &FsPath) -> Result<sea_orm::DatabaseConnection>
             "备份中的库存数量与出入库记录对不上，不能恢复，请选择其他备份。",
         ));
     }
+    crate::sales::validate_backup(&db).await?;
     Ok(db)
 }
 pub async fn settings(s: &AppState) -> Result<Schedule> {
@@ -374,13 +381,35 @@ pub async fn restore(
     })
     .await
     .map_err(|_| ApiError::bad("无法读取备份。"))??;
-    if manifest.schema != schemas(&s.db).await? {
+    let current_schema = schemas(&s.db).await?;
+    let legacy_schema: Vec<_> = current_schema
+        .iter()
+        .filter(|v| v.as_str() != "sales_v1")
+        .cloned()
+        .collect();
+    let legacy = manifest.schema == legacy_schema;
+    if manifest.schema != current_schema && !legacy {
         return Err(ApiError::bad(
             "备份数据库版本不同，请使用匹配版本的软件恢复。",
         ));
     }
     let validation = validate_database(&snapshot).await?;
+    if schemas(&validation).await? != manifest.schema {
+        return Err(ApiError::bad("备份清单与数据库版本不一致。"));
+    }
     validation.close().await?;
+    if legacy {
+        // Upgrade only the temporary source; the live database is untouched until
+        // validation and a safety backup have both succeeded.
+        let source = snapshot.clone();
+        let mut options = ConnectOptions::new("sqlite://restore-stage");
+        options
+            .max_connections(1)
+            .map_sqlx_sqlite_opts(move |o| o.filename(&source));
+        let staged = Database::connect(options).await?;
+        crate::migration::Migrator::up(&staged, None).await?;
+        staged.close().await?;
+    }
     // Snapshot current data first. Failure leaves all current data untouched.
     let before = create(&s, &actor).await?;
     let _writes = s.writes.lock().await;
@@ -397,6 +426,13 @@ pub async fn restore(
     let outcome: Result<()> = async {
         let mut txn = connection.begin().await.map_err(ApiError::from)?;
         const TABLES: &[&str] = &[
+            "sales_attachments",
+            "sales_returns",
+            "sales_inventory",
+            "sales_cash",
+            "sales_revisions",
+            "sales",
+            "sales_catalog",
             "sessions",
             "document_lines",
             "stocktake_lines",

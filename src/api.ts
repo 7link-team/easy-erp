@@ -130,9 +130,10 @@ export const movementLabels: Record<string, string> = {
   opening: "首次登记库存",
   void: "作废调整",
   adjustment: "清点调整",
+  sales: "销售关联库存",
 };
 export const quantity = (n: number, precision: number) =>
-  (n / 1000).toFixed(precision);
+  (n / 1000).toFixed(precision).replace(/(\.\d*?[1-9])0+$|\.0+$/, "$1");
 export const dateTime = (n: number) =>
   new Intl.DateTimeFormat("zh-CN", {
     month: "2-digit",

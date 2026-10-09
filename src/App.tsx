@@ -50,6 +50,7 @@ import {
   useResource,
 } from "./components";
 
+const Sales = lazy(() => import("./pages/Sales"));
 const Inventory = lazy(() => import("./pages/Inventory"));
 const Movement = lazy(() => import("./pages/Movement"));
 const Records = lazy(() => import("./pages/Records"));
@@ -266,6 +267,11 @@ function Home({
           <ChevronRight size={18} />
         </Button>
       </div>
+      {(user.role === "admin" || (user.role === "worker" && user.can_out)) && (
+        <Button className="button primary" onClick={() => navigate("sales")}>
+          开单发货
+        </Button>
+      )}
       <div className="task-grid">
         {(user.role === "admin" || user.can_in) && (
           <Button className="task-card inbound" onClick={() => navigate("in")}>
@@ -457,6 +463,9 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
     { id: "home", label: "工作台", icon: LayoutDashboard },
     { id: "inventory", label: "库存", icon: PackageSearch },
     { id: "records", label: "记录", icon: ClipboardList },
+    ...(user.role === "admin" || (user.role === "worker" && user.can_out)
+      ? [{ id: "sales", label: "开单与收款", icon: ClipboardList }]
+      : []),
     ...(user.role === "admin" || user.can_count
       ? [{ id: "stocktakes", label: "清点库存", icon: ClipboardCheck }]
       : []),
@@ -487,7 +496,7 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
           {nav.map(({ id, label, icon: Icon }) => (
             <Button
               key={id}
-              className={`${page === id ? "nav-item active" : "nav-item"} ${["users", "settings", "updates"].includes(id) ? "secondary-nav" : ""}`}
+              className={`${page === id ? "nav-item active" : "nav-item"} ${["sales", "users", "settings", "updates"].includes(id) ? "secondary-nav" : ""}`}
               onClick={() => navigate(id as Page)}
               aria-current={page === id ? "page" : undefined}
             >
@@ -496,7 +505,7 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
             </Button>
           ))}
           <Button
-            className={`nav-item mobile-more ${moreOpen || ["users", "settings", "updates"].includes(page) ? "active" : ""}`}
+            className={`nav-item mobile-more ${moreOpen || ["sales", "users", "settings", "updates"].includes(page) ? "active" : ""}`}
             aria-haspopup="dialog"
             aria-expanded={moreOpen}
             onClick={() => setMoreOpen(true)}
@@ -594,6 +603,18 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
                 }}
               />
             )}
+            {page === "sales" &&
+              (user.role === "admin" ||
+                (user.role === "worker" && user.can_out)) && (
+                <Sales
+                  user={user}
+                  revision={revision}
+                  refresh={refresh}
+                  onDirtyChange={(value) => {
+                    dirty.current = value;
+                  }}
+                />
+              )}
             {page === "records" && (
               <Records user={user} revision={revision} refresh={refresh} />
             )}
@@ -627,7 +648,7 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
           <nav className="more-menu" aria-label="更多功能">
             {nav
               .filter((item) =>
-                ["users", "settings", "updates"].includes(item.id),
+                ["sales", "users", "settings", "updates"].includes(item.id),
               )
               .map(({ id, label, icon: Icon }) => (
                 <Button

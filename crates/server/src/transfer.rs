@@ -477,9 +477,13 @@ pub async fn preview(
     Ok(Json(result))
 }
 fn row_item(row: &[String]) -> Result<ItemInput> {
-    let precision = row[5]
-        .parse::<i64>()
-        .map_err(|_| ApiError::bad("小数位数请填 0、1、2 或 3。"))?;
+    let precision = if row[5].trim().is_empty() {
+        3
+    } else {
+        row[5]
+            .parse::<i64>()
+            .map_err(|_| ApiError::bad("小数位数请填 0、1、2 或 3。"))?
+    };
     if !(0..=3).contains(&precision) || !domain::ITEM_KINDS.contains(&row[3].as_str()) {
         return Err(ApiError::bad("类型或小数位数不正确。"));
     }

@@ -7,7 +7,9 @@ mod domain;
 mod error;
 mod inventory;
 mod migration;
+mod money;
 mod network;
+mod sales;
 mod state;
 mod stocktake;
 mod transfer;
@@ -148,6 +150,24 @@ async fn main() -> anyhow::Result<()> {
                 .busy_timeout(std::time::Duration::from_secs(5))
         });
     let db = Database::connect(options).await?;
+    if db::one(
+        &db,
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='items'",
+        vec![],
+    )
+    .await?
+    .is_some()
+        && db::one(
+            &db,
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='sales'",
+            vec![],
+        )
+        .await?
+        .is_none()
+    {
+        let before = backup::snapshot(&db, &cfg.data_dir).await?;
+        tracing::info!(backup=?serde_json::to_value(before)?, "销售模块升级前备份已完成");
+    }
     migration::Migrator::up(&db, None).await?;
     let s = Arc::new(state::State {
         db,
@@ -205,6 +225,23 @@ async fn main() -> anyhow::Result<()> {
             put(inventory::update_item).delete(inventory::archive_item),
         )
         .route("/api/movements", post(inventory::movement))
+        .route("/api/sales", get(sales::list))
+        .route(
+            "/api/sales/catalog",
+            get(sales::catalog).post(sales::save_catalog),
+        )
+        .route("/api/sales/commands", post(sales::command))
+        .route("/api/sales/finance", get(sales::finance))
+        .route("/api/sales/{id}", get(sales::get))
+        .route("/api/sales/{id}/revisions/{version}", get(sales::revision))
+        .route(
+            "/api/sales/{id}/attachments",
+            post(sales::upload).layer(DefaultBodyLimit::max(10 * 1024 * 1024 + 65536)),
+        )
+        .route(
+            "/api/sales/attachments/{id}",
+            get(sales::attachment).delete(sales::remove_attachment),
+        )
         .route(
             "/api/items/{id}/permanent",
             axum::routing::delete(inventory::delete_item),

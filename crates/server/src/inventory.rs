@@ -104,11 +104,15 @@ pub struct ItemInput {
     pub spec: String,
     pub kind: String,
     pub unit: String,
+    #[serde(default = "default_precision")]
     pub precision: i64,
     #[serde(default)]
     pub barcode: String,
     pub minimum: Option<String>,
     pub version: Option<i64>,
+}
+fn default_precision() -> i64 {
+    3
 }
 fn validate_item(input: &ItemInput) -> Result<()> {
     clean(&input.name, "物料名称", 100, true)?;
@@ -518,6 +522,16 @@ async fn check_return(
     quantity: i64,
     kind: MovementKind,
 ) -> Result<()> {
+    if one(
+        db,
+        "SELECT document_id FROM sales_inventory WHERE document_id=?",
+        vec![reference.into()],
+    )
+    .await?
+    .is_some()
+    {
+        return Err(ApiError::conflict("销售关联库存请从销售单办理退货。"));
+    }
     if !matches!(kind, MovementKind::ReturnIn | MovementKind::ReturnOut) {
         return Err(ApiError::bad("只有退回记录可以关联原单。"));
     }
@@ -579,6 +593,18 @@ pub async fn void_document(
     )
     .await?
     .ok_or_else(ApiError::missing)?;
+    if one(
+        &txn,
+        "SELECT document_id FROM sales_inventory WHERE document_id=?",
+        vec![did.clone().into()],
+    )
+    .await?
+    .is_some()
+    {
+        return Err(ApiError::conflict(
+            "销售关联库存请从销售单修订或作废，确保库存与收款一致。",
+        ));
+    }
     if text(&old, "status") != "posted"
         || ["void", "adjustment"].contains(&text(&old, "kind").as_str())
     {

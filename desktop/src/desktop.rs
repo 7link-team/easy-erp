@@ -341,7 +341,7 @@ fn browser_destination(source: &url::Url, address: &str) -> Result<url::Url, Str
         || !destination.username().is_empty()
         || destination.password().is_some()
         || destination.path() != "/"
-        || destination.query().is_some()
+        || !crate::browser_address::print_query_allowed(&destination)
         || destination.fragment().is_some_and(|fragment| {
             !fragment
                 .strip_prefix("/browser-login/")

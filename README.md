@@ -6,6 +6,7 @@
 
 - 物料管理、入库、出库、库存查询及清点。
 - 管理员与工人账号、岗位权限及操作记录。
+- 多物料销售开单、自定义单据类型、系统打印、折扣抹零、收款欠款、退款退货及签字凭证。
 - SQLite 本地存储、定时备份、备份恢复及表格导入导出。
 - Web 界面与 Tauri 桌面应用，支持局域网多人访问。
 - 桌面托盘、可选开机自启，以及从桌面打开 Web。
@@ -42,9 +43,13 @@ npm run desktop:build
 npm run build
 cargo build -p easy-erp-server
 cargo test --locked
+npm run typecheck:e2e
+npx playwright install chromium webkit
+npm run test:e2e
+ERP_E2E_BROWSER=webkit npm run test:e2e
 ```
 
-Playwright 配置、测试代码及运行报告仅保留在本地，不纳入仓库。
+Playwright 配置和测试代码纳入版本管理，GitHub Actions 在 Chromium 与 WebKit 中运行完整 E2E，并上传报告、截图和 PDF。运行报告不提交到仓库。
 
 设计与验收说明见 `design-system/` 和 `docs/`。
 

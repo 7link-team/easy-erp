@@ -32,12 +32,10 @@ target/
 *.keystore
 *.jks
 
-# Local Playwright tests and generated reports
+# Generated Playwright reports
 /test-results/
 /playwright-report/
 /playwright-report-*/
-/playwright.config.*
-/tests/e2e/
 /playwright/
 /blob-report/
 /coverage/
