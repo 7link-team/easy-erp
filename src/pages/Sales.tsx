@@ -1303,7 +1303,7 @@ function FinancePanel({
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
   return (
-    <section className="panel">
+    <section className="panel finance-panel">
       <h2>收款与欠款</h2>
       <div className="finance-summary">
         <div>
@@ -1319,7 +1319,7 @@ function FinancePanel({
           <strong>¥{moneyText(data.debt)}</strong>
         </div>
       </div>
-      <Tabs defaultValue="customers">
+      <Tabs className="finance-tabs" defaultValue="customers">
         <TabsList aria-label="财务栏目">
           <Tab value="customers">客户欠款</Tab>
           <Tab value="accounts">账户流水</Tab>
@@ -1333,10 +1333,11 @@ function FinancePanel({
                 <Button className="text-button" onClick={() => setCustomer(c)}>
                   {c.name}
                 </Button>
-                <span>
-                  应收 ¥{moneyText(c.due)} · 净实收 ¥{moneyText(c.paid)} · 欠款
-                  ¥{moneyText(c.debt)}
-                </span>
+                <div className="finance-customer-amounts">
+                  <span>应收 ¥{moneyText(c.due)}</span>
+                  <span>净实收 ¥{moneyText(c.paid)}</span>
+                  <span>欠款 ¥{moneyText(c.debt)}</span>
+                </div>
               </div>
             ))}
           </div>
@@ -1366,7 +1367,7 @@ function FinancePanel({
             </table>
           </TableScroll>
           <h3>账户收退款流水</h3>
-          <div className="form-grid">
+          <div className="form-grid finance-filters">
             <Field label="筛选账户">
               {(p) => (
                 <Select
