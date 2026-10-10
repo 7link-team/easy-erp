@@ -2,8 +2,8 @@
 
 ## Objective / Phase
 Active goal：全部做到位啊。依据docs/客户需求/20261009.md、已确认需求及v2原型；整体未完成，不标记complete。
-当前ACCEPTANCE：财务期间、业务员筛选、资料月度统计和部门负责人。Direct，无subagent；共享快照/报表/界面紧密关联。
-分支feat/sales-and-receivables，HEAD 0da6570；本批验收PASS，待提交推送。用户已授权全部提交推送，不合并、不发Release。显式stage，保留数据库、tmp与预览服务。
+当前ANALYSIS：财务期间、业务员筛选、资料月度统计和部门负责人已交付；继续清点/备份原型差异复核。上一批Direct，无subagent；共享快照/报表/界面紧密关联。
+分支feat/sales-and-receivables，功能提交31e6f0e已提交推送，已核验HEAD=origin和干净工作区；本文件为交付后checkpoint，后续HEAD可能为状态记录提交。用户已授权全部提交推送，不合并、不发Release。显式stage，保留数据库、tmp与预览服务。
 
 ## Delivered
 - 2211f46：自定义角色/模块权限、逐行选料、固定标题/操作栏、财务同页、基础资料左清单右表格。
@@ -44,8 +44,8 @@ Active goal：全部做到位啊。依据docs/客户需求/20261009.md、已确�
 
 ## Remaining / Next Action
 1. 本批源码自查与原需求验收PASS：业务员按ID查询/历史归属/期间口径，财务权限与金额加载错误处理，类别快照不倒填，旧API/模板/备份兼容，手机和双浏览器已验证；复用既有余额/表单/事务，未加依赖或无关业务。
-2. 显式stage全部本批文件、检查staged diff，提交推送并核验HEAD=origin与干净状态。生成物/tmp/数据库均排除。
+2. 31e6f0e已显式stage、自查、提交推送并核验HEAD=origin；生成物/tmp/数据库均排除。
 3. 整体原型逐页收尾仍待继续：已初步核对Stocktakes.tsx选择物料只有名称/编码搜索，原型描述按分类分批；Settings.tsx备份列表只有时间/大小/下载/恢复，原型另有方式/凭证数量/存放位置。下一批先核对现有API与备份ZIP清单可复用字段，再判断需补项；每小时备份/保留天数是既定规则，不抄原型每日/每周演示策略。本批不据原型演示值引入新业务规则。成本/目标/账号绑定不重启。
 
 ## Last Checkpoint
-2026-10-10：最终Chromium25、WebKit90、Rust7、240显示与48嵌入显示通过。本批源码与文档自查/验收PASS，财务期间统计口径及业务员用户澄清已记录decisions；接下来提交推送并核验。
+2026-10-11：最终Chromium25、WebKit90、Rust7、240显示与48嵌入显示通过。本批源码与文档自查/验收PASS，31e6f0e已推送并核验。下一步核对清点分类筛选、备份真实元数据与原型差异，先读现有API和备份ZIP清单。
