@@ -242,6 +242,7 @@ async fn main() -> anyhow::Result<()> {
             "/api/sales/catalog",
             get(sales::catalog).post(sales::save_catalog),
         )
+        .route("/api/items/{id}/restore", post(inventory::restore_item))
         .route("/api/sales/commands", post(sales::command))
         .route(
             "/api/sales/catalog/{id}",

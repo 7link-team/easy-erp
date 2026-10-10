@@ -179,10 +179,10 @@ test("物料新增、重复编码校验、修改、搜索、类型与低库存�
   await expect(page.getByRole("cell", { name: /新版规格/ })).toBeVisible();
   await chooseSelect(page.getByLabel("筛选物料类型"), "原材料");
   await expect(
-    page.getByText("没有找到物料，请换个名称、规格或编码试试。"),
+    page.getByText("没有符合筛选条件的物料，请调整搜索或状态。"),
   ).toBeVisible();
   await chooseSelect(page.getByLabel("筛选物料类型"), "成品");
-  await page.getByLabel("只看库存不足").check();
+  await page.getByRole("button", { name: "低库存", exact: true }).click();
   await expect(
     page.getByRole("cell", { name: "库存不足", exact: true }),
   ).toBeVisible();

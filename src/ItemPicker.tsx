@@ -79,7 +79,7 @@ export default function ItemPicker({
               name="sale-item-search"
               type="search"
               autoComplete="off"
-              placeholder="名称、编码或条码，例如 M6…"
+              placeholder="名称、规格、编码或条码…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />

@@ -73,6 +73,7 @@ export function useNavigation(dirty: RefObject<boolean>) {
       current.current = target;
       setRoute(target);
       window.scrollTo(0, 0);
+      document.querySelector(".workspace")?.scrollTo(0, 0);
     };
     const unload = (event: BeforeUnloadEvent) => {
       if (dirty.current) {
@@ -95,6 +96,7 @@ export function useNavigation(dirty: RefObject<boolean>) {
     current.current = next;
     setRoute(next);
     window.scrollTo(0, 0);
+    document.querySelector(".workspace")?.scrollTo(0, 0);
   }
   function reset() {
     const next: Route = { page: "home", index: current.current.index };
@@ -105,6 +107,44 @@ export function useNavigation(dirty: RefObject<boolean>) {
   const back = () =>
     current.current.index > 0 ? history.back() : navigate("home");
   return { route, navigate, back, reset };
+}
+
+/** Keep ledger filters in shareable URLs without adding navigation entries per keystroke. */
+export function useQueryValue<T extends string | number>(
+  key: string,
+  fallback: T,
+) {
+  const read = () => {
+    const raw = new URLSearchParams(location.search).get(key);
+    if (raw === null) return fallback;
+    return (
+      typeof fallback === "number"
+        ? /^\d+$/.test(raw) &&
+          Number.isSafeInteger(Number(raw)) &&
+          Number(raw) > 0
+          ? Number(raw)
+          : fallback
+        : raw
+    ) as T;
+  };
+  const [value, setValue] = useState<T>(read);
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (value === fallback) params.delete(key);
+    else params.set(key, String(value));
+    const query = params.toString();
+    history.replaceState(
+      history.state,
+      "",
+      `${location.pathname}${query ? `?${query}` : ""}${location.hash}`,
+    );
+  }, [key, value, fallback]);
+  useEffect(() => {
+    const restore = () => setValue(read());
+    window.addEventListener("popstate", restore);
+    return () => window.removeEventListener("popstate", restore);
+  }, [key, fallback]);
+  return [value, setValue] as const;
 }
 
 /** iOS overlays its keyboard; keep sheets/actions inside the visible viewport. */

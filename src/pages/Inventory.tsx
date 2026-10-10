@@ -1,6 +1,7 @@
+import { useQueryValue } from "../navigation";
 import { can } from "../api";
 import { Disclosure } from "../ui";
-import { Form, Input, Select, ComboBox, Button, Checkbox } from "../ui";
+import { Form, Input, Select, ComboBox, Button, useConfirm } from "../ui";
 import { useEffect, useState } from "react";
 import {
   Plus,
@@ -211,26 +212,31 @@ export default function Inventory({
         .map((c) => c.name),
     ]),
   );
-  const [search, setSearch] = useState("");
-  const [debounced, setDebounced] = useState("");
-  const [kind, setKind] = useState("");
-  const [low, setLow] = useState(false);
-  const [page, setPage] = useState(1);
+  const [search, setSearch] = useQueryValue<string>("inventory_q", "");
+  const [debounced, setDebounced] = useState(search);
+  const [kind, setKind] = useQueryValue<string>("inventory_kind", "");
+  const [status, setStatus] = useQueryValue<string>(
+    "inventory_status",
+    "active",
+  );
+  const [sort, setSort] = useQueryValue<string>("inventory_sort", "newest");
+  const confirm = useConfirm();
+  const [page, setPage] = useQueryValue<number>("inventory_page", 1);
   const [editing, setEditing] = useState<Item | "new">();
   const [removing, setRemoving] = useState<Item>();
   const action = useAction();
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebounced(search);
-      setPage(1);
     }, 200);
     return () => clearTimeout(timer);
   }, [search]);
   const { data, error, loading } = useResource<{
     items: Item[];
     total: number;
+    counts: Record<string, number>;
   }>(
-    `/items?q=${encodeURIComponent(debounced)}&kind=${encodeURIComponent(kind)}&low=${low}&page=${page}`,
+    `/items?q=${encodeURIComponent(debounced)}&kind=${encodeURIComponent(kind)}&status=${encodeURIComponent(status)}&sort=${encodeURIComponent(sort)}&page=${page}`,
     revision,
   );
   return (
@@ -240,12 +246,25 @@ export default function Inventory({
           <h1>物料</h1>
           <p>找物料、看数量。每笔收发都有记录。</p>
         </div>
-        {can(user, "items.create") && (
-          <Button className="button primary" onClick={() => setEditing("new")}>
-            <Plus size={19} />
-            添加物料
-          </Button>
-        )}
+        <div className="row-actions">
+          {user.role === "admin" && (
+            <a
+              className="button"
+              href={`/api/export/items?format=csv&q=${encodeURIComponent(debounced)}&kind=${encodeURIComponent(kind)}&status=${encodeURIComponent(status)}&sort=${encodeURIComponent(sort)}`}
+            >
+              导出 CSV
+            </a>
+          )}
+          {can(user, "items.create") && (
+            <Button
+              className="button primary"
+              onClick={() => setEditing("new")}
+            >
+              <Plus size={19} />
+              添加物料
+            </Button>
+          )}
+        </div>
       </div>
       <section className="panel ledger-sheet inventory-sheet">
         <div className="filters">
@@ -253,9 +272,14 @@ export default function Inventory({
             <Search size={20} />
             <Input
               aria-label="搜索物料"
-              placeholder="搜索物料名称、编码或扫描条码"
+              name="inventory-search"
+              type="search"
+              placeholder="名称、规格、编码或条码…"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
             />
           </label>
           <Select
@@ -271,24 +295,50 @@ export default function Inventory({
               <option key={k}>{k}</option>
             ))}
           </Select>
-          <label className="checkbox">
-            <Checkbox
-              checked={low}
-              onChange={(e) => {
-                setLow(e.target.checked);
+          <Select
+            aria-label="物料排序"
+            value={sort}
+            onChange={(e) => {
+              setSort(e.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="newest">最近新增</option>
+            <option value="stock_asc">库存量从少到多</option>
+            <option value="stock_desc">库存量从多到少</option>
+            <option value="name">物料名称</option>
+          </Select>
+        </div>
+        <div className="filter-chips" role="group" aria-label="物料状态">
+          {[
+            ["active", "全部在用"],
+            ["low", "低库存"],
+            ["zero", "已清零"],
+            ["archived", "已停用"],
+          ].map(([value, label]) => (
+            <Button
+              key={value}
+              className="filter-chip"
+              aria-pressed={status === value}
+              onClick={() => {
+                setStatus(value);
                 setPage(1);
               }}
-            />
-            只看库存不足
-          </label>
+            >
+              {label}{" "}
+              <span aria-hidden="true">
+                {data?.counts?.[value]?.toLocaleString() ?? "…"}
+              </span>
+            </Button>
+          ))}
         </div>
         {(error || action.error) && <Notice>{error || action.error}</Notice>}
         {loading ? (
           <Loading />
         ) : !data?.items.length ? (
           <Empty>
-            {search
-              ? "没有找到物料，请换个名称、规格或编码试试。"
+            {search || kind || status !== "active"
+              ? "没有符合筛选条件的物料，请调整搜索或状态。"
               : "暂无物料，请管理员添加或导入物料。"}
           </Empty>
         ) : (
@@ -303,6 +353,7 @@ export default function Inventory({
                   <th>物料 / 规格</th>
                   <th>类型</th>
                   <th className="numeric">当前库存</th>
+                  <th className="numeric">预警线</th>
                   <th>状态</th>
                   <th>操作</th>
                 </tr>
@@ -323,8 +374,15 @@ export default function Inventory({
                       </b>{" "}
                       {item.unit}
                     </td>
+                    <td className="numeric" role="cell" data-label="预警线">
+                      {item.minimum >= 0
+                        ? `${quantity(item.minimum, item.precision)} ${item.unit}`
+                        : "未设置"}
+                    </td>
                     <td role="cell">
-                      {item.counting ? (
+                      {!item.active ? (
+                        <span className="badge">已停用</span>
+                      ) : item.counting ? (
                         <span className="badge amber">正在清点</span>
                       ) : item.minimum >= 0 && item.balance <= item.minimum ? (
                         <span className="badge amber">库存不足</span>
@@ -334,7 +392,7 @@ export default function Inventory({
                     </td>
                     <td role="cell">
                       <div className="row-actions">
-                        {can(user, "movement.in") && (
+                        {item.active && can(user, "movement.in") && (
                           <Button
                             className="button small"
                             disabled={item.counting}
@@ -344,18 +402,22 @@ export default function Inventory({
                             入库
                           </Button>
                         )}
-                        {can(user, "movement.out") && (
+                        {item.active && can(user, "movement.out") && (
                           <Button
                             className="button small"
                             disabled={item.counting || item.balance <= 0}
-                            title={item.balance <= 0 ? "无库存，暂不能出库" : undefined}
+                            title={
+                              item.balance <= 0
+                                ? "无库存，暂不能出库"
+                                : undefined
+                            }
                             onClick={() => move("out", item)}
                           >
                             <ArrowUpFromLine size={16} />
                             出库
                           </Button>
                         )}
-                        {can(user, "sales.create") && (
+                        {item.active && can(user, "sales.create") && (
                           <Button
                             className="button small"
                             disabled={item.counting || item.balance <= 0}
@@ -379,7 +441,33 @@ export default function Inventory({
                             <Pencil size={17} />
                           </Button>
                         )}
-                        {can(user, "items.delete") &&
+                        {!item.active && can(user, "items.update") && (
+                          <Button
+                            className="button small"
+                            disabled={action.busy}
+                            onClick={() =>
+                              action.run(async () => {
+                                if (
+                                  !(await confirm({
+                                    title: `启用“${item.name}”？`,
+                                    description:
+                                      "启用后可以重新登记收发，原库存和历史记录保留。",
+                                    confirmLabel: "确认启用",
+                                  }))
+                                )
+                                  return;
+                                await send(`/items/${item.id}/restore`, {
+                                  version: item.version,
+                                });
+                                refresh();
+                              })
+                            }
+                          >
+                            启用
+                          </Button>
+                        )}
+                        {item.active &&
+                          can(user, "items.delete") &&
                           item.balance === 0 &&
                           !item.counting && (
                             <Button

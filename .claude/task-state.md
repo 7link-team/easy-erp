@@ -1,52 +1,50 @@
 # Task State
 ## Goal / Objective
-用户 active goal：“全部做到位啊”。以 docs/客户需求/20261009.md 原始业务需求 + 会话确认事项为准，补齐功能并按 design-system/v2/prototype.html 做完整视觉对齐。用户已授权全部提交推送；不合并、不发 Release。
+Active goal：“全部做到位啊”。以 docs/客户需求/20261009.md + 会话确认事项为准，完成业务并按 design-system/v2/prototype.html 对齐。用户已授权全部提交推送；不合并、不发 Release。
 ## Phase / Execution
-DELIVERED 本批（开单结算/欠款打印/红色必填/关联统计/字典维护）已验收并提交推送 d3fd9c0。Direct，未使用 subagent。第一批已提交并推送 2211f46（基于 c6ebd7c）。整体原型对齐 goal 尚未完成。
-## Verified first batch
-- 共享 ItemPicker/document.css；开单与收发逐行添加、更换、删除，预选物料直接显示，标题/最终操作固定。入库允许零库存，出库/销售禁选，物料列表零库存出库快捷按钮也禁用。
-- 超库存即时提示/拦截确认但可存草稿；修订可开量考虑原单。
-- 更正流水仅列未冲销原流水，无记录禁用并说明。财务同页客户欠款/账户流水/部门业绩，不用二级 tab。
-- 自定义角色与模块动作权限已完整接入前后端；受保护管理员，旧 worker/viewer 16 组合迁移，成员会话撤销，备份/旧备份迁移。角色矩阵与嵌套新建保留父表单。
-- 基础资料初步恢复 208px 左清单 + 16px 间距 + 右表格 + 底部新增；客户/单据改表格，物料/人员去双边框留白；手机账册全宽、字段16px；登录白底修正。
-## Latest steering / scope correction
-用户指出初步视觉仍不到位、原型功能缺失，要求全部做到位。
-曾在选择题选择“本轮也增加成本与业绩目标管理”；随后对移动加权算法稳定性提出质疑，并指出原始需求无销售额目标。已重新阅读全文并答复：原文只有部门/业务员业绩归属，未要求成本核算或目标。成本和目标扩展暂停，尚未写任何相关代码；不能从原型“完成度”推导考核功能。成本算法没有获得确认。其他已有业务范围继续实现。
-## Next implementation boundary
-1. 补基础资料真实维护：当前只有弹窗新增/编辑，缺原型行内启停/计款操作、真实引用统计、排序与说明等。先复用 sales_catalog data 和现有事务、审计、版本检查；不要更改历史快照/候选删除语义。评估导入导出需按现有机制做预览/事务，不能假按钮。
-2. 补库存/单据筛选和相关查询入口。当前物料只有搜索/分类/低库存，没有零库存/停用列表；销售只有搜索/分页，缺状态筛选。客户需可查询对应实际账款（按财务权限）；退货查询目前藏详情。
-3. 逐页结构/密度/字段/行内操作视觉对照；保留用户最新确认的交互，不盲目复刻原型样例数据。工作台假趋势、均价/目标等无来源指标不许显示。
-4. 原始客户闭环全部重新验收（多品类开单→库存→折扣/抹零/欠款→补收/退款/更正→部门业务员→照片/打印→权限/审计/备份）。
-## Constraints
-- 先功能契约后代码；不自行新增会计规则。应收≠实收，历史不可随当前字典修改，数量最多3位小数。
-- 保留 tmp/ 数据库、预览服务器与截图。显式 staging，排除本地测试产物。
-- 每条用户可见回复必须以“✅ CLAUDE.md loaded 🎉”开头。
-- User明确要求 .claude/skills/web-design-guidelines；已读取/应用，最新规则在 /tmp/erp-web-interface-guidelines.md。静态及视觉审核不等于全站无障碍认证。
+Direct，未使用 subagent。本批 query parity 实现与 Chromium/WebKit 各52项回归通过，待提交推送；当前源码与构建一致。整体原型对齐仍未完成，不标记 goal complete。
+## Delivered commits
+- 2211f46：自定义角色/权限、逐行物料、固定表单标题和操作、财务同页分区及第一批原型结构。
+- d3fd9c0：开单结算/欠款签字打印/红色必填/真实关联统计/字典维护；92f5b8f 文档检查点，均已推送。
+## Verified delivered behavior
+- 开单与收发共用 ItemPicker/document.css，明细末尾添加一行，可更换/删除。入库允许零库存，出库/销售禁选；预选物料直接显示。超库存即时提示并拦截确认，草稿允许保存，修订可开量包含原单数量。
+- 可维护下拉末项“＋新增”有分隔线、浅底、统一对齐；弹窗成功后自动选择，保留父表单。固定枚举/筛选不放新增。更正流水只列未冲销原流水，无可选时明确说明。
+- 自定义角色/模块动作前后端鉴权，受保护管理员、旧 worker/viewer 16 组合迁移、会话撤销、角色备份恢复。财务为同页客户欠款/账户流水/部门业绩，保持用户确认。
+- 基础资料为左清单/右表格/底部新增；支持排序/说明、行内启停与计款、未引用删除。物料候选删除不改历史；客户/资料关联单据去重，包含历史 before/after 快照，零关联显示 0。
+- 开单/草稿编辑全部欠款/部分收款/全额收款，实际收款与确认扣库存同事务、沿用 sales.pay。草稿仅保存待登记值，修订不重复收款；无 schema 变更，无值字段省略以保留旧幂等指纹。
+- 客户原例 10050－50＝应收10000，收5000，欠5000；红色必填星号在共享 Field 统一，隐藏“必填”保留可访问名。
+- 欠款打印签字区列应收/已收/剩余欠款、客户签收及欠款确认和日期。详情上传最多两张照片，不强制作为开单前置。实际 PDF 已查看，打印关闭纸纹层以免变灰。
+## Current batch: query parity
+- inventory.rs：规格/名称/编码/条码搜索；active/low/zero/archived 状态及真实计数，库存排序；列表/导出共用谓词。恢复启用要求 items.update、版本号、事务审计。
+- sales.rs / Sales.tsx：单据状态/业务日期筛选、数量和分页；单据与收款状态分列。草稿显示未记账，确认单金额用实际 due。搜索/筛选/page 保存在 URL。
+- Records.tsx：出入库逐物料明细账册、搜索/类型、审计搜索/动作及总数；按当前条件 CSV 导出。本人记录范围和 admin-only 导出保持。
+- 手机 app-shell 内容区与底栏分成两行，workspace 在底栏上方滚动，修复较高筛选导致末行按钮被遮挡；导航时滚动 workspace 顶部；仅 screen 媒体生效。
+- tests/e2e/queries.spec.ts 新增3个集成场景：筛选/计数/排序/导出/恢复及权限，销售状态/日期/本人范围，记录/审计筛选/导出及隔离。既有 workflows 更新低库存控件与空状态文案。
+- ui.spec.ts 原测试假设统计卡片数字全白不正确；沿用既有 warning-number 琥珀色并独立断言，未改业务断言。
+## Constraints / Important decisions
+- 用户质疑成本算法稳定性并指出原文无销售额目标：成本与目标扩展暂停，尚未实施相关模型/代码；不从原型样例推断新会计/考核规则。
+- 历史数据不随字典现值重算；应收与实收区分，数量最多3位小数。
+- 用户明确要求 .claude/skills/web-design-guidelines，已读取应用，规则最新获取至 /tmp/erp-web-interface-guidelines.md。
+- 每条用户可见回复以“✅ CLAUDE.md loaded 🎉”开头。保留 tmp/ 数据与截图及既有预览服务；显式 staging，不能提交产物。
 ## Verification
-- 最新 npm build / server build / e2e typecheck / cargo fmt PASS。
-- Rust 7 passed（/tmp/erp-final-unit.log）。
-- 前批全量 Chromium 76 个不同场景已通过；最新原型相关 Chromium 47 passed /tmp/erp-prototype-chromium.log。
-- 最新全量 WebKit **76 passed (14.6m)** /tmp/erp-prototype-webkit.log。
-- 零库存快捷出库新增断言已在WebKit通过；Chromium补测1 passed /tmp/erp-zero-final.log。
-- 表单18显示组合PASS /tmp/erp-form-aligned-audit.log；五个账册页面90显示组合无纯色对比度/溢出发现 /tmp/erp-ledger-audit.log。渐变人工检查，实体手机软键盘/打印机未测。
-## Preview
-Vite http://127.0.0.1:5173 → backend 4280，数据 /tmp/erp-live，PID **73441**（已重启最新已验证binary）。admin / Aa123456!。5500用户原型、4290与8912预览保留。
-截图 tmp/reference-basedata.png、reference-mobile-basedata.png；最新实装 tmp/aligned-{catalog,customers,sales,inventory,users}-{1280,390,320}-{light,dark}.png。
-## Current work: 新建单据欠款
-用户发现新建单据缺少欠款选项。已确认当前只有确认后单独收款；实施金额结算选择全部欠款/部分收款/全额收款、账户及欠款预览。复用现有 prepare/cash/command 事务及 sales.pay 权限；草稿仅保存待登记收款，确认时实际入账，修订不重复收款。无数据库 schema 变更，旧 JSON 默认无收款。
-第二批字典排序/说明、行内计款与启停、引用数、未使用删除已实现；已修正历史 before/after 快照引用路径，历史引用删除保护测试通过。
-## Latest additions (verified)
-- 新单全部欠款/部分收款/全额收款；SaleInput.initial_payment 及草稿JSON保留，确认时与库存同事务写入流水；不改 schema。旧请求无该字段时序列化省略以保持幂等 fingerprint 兼容。
-- 用户追加：全站必填红色 *（Field 统一，隐藏“必填”保留可访问名）；客户关联单据一直 —（原运行旧后端未返回新统计，现已重启验证显示真实 3 单；修正历史快照 before/after 引用路径并去重）；欠款打印给客户签字并拍照上传（打印原已有金额，现增加签字区明确欠款确认及详情指引，复用现有最多两张上传）。
-- 新增 E2E 验证客户原例、草稿/收款幂等/失败回滚/权限、打印及上传、客户历史关联统计。全部通过。
-## Current batch verification and review
-- Build: npm run build + cargo build -p easy-erp-server PASS；npm run typecheck:e2e / cargo fmt --all --check / git diff --check PASS。
-- Rust 7 passed /tmp/erp-settlement-unit.log。
-- sales/catalog/roles Chromium **31 passed** /tmp/erp-settlement-chromium.log；WebKit **31 passed** /tmp/erp-settlement-webkit.log。
-- 实际 PDF 发现纸纹层使打印变灰；打印时禁用 body::after 已修复并查看 A4 单页渲染。最终打印/权限/开单补测 Chromium **3 passed** /tmp/erp-print-final-chromium.log；WebKit **3 passed** /tmp/erp-print-final-webkit.log。
-- Live visual 1280/390/320 × light/dark 客户/字典无页面溢出；统计实际返回并显示 3 单；金额结算/红星/手机版固定页脚已查看；/tmp/erp-settlement-visual.log PASS。
-- PDF / screenshot: tmp/latest-debt-print.pdf、tmp/latest-debt-pdf-render.png、tmp/latest-settlement-mobile.png、tmp/latest-{customers,catalog}-{width}-{theme}.png。
-- Self-review PASS: 范围/复用现有事务与cash/不新增schema/旧请求指纹兼容/旧账号权限不扩大/历史关联去重/无测试产物 staging。
-- 本批用户要求 acceptance PASS；全站原型对齐尚未宣称完成；实体打印机、手机相机硬件未测，浏览器 PDF/图片上传已测。
-## Next Action
-本批业务代码已推送 d3fd9c0，远端核对一致。后续继续“Next implementation boundary”的库存/单据查询与原型差异核对；成本和目标扩展保持暂停，不将本批完成标为整体 goal complete。
+已交付批次：sales/catalog/roles Chromium31 + WebKit31；最终打印/权限各3；Rust7、前后端构建、类型及格式检查通过。此前全量 WebKit76通过。
+当前 query 批次：
+- npm run build、cargo build -p easy-erp-server PASS（先前端后嵌入式后端）；npm run typecheck:e2e / cargo fmt --all --check / git diff --check PASS。
+- Rust7 PASS /tmp/erp-query-unit.log。
+- Chromium52 PASS（4.3m）/tmp/erp-query-chromium.log。修复手机导航遮挡后的布局专项10 PASS /tmp/erp-query-layout.log。
+- WebKit52 PASS（5.9m）/tmp/erp-query-webkit.log；4289回归服务已结束。
+- 物料/单据/记录 ×1280/390/320 ×light/dark ×3字号（54组合）无页面溢出或运行时错误；已人工查看桌面销售、手机库存/销售/记录及欠款 PDF。截图 tmp/query-*.png，日志 /tmp/erp-query-visual.log。
+- 已重启4280最新嵌入式构建，并通过真实浏览器登录/物料状态计数/单据状态筛选 smoke。Vite5173继续服务最新源码。
+- 实体打印机、相机及实体手机软键盘未测；PDF与文件上传已测。不宣称全站无障碍或像素验收完成。
+## Preview / Artifacts
+Vite http://127.0.0.1:5173 → backend4280，数据 /tmp/erp-live，PID77779。admin / Aa123456!。保留5500原型、4290与8912预览。
+PDF tmp/latest-debt-print.pdf、tmp/latest-debt-pdf-render.png；前批 tmp/latest-settlement-*.png / tmp/latest-{customers,catalog}-*.png；当前 tmp/query-{inventory,sales,records}-{width}-{theme}.png。
+## Remaining work / Concrete next batch
+1. 显式提交推送 query 批次。两轮复核 PASS：复用/权限/事务/无关改动/测试产物自查；本批查询/导出/手机布局需求验收。整体原型验收仍未完成。
+2. 客户档案补真实应收/实收/欠款及往来入口，复用 FinancePanel/CustomerLedger 和 finance.read 权限；从客户打开单据后返回仍保留客户上下文。
+3. 单据列表导出复用现有 transfer 编码、单据查询和金额口径；库存导入入口从物料可达，复用现有模板/预览/确认导入，避免重复实现。
+4. 原型退货与作废汇总查询入口仍缺；详情退货/作废操作已存在。不要混淆退货减免和实际退款。
+5. 基础资料/客户/物料候选导入导出尚未齐；须复用当前解析/预览/事务和历史不回写规则。拖拽排序未做，已有数字排序。
+6. 再逐页核对真实原型/原文验收，保留财务同页、逐行选料、自定义角色等明确修改；不要把成本/目标、占位趋势当业务缺陷补进去。
+## Next Action / Checkpoint
+完成本批提交推送；随后检查 Sales.tsx 客户表及 CustomerLedger，补客户往来入口。2026-10-10，Chromium52/WebKit52通过，预览已更新。

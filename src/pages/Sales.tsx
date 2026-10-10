@@ -1,3 +1,4 @@
+import { useQueryValue } from "../navigation";
 import { can } from "../api";
 import { useEffect, useRef, useState, type ComponentProps } from "react";
 import { Plus, Search, Printer, ArrowLeft, Trash2, Pencil } from "lucide-react";
@@ -2012,9 +2013,12 @@ export default function Sales({
   const [tab, setTab] = useState(
     configView ? "config" : financeView ? "finance" : "list",
   );
-  const [search, setSearch] = useState("");
-  const [query, setQuery] = useState("");
-  const [page, setPage] = useState(1);
+  const [search, setSearch] = useQueryValue<string>("sales_q", "");
+  const [query, setQuery] = useState(search);
+  const [listStatus, setListStatus] = useQueryValue<string>("sales_status", "");
+  const [listFrom, setListFrom] = useQueryValue<string>("sales_from", "");
+  const [listTo, setListTo] = useQueryValue<string>("sales_to", "");
+  const [page, setPage] = useQueryValue<number>("sales_page", 1);
   const [selected, setSelected] = useState<Sale>();
   const [editing, setEditing] = useState(!!initialItem);
   const [prefill, setPrefill] = useState(initialItem);
@@ -2034,16 +2038,19 @@ export default function Sales({
       : undefined,
     revision + local,
   );
-  const list = useResource<{ items: Sale[] }>(
+  const list = useResource<{
+    items: Sale[];
+    total: number;
+    counts: Record<string, number>;
+  }>(
     can(user, "sales.read")
-      ? `/sales?q=${encodeURIComponent(query)}&page=${page}`
+      ? `/sales?q=${encodeURIComponent(query)}&status=${encodeURIComponent(listStatus)}&from=${encodeURIComponent(listFrom)}&to=${encodeURIComponent(listTo)}&page=${page}`
       : undefined,
     revision + local,
   );
   useEffect(() => {
     const t = setTimeout(() => {
       setQuery(search);
-      setPage(1);
     }, 200);
     return () => clearTimeout(t);
   }, [search]);
@@ -2283,15 +2290,76 @@ export default function Sales({
           />
         ) : tab === "list" ? (
           <section className="panel ledger-sheet sale-list-sheet">
-            <label className="search">
-              <Search size={18} />
-              <Input
-                aria-label="搜索销售单"
-                placeholder="客户、单号或物料名称"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-            </label>
+            <div className="filters sale-filters">
+              <label className="search">
+                <Search size={18} />
+                <Input
+                  aria-label="搜索销售单"
+                  name="sales-search"
+                  type="search"
+                  placeholder="客户、单号或物料名称…"
+                  value={search}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                    setPage(1);
+                  }}
+                />
+              </label>
+              <Field label="业务日期从">
+                {(p) => (
+                  <Input
+                    {...p}
+                    type="date"
+                    value={listFrom}
+                    onChange={(e) => {
+                      setListFrom(e.target.value);
+                      setPage(1);
+                    }}
+                  />
+                )}
+              </Field>
+              <Field label="业务日期至">
+                {(p) => (
+                  <Input
+                    {...p}
+                    type="date"
+                    value={listTo}
+                    onChange={(e) => {
+                      setListTo(e.target.value);
+                      setPage(1);
+                    }}
+                  />
+                )}
+              </Field>
+            </div>
+            <div
+              className="filter-chips"
+              role="group"
+              aria-label="单据状态筛选"
+            >
+              {[
+                ["", "全部"],
+                ["draft", "草稿"],
+                ["posted", "已确认"],
+                ["voided", "已作废"],
+              ].map(([value, label]) => (
+                <Button
+                  key={value}
+                  className="filter-chip"
+                  aria-pressed={listStatus === value}
+                  onClick={() => {
+                    setListStatus(value);
+                    setPage(1);
+                  }}
+                >
+                  {label}{" "}
+                  <span aria-hidden="true">
+                    {list.data?.counts?.[value || "all"]?.toLocaleString() ??
+                      "…"}
+                  </span>
+                </Button>
+              ))}
+            </div>
             {list.error && <Notice>{list.error}</Notice>}
             {list.loading && <Loading />}
             {!!list.data?.items.length && (
@@ -2303,7 +2371,8 @@ export default function Sales({
                       <th scope="col">客户</th>
                       <th scope="col">业务日期</th>
                       <th scope="col">开单 / 业绩归属</th>
-                      <th scope="col">状态</th>
+                      <th scope="col">单据状态</th>
+                      <th scope="col">收款状态</th>
                       <th scope="col" className="numeric">
                         金额 / 欠款
                       </th>
@@ -2334,18 +2403,50 @@ export default function Sales({
                             {s.salesperson_name || "未指定"}
                           </small>
                         </td>
-                        <td data-label="状态">
+                        <td data-label="单据状态">
                           <span
-                            className={`badge ${s.status === "voided" ? "" : s.debt > 0 ? "amber" : "green"}`}
+                            className={`badge ${s.status === "posted" ? "green" : s.status === "draft" ? "amber" : ""}`}
                           >
-                            {saleStatus(s)}
+                            {
+                              {
+                                draft: "草稿",
+                                posted: "已确认",
+                                voided: "已作废",
+                              }[s.status]
+                            }
+                          </span>
+                        </td>
+                        <td data-label="收款状态">
+                          <span
+                            className={`badge ${s.status === "posted" && s.billable ? (s.debt > 0 ? "amber" : "green") : ""}`}
+                          >
+                            {s.status === "draft"
+                              ? "未记账"
+                              : s.status === "voided"
+                                ? "已冲销"
+                                : !s.billable
+                                  ? "不计款"
+                                  : s.debt <= 0
+                                    ? "已结清"
+                                    : s.paid > 0
+                                      ? "部分收款"
+                                      : "未收款"}
                           </span>
                         </td>
                         <td className="numeric" data-label="金额 / 欠款">
                           {s.billable ? (
                             <>
-                              <strong>¥{moneyText(s.total)}</strong>
-                              <small>欠款 ¥{moneyText(s.debt)}</small>
+                              <strong>
+                                ¥
+                                {moneyText(
+                                  s.status === "draft" ? s.total : s.due,
+                                )}
+                              </strong>
+                              <small>
+                                {s.status === "draft"
+                                  ? "草稿金额 · 未记账"
+                                  : `欠款 ¥${moneyText(s.debt)}`}
+                              </small>
                             </>
                           ) : (
                             "不计款"
@@ -2358,20 +2459,30 @@ export default function Sales({
               </TableScroll>
             )}
             {list.data && !list.data.items.length && (
-              <Empty>暂无单据，点击新建单据开始。</Empty>
+              <Empty>
+                {query || listStatus || listFrom || listTo
+                  ? "没有符合筛选条件的单据。"
+                  : "暂无单据，点击新建单据开始。"}
+              </Empty>
             )}
             <div className="form-actions">
               <Button
                 className="button"
-                disabled={page === 1}
+                disabled={page === 1 || list.loading || search !== query}
                 onClick={() => setPage((n) => n - 1)}
               >
                 上一页
               </Button>
-              <span>第 {page} 页</span>
+              <span>
+                共 {list.data?.total ?? 0} 张 · 第 {page} 页
+              </span>
               <Button
                 className="button"
-                disabled={(list.data?.items.length || 0) < 50}
+                disabled={
+                  list.loading ||
+                  search !== query ||
+                  page * 50 >= (list.data?.total ?? 0)
+                }
                 onClick={() => setPage((n) => n + 1)}
               >
                 下一页

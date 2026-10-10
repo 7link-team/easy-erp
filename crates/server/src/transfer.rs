@@ -38,7 +38,8 @@ pub struct Options {
     #[serde(default = "default_format")]
     format: String,
     #[serde(default)]
-    q: String,
+    #[serde(flatten)]
+    filter: inventory::Filter,
 }
 fn default_format() -> String {
     "xlsx".into()
@@ -166,8 +167,13 @@ pub async fn export(
     let txn = s.db.begin().await?;
     let table = match mode.as_str() {
         "items" => {
-            let q = clean(&options.q, "搜索", 100, false)?;
-            let rows=all(&txn,"SELECT * FROM items WHERE active=1 AND (?='' OR instr(name,?)>0 OR instr(code,?)>0) ORDER BY code",vec![q.clone().into(),q.clone().into(),q.into()]).await?;
+            let (clause, values, order) = inventory::item_filter(&options.filter)?;
+            let rows = all(
+                &txn,
+                &format!("SELECT * FROM items WHERE {clause} ORDER BY {order} LIMIT 50001"),
+                values,
+            )
+            .await?;
             if rows.len() > 50_000 {
                 return Err(ApiError::bad("导出超过 50000 行，请缩小筛选范围。"));
             }
@@ -202,9 +208,12 @@ pub async fn export(
             }
         }
         "documents" => {
-            let rows=all(&txn,"SELECT d.number,d.kind,d.actor_name,d.person,d.status,d.note,d.created_at,l.item_code,l.item_name,l.unit,l.precision,l.delta,l.balance_after FROM documents d JOIN document_lines l ON d.id=l.document_id ORDER BY d.created_at DESC LIMIT 50001",vec![]).await?;
+            let (clause, values) = inventory::document_filter(&options.filter, &actor)?;
+            let rows=all(&txn,&format!("SELECT d.number,d.kind,d.actor_name,d.person,d.status,d.note,d.created_at,l.item_code,l.item_name,l.unit,l.precision,l.delta,l.balance_after FROM documents d JOIN document_lines l ON d.id=l.document_id WHERE {clause} ORDER BY d.created_at DESC,d.id,l.id LIMIT 50001"),values).await?;
             if rows.len() > 50_000 {
-                return Err(ApiError::bad("记录超过 50000 行，请按日期分批导出。"));
+                return Err(ApiError::bad(
+                    "记录超过 50000 行，请缩小搜索或类型筛选范围。",
+                ));
             }
             Table {
                 headers: [
@@ -248,10 +257,13 @@ pub async fn export(
             }
         }
         "audit" => {
+            let (clause, values) = inventory::audit_filter(&options.filter, &actor)?;
             let rows = all(
                 &txn,
-                "SELECT * FROM audit ORDER BY created_at DESC LIMIT 50001",
-                vec![],
+                &format!(
+                    "SELECT * FROM audit WHERE {clause} ORDER BY created_at DESC,id LIMIT 50001"
+                ),
+                values,
             )
             .await?;
             if rows.len() > 50_000 {

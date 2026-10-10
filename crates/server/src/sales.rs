@@ -814,6 +814,9 @@ pub struct Filter {
     pub q: Option<String>,
     pub page: Option<i64>,
     pub customer_id: Option<String>,
+    pub status: Option<String>,
+    pub from: Option<String>,
+    pub to: Option<String>,
 }
 pub async fn list(
     State(s): State<AppState>,
@@ -826,7 +829,46 @@ pub async fn list(
     let q = clean(filter.q.as_deref().unwrap_or(""), "搜索", 100, false)?;
     let customer = filter.customer_id.unwrap_or_default();
     let page = filter.page.unwrap_or(1).clamp(1, 1000000);
-    let rows=all(&txn,"SELECT data FROM sales WHERE (?=1 OR actor_id=?) AND (?='' OR customer_id=?) AND (?='' OR instr(data,?)>0) ORDER BY created_at DESC,id LIMIT 50 OFFSET ?",vec![actor.can("sales.all").into(),actor.id.clone().into(),customer.clone().into(),customer.into(),q.clone().into(),q.into(),((page-1)*50).into()]).await?;
+    let status = filter.status.unwrap_or_default();
+    if !["", "draft", "posted", "voided"].contains(&status.as_str()) {
+        return Err(ApiError::bad("单据状态筛选无效。"));
+    }
+    let from = filter
+        .from
+        .filter(|v| !v.is_empty())
+        .map(|v| date(&v))
+        .transpose()?
+        .unwrap_or_default();
+    let to = filter
+        .to
+        .filter(|v| !v.is_empty())
+        .map(|v| date(&v))
+        .transpose()?
+        .unwrap_or_default();
+    if !from.is_empty() && !to.is_empty() && from > to {
+        return Err(ApiError::bad("开始日期不能晚于结束日期。"));
+    }
+    let base = "(?=1 OR actor_id=?) AND (?='' OR customer_id=?) AND (?='' OR instr(data,?)>0) AND (?='' OR json_extract(data,'$.business_date')>=?) AND (?='' OR json_extract(data,'$.business_date')<=?)";
+    let mut values: Vec<sea_orm::Value> = vec![
+        actor.can("sales.all").into(),
+        actor.id.clone().into(),
+        customer.clone().into(),
+        customer.into(),
+        q.clone().into(),
+        q.into(),
+        from.clone().into(),
+        from.into(),
+        to.clone().into(),
+        to.into(),
+    ];
+    let counts = one(&txn, &format!("SELECT COUNT(*) AS total,COUNT(CASE WHEN status='draft' THEN 1 END) AS draft,COUNT(CASE WHEN status='posted' THEN 1 END) AS posted,COUNT(CASE WHEN status='voided' THEN 1 END) AS voided FROM sales WHERE {base}"),values.clone()).await?.unwrap();
+    let total = int(&counts, if status.is_empty() { "total" } else { &status });
+    values.extend([
+        status.clone().into(),
+        status.into(),
+        ((page - 1) * 50).into(),
+    ]);
+    let rows=all(&txn,&format!("SELECT data FROM sales WHERE {base} AND (?='' OR status=?) ORDER BY created_at DESC,id LIMIT 50 OFFSET ?"), values).await?;
     let mut items = vec![];
     for row in rows {
         let sale: Sale = serde_json::from_str(&text(&row, "data"))
@@ -839,7 +881,9 @@ pub async fn list(
         v["debt"] = json!(due(&sale, &r) - p);
         items.push(v);
     }
-    Ok(Json(json!({"items":items,"page":page})))
+    Ok(Json(
+        json!({"items":items,"page":page,"total":total,"counts":{"all":int(&counts,"total"),"draft":int(&counts,"draft"),"posted":int(&counts,"posted"),"voided":int(&counts,"voided")}}),
+    ))
 }
 pub async fn get(
     State(s): State<AppState>,

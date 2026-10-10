@@ -1,7 +1,10 @@
+import { useQueryValue } from "../navigation";
 import { can } from "../api";
 import {
   Disclosure,
   Button,
+  Input,
+  Select,
   Form,
   Textarea,
   Tabs,
@@ -9,7 +12,8 @@ import {
   Tab,
   TabsPanel,
 } from "../ui";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Search } from "lucide-react";
 import { AuditDetails } from "../AuditDetails";
 import {
   type User,
@@ -42,17 +46,36 @@ export default function Records({
   revision: number;
   refresh: () => void;
 }) {
-  const [tab, setTab] = useState<"documents" | "audit">("documents");
-  const [page, setPage] = useState(1);
+  const [tabValue, setTab] = useQueryValue<string>("records_tab", "documents");
+  const tab = tabValue === "audit" ? "audit" : "documents";
+  const [page, setPage] = useQueryValue<number>("records_page", 1);
+  const [search, setSearch] = useQueryValue<string>("records_q", "");
+  const [query, setQuery] = useState(search);
+  const [kind, setKind] = useQueryValue<string>("records_kind", "");
+  const [auditKind, setAuditKind] = useQueryValue<string>("records_action", "");
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setQuery(search);
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [search]);
   const [detail, setDetail] = useState<Document>();
   const [reason, setReason] = useState("");
   const action = useAction();
-  const docs = useResource<{ items: Document[] }>(
-    `/documents?page=${page}`,
+  const docs = useResource<{ items: Document[]; total: number }>(
+    tab === "documents"
+      ? `/documents?page=${page}&q=${encodeURIComponent(query)}&kind=${encodeURIComponent(kind)}`
+      : undefined,
     revision,
   );
-  const audit = useResource<{ items: Audit[] }>(
-    `/audit?page=${page}`,
+  const audit = useResource<{
+    items: Audit[];
+    total: number;
+    actions: string[];
+  }>(
+    tab === "audit"
+      ? `/audit?page=${page}&q=${encodeURIComponent(query)}&kind=${encodeURIComponent(auditKind)}`
+      : undefined,
     revision,
   );
   return (
@@ -72,59 +95,171 @@ export default function Records({
               : "查看自己登记的收发和操作记录。"}
           </p>
         </div>
+        {user.role === "admin" && (
+          <a
+            className="button"
+            href={`/api/export/${tab}?format=csv&q=${encodeURIComponent(query)}&kind=${encodeURIComponent(tab === "documents" ? kind : auditKind)}`}
+          >
+            导出 CSV
+          </a>
+        )}
       </div>
       <TabsList aria-label="记录栏目">
         <Tab value="documents">出入库记录</Tab>
         <Tab value="audit">操作记录</Tab>
       </TabsList>
-      <TabsPanel value={tab} className="panel">
-        {(docs.error || audit.error) && (
-          <Notice>{docs.error || audit.error}</Notice>
+      <TabsPanel value={tab} className="panel ledger-sheet records-sheet">
+        <div className="filters">
+          <label className="search">
+            <Search size={18} aria-hidden="true" />
+            <Input
+              aria-label="搜索记录"
+              name="records-search"
+              type="search"
+              placeholder={
+                tab === "documents"
+                  ? "物料、单号或操作人…"
+                  : "操作人、动作或详情…"
+              }
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
+            />
+          </label>
+          {tab === "audit" && (
+            <Select
+              aria-label="筛选操作类型"
+              value={auditKind}
+              onChange={(e) => {
+                setAuditKind(e.target.value);
+                setPage(1);
+              }}
+            >
+              <option value="">全部操作</option>
+              {audit.data?.actions?.map((action) => (
+                <option key={action} value={action}>
+                  {action.replaceAll("盘点", "清点")}
+                </option>
+              ))}
+            </Select>
+          )}
+        </div>
+        {tab === "documents" && (
+          <div className="filter-chips" role="group" aria-label="记录类型">
+            {[
+              ["", "全部"],
+              ["in", "入库"],
+              ["out", "出库"],
+              ["sales", "销售关联"],
+              ["void", "作废"],
+              ["adjustment", "清点"],
+            ].map(([value, label]) => (
+              <Button
+                key={value}
+                className="filter-chip"
+                aria-pressed={kind === value}
+                onClick={() => {
+                  setKind(value);
+                  setPage(1);
+                }}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+        )}
+        {(tab === "documents" ? docs.error : audit.error) && (
+          <Notice>{tab === "documents" ? docs.error : audit.error}</Notice>
         )}
         {tab === "documents" ? (
           docs.loading ? (
             <Loading />
           ) : !docs.data?.items.length ? (
-            <Empty>还没有出入库记录。</Empty>
+            <Empty>
+              {query || kind
+                ? "没有符合筛选条件的出入库记录。"
+                : "还没有出入库记录。"}
+            </Empty>
           ) : (
-            <div className="document-list">
-              {docs.data.items.map((doc) => (
-                <Button
-                  className="document"
-                  key={doc.id}
-                  onClick={() => {
-                    setDetail(doc);
-                    setReason("");
-                    action.setError("");
-                  }}
-                >
-                  <span
-                    className={`badge ${["issue", "shipment", "scrap", "return_out"].includes(doc.kind) ? "amber" : "green"}`}
-                  >
-                    {movementLabels[doc.kind] ?? doc.kind}
-                  </span>
-                  <span className="document-body">
-                    <strong>{doc.lines.map((l) => l.name).join("、")}</strong>
-                    <small>
-                      {doc.actor_name} · {dateTime(doc.created_at)} ·{" "}
-                      {doc.number}
-                    </small>
-                  </span>
-                  <span>
-                    {doc.status === "voided"
-                      ? "已作废"
-                      : doc.lines.length === 1
-                        ? `${doc.lines[0].delta >= 0 ? "+" : "−"}${quantity(Math.abs(doc.lines[0].delta), doc.lines[0].precision)} ${doc.lines[0].unit}`
-                        : `${doc.lines.length} 种物料`}
-                  </span>
-                </Button>
-              ))}
-            </div>
+            <TableScroll>
+              <table className="records-table" aria-label="出入库记录列表">
+                <thead>
+                  <tr>
+                    <th scope="col">时间</th>
+                    <th scope="col">动作</th>
+                    <th scope="col">物料 / 单据</th>
+                    <th scope="col" className="numeric">
+                      增减 / 剩余库存
+                    </th>
+                    <th scope="col">操作人</th>
+                    <th scope="col">说明</th>
+                    <th scope="col">状态</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {docs.data.items.flatMap((doc) =>
+                    doc.lines.map((line, index) => (
+                      <tr key={`${doc.id}-${index}`}>
+                        <td data-label="时间">{dateTime(doc.created_at)}</td>
+                        <td data-label="动作">
+                          <span
+                            className={`badge ${line.delta < 0 ? "amber" : "green"}`}
+                          >
+                            {movementLabels[doc.kind] ?? doc.kind}
+                          </span>
+                        </td>
+                        <td data-label="物料 / 单据">
+                          <Button
+                            className="record-link"
+                            aria-label={`${movementLabels[doc.kind] ?? doc.kind} ${line.name} ${doc.number}`}
+                            onClick={() => {
+                              setDetail(doc);
+                              setReason("");
+                              action.setError("");
+                            }}
+                          >
+                            <strong>{line.name}</strong>
+                            <small>{doc.number}</small>
+                          </Button>
+                        </td>
+                        <td data-label="增减 / 剩余库存" className="numeric">
+                          <strong>
+                            {line.delta >= 0 ? "+" : "−"}
+                            {quantity(
+                              Math.abs(line.delta),
+                              line.precision,
+                            )}{" "}
+                            {line.unit}
+                          </strong>
+                          <small>
+                            结存 {quantity(line.balance_after, line.precision)}{" "}
+                            {line.unit}
+                          </small>
+                        </td>
+                        <td data-label="操作人">{doc.actor_name}</td>
+                        <td data-label="说明">
+                          {doc.note || doc.person || "—"}
+                        </td>
+                        <td data-label="状态">
+                          {doc.status === "voided" ? "已作废" : "已完成"}
+                        </td>
+                      </tr>
+                    )),
+                  )}
+                </tbody>
+              </table>
+            </TableScroll>
           )
         ) : audit.loading ? (
           <Loading />
         ) : !audit.data?.items.length ? (
-          <Empty>暂无操作记录。</Empty>
+          <Empty>
+            {query || auditKind
+              ? "没有符合筛选条件的操作记录。"
+              : "暂无操作记录。"}
+          </Empty>
         ) : (
           <TableScroll>
             <table>
@@ -160,11 +295,19 @@ export default function Records({
           </TableScroll>
         )}
         <div className="pagination">
-          <span>第 {page} 页</span>
+          <span>
+            共{" "}
+            {(tab === "documents" ? docs.data?.total : audit.data?.total) ?? 0}{" "}
+            笔 · 第 {page} 页
+          </span>
           <div>
             <Button
               className="button small"
-              disabled={page === 1}
+              disabled={
+                page === 1 ||
+                (tab === "documents" ? docs.loading : audit.loading) ||
+                search !== query
+              }
               onClick={() => setPage((p) => p - 1)}
             >
               上一页
@@ -172,9 +315,12 @@ export default function Records({
             <Button
               className="button small"
               disabled={
-                (tab === "documents"
-                  ? docs.data?.items.length
-                  : audit.data?.items.length) !== 50
+                (tab === "documents" ? docs.loading : audit.loading) ||
+                search !== query ||
+                page * 50 >=
+                  ((tab === "documents"
+                    ? docs.data?.total
+                    : audit.data?.total) ?? 0)
               }
               onClick={() => setPage((p) => p + 1)}
             >

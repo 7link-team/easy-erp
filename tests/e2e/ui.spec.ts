@@ -210,9 +210,13 @@ test("工作台统计卡片保持渐变及悬停文字对比", async ({ page }) 
         "background-color",
         "rgba(255, 255, 255, 0.06)",
       );
+      // Low-stock warnings are intentionally amber on the dark band.
+      const warning = await card
+        .locator("strong")
+        .evaluate((el) => el.classList.contains("warning-number"));
       await expect(card.locator("strong")).toHaveCSS(
         "color",
-        "rgb(255, 255, 255)",
+        warning ? "rgb(255, 217, 143)" : "rgb(255, 255, 255)",
       );
     }
     await page.screenshot({
