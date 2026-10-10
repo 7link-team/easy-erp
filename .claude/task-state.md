@@ -2,7 +2,7 @@
 
 ## Objective / Phase
 Active goal：全部做到位啊。依据docs/客户需求/20261009.md、用户后续确认及v2原型；整体active，未标记complete。
-当前ANALYSIS：物料“明细”批验收/自查通过，功能提交fbd3c67已推送并核验远端一致及干净工作区；继续财务剩余差异。Direct，无subagent。本轮有实际实现与新验证，为progress。
+当前REVIEW：财务客户账册/账龄、账户占比与合计已实现并验收。完整Chromium139及最终界面22 PASS；最终WebKit首轮138 PASS/1 FAIL，原失败用例5次及queries15复验PASS，偶发输入为空尚无稳定复现。Direct，无subagent。财务本批已完成独立工作，待提交推送；全目标仍有优惠汇总澄清及已记录的偶发测试问题。
 分支feat/sales-and-receivables；用户授权全部提交推送，不合并、不发Release。保留数据库、tmp和预览服务；仅显式stage。
 
 ## Delivered / Historical Evidence
@@ -21,13 +21,30 @@ Active goal：全部做到位啊。依据docs/客户需求/20261009.md、用户�
 
 - fbd3c67：物料明细按ID定位历史、逐物料导出/完整原单、权限/停用/分页/返回/手机；Chromium54+最终10/WebKit54、Rust7和48显示组合通过。
 
-## Current Implementation / Design
+## Pending Clarification
+原型“抹零/折扣让利”汇总没有定义退货后口径，原需求未要求该指标。已用request_user_input_async询问：推荐本轮不加该汇总、保留单据优惠明细；备选为统计退货后剩余货款对应优惠。尚未收到回复，不视为批准删减原型范围，不实施未确认会计口径；其他独立工作继续。
+
+## Delivered Design — 财务账册
+- 复用finance读取事务、balances和主机本地日历，客户增加有效单据数、最早未结清业务日期和天数；结清/作废/全部退货不贡献账龄，未来日期按0天。现有应收/净实收/欠款算法不变。
+- 客户仍为有效单据往来集合，默认全部往来兼容原行为；有欠款筛选、按名称搜索、稳定排序/每页50户、筛选合计及全部筛选结果CSV。复用CustomerLedger和原权限；同名按ID分账，导出带ID。
+- 账户净收占比=账户净收/筛选净收合计。合计>0才计算；负数及超过100%的比例如实显示数字、不画截断进度条；其他比例配原型横条；合计<=0说明不计算。账户合计与流水日期/账户条件相同，保持既有现金规则。
+- UI复用TableScroll/filter-chip/Button和现有响应账册布局，客户/账户尾列明确操作，手机金额不用横滑；应用web-design-guidelines。无新schema/权限/依赖/会计规则。
+- 验收：原型字段/筛选/导出、账龄结清/退货/作废/未来日期/同名、日期与权限、0/负/超100%占比、分页刷新、手机/深浅/字号；构建前端→后端，专项→全量双浏览器，再做14菜单/需求矩阵完成性审计。
+
+## Previous Material Implementation
 - 物料尾列增加“明细”原生链接，进入现有出入库页面；按物料ID查询，同名/改名不混账，停用物料保留入口。复用导航、Records、document_filter和现有CSV导出。
 - Filter新增item_id。服务端筛选包含物料的单据并按单据分页；前端只展示该物料行；原单弹窗仍有全部物料行；导出额外约束行ID，不导出同单其他物料。
 - 当前名称/规格仅在items.read下返回；records.read/all和管理员导出权限沿用。页面说明当前物料/本人范围，提供清除筛选；空数据和失败可恢复，失败隐藏旧表。
 - URL保存筛选/页码，入口清理旧记录条件；刷新/返回/新标签复现。复用现有控件、筛选提示与响应布局，暗色说明对比度和桌面类型列/按钮排列已修正。无新schema、依赖、权限或库存事务。
 
-## Current Batch Verification
+## Finance Batch Verification
+- 前端→后端构建、E2E类型、prettier、Rust7、cargo fmt、diff-check PASS。日志/tmp/erp-finance-ledgers-{build,backend,rust}.log。
+- 新增Chromium4 PASS（16.6s）：/tmp/erp-finance-ledgers-targeted.log；涵盖账龄边界/同名/期间独立、筛选导出和权限、51户分页/清零页码、负/超100%/0占比。
+- 14菜单336显示检查PASS：/tmp/erp-acceptance-14-visual.log，截图tmp/acceptance-14-*.png。桌面14页总览与专项手机客户/账户截图已人工查看。原型对照后顶部汇总改连续账册，增加真实有效单据/已收比例/欠款户数；最终财务72组和所有已加载嵌入资源字节一致PASS：/tmp/erp-finance-ledgers-visual-final.log。
+- 预览4280已备份后更新至财务构建，session94755；备份backup-20261010-175637-4fc1d863.zip，/tmp/erp-finance-ledgers-preview-backup.json。
+- 既有销售对账E2E增加先搜索客户，以支持新50户分页，不删除业务断言。完整Chromium139项PASS（11.1m）：/tmp/erp-finance-final-all-chromium.log，session67537正常退出。该轮为汇总带改动前构建；后端业务一致，最终汇总带相关Chromium22补测PASS（1.7m），/tmp/erp-finance-final-chromium-supplement.log。最终WebKit终态138 PASS/1 FAIL（14.4m）：/tmp/erp-finance-final-all-webkit.log，session80545结束。失败为queries.spec.ts:305记录搜索后仍50行；trace显示输入框为空且仅发起q=空请求，未看到筛选请求，原因尚未确定。证据已保留tmp/finance-webkit-records-failure。原用例未修改，WebKit连续5次通过（34.2s）：/tmp/erp-finance-record-search-repro.log；完整queries15项通过（1.4m）：/tmp/erp-finance-final-queries-webkit.log。尚未确定偶发输入为空的原因，不能宣称已修复。
+
+## Previous Material Batch Verification
 - npm run build→cargo build -p easy-erp-server PASS：/tmp/erp-material-history-{build,backend}-final.log。
 - E2E类型/prettier/cargo fmt/diff-check PASS；cargo test --locked -p easy-erp-server：Rust7 PASS，/tmp/erp-material-history-rust.log。
 - 新增Chromium3 PASS：/tmp/erp-material-history-targeted-final.log。最初测试准备错误（新增API仅返回ID、入库权限依赖、角色version），按现有接口修正，未削弱业务断言。
@@ -42,23 +59,24 @@ Active goal：全部做到位啊。依据docs/客户需求/20261009.md、用户�
 - 每条回复以✅ CLAUDE.md loaded 🎉开头；直接执行，无subagent。已应用.claude/skills/web-design-guidelines/SKILL.md并刷新/tmp/erp-web-interface-guidelines.md；只声明实际范围，不宣称全站无障碍/像素完美。
 - 先前端后后端嵌入；cargo=/Users/apple/.cargo/bin/cargo。CLAUDE旧Go/monorepo命令不用于本仓库。
 - 成本/目标暂停；业务员用于业绩，无登录账号绑定，开单人独立。数量物料级最多3位；候选改删不重写物料/历史。14业务菜单，无退货；财务收款/账户/业绩三个入口定位同页、无二级tab。规范不进菜单，版本在关于；最多两张照片，不强制上传。
-- Vite5173代理4280；4280 session39164、PID26077，数据/tmp/erp-live，admin / Aa123456!；已加载最终构建。保留5500、4290、8912。
+- Vite5173代理4280；4280 session94755、PID28007，数据/tmp/erp-live，admin / Aa123456!；已加载最终构建。保留5500、4290、8912。
 - 更新前备份backup-20261010-173355-43c7d3ba.zip，/tmp/erp-material-history-preview-backup.json。
-- 最终嵌入/assets/index-DTi2vcEn.js与/assets/index-Du9Ec6k0.css已与dist字节一致验证。
+- 当前财务最终嵌入资源已与dist字节一致验证；日志/tmp/erp-finance-ledgers-visual-final.log。
 - 本批caffeinate随测试结束；不要关闭预览。实体打印机/相机/手机软键盘未测；未打包发布。
 
 ## Whole-goal Audit / Remaining
 原需求和实施方案第12节不变量已对照源与测试，需求复核有14菜单证据矩阵。物料明细缺口本批已关闭。
-FinancePanel仍缺原型客户欠款/全部筛选、逐列账册/账龄及账户占比，不得声称全目标完成。不要从演示值新增会计/授权规则。
-当前测试清单135项/23文件（仅list，不是全量执行）。前次完整Chromium菜单变更时主动中止：26PASS/1 interrupted/104未跑，/tmp/erp-final-acceptance-chromium.log。最终全目标还需完整双浏览器与当前14菜单实际页面核验；以最终代码与明确例外为准，不用历史局部通过替代全目标验收。
+FinancePanel客户欠款/全部筛选、逐列账册/账龄、账户占比及合计已实现并验收；验证详情及偶发测试失败已记录。不得将未确认的优惠经营指标或成本/目标规则宣称完成。
+当前完整测试清单139项/23文件。完整Chromium139 PASS，最终汇总栏相关22 PASS；WebKit首轮138 PASS/1 FAIL，原用例重复5次及queries15全部通过；14菜单336显示及最终财务72组合已通过。完整验收结果与单次失败边界见上，不用历史局部通过冒充无条件全绿。
 
 ## Self-Review / Batch Acceptance
-本批PASS：入口、ID隔离、历史快照、完整原单、同条件导出/分页、停用/空状态/失败恢复、权限、返回/刷新/新标签和手机操作均有实际验证。复用既有组件/API/筛选/权限；无无关重构、schema或业务规则变更。变更只含实现、回归和状态/需求文档，日志、数据库、构建物和tmp不提交。Web guidelines修改范围的原生导航、focus、状态提示、文字折行、深浅对比度和布局已复核。全目标未完成。
+财务本批PASS：客户ID分账、未结清日期/未来日期/结清与退货账龄、筛选/分页/CSV、只读权限、账户日期和净收比例、0/负/超100%与移动布局均有实际断言。复用finance事务、balances、CustomerLedger、共享控件及URL筛选；无schema、权限、依赖或资金写入规则变化。修改范围web-design-guidelines复核完成，截图与嵌入资源已核对。完整原需求、后续确认及方案第12节不变量已写入需求复核证据矩阵。
+完整WebKit首轮的单次记录搜索失败不隐藏：trace显示输入为空且无筛选请求，原代码和断言连续5次及完整queries15均通过，原因尚未确定；不宣称已修复或首轮全绿。财务新增和本次菜单功能在两浏览器通过。实体硬件未测。全目标仍active，优惠汇总口径未确认。
 
 ## Next Action
-1. 本批fbd3c67提交/推送/远端一致/干净工作区核验已完成；本文件是交付checkpoint。下一项直接执行下面财务差异，不重复物料实现或已有测试。
-2. 接续FinancePanel：补齐欠款筛选/逐列客户账册/账龄、账户占比及合计。客户集合仍为有有效单据往来客户，避免声称全部客户档案；账龄沿用dashboard从最早未结清单据业务日期到主机今日（不当合同逾期），复用balances、不改收款与历史。当前原型条形是相对最大净收对比，实施前明确真实展示公式和退款/零合计处理。
-3. 财务差异关闭后完成全目标验收：完整Chromium/WebKit、14菜单真实页面与原需求/方案/后续要求逐项证据矩阵；全部明确范围通过后才能update_goal complete。
+1. 显式暂存财务实现、回归和文档，提交推送；核对远端与工作区，记录交付checkpoint。不合并、不发布。
+2. 等用户回复原型优惠经营汇总的取舍/退货后口径；建议本轮不增加该汇总，保留现有单据优惠明细。未收到回复不实施或宣称差异关闭。
+3. 若记录搜索再次发生输入为空，使用保留trace继续定位；当前复现5次及完整相关15均通过，无证据时不臆测改产品代码。
 
 ## Last Checkpoint
-2026-10-11：物料明细批双浏览器与最终显示验收通过；预览和需求复核已更新。fbd3c67已推送并核验远端一致和干净工作区；本文件为交付checkpoint。下一批为财务剩余差异，全目标仍active。
+2026-10-11：财务批最终Chromium22 PASS（1.7m），/tmp/erp-finance-final-chromium-supplement.log。本轮测试进程均已结束，4289不保留；4280/5173等预览服务保持。当前财务批尚未提交，待上方交付动作。菜单合并已在cc2569c推送，不重复修改。全目标active。

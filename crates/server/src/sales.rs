@@ -13,7 +13,7 @@ use axum::{
     http::{HeaderMap, header},
     response::{IntoResponse, Response},
 };
-use chrono::{Datelike, Local};
+use chrono::{Datelike, Local, NaiveDate};
 use sea_orm::{ConnectionTrait, TransactionTrait};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -1514,6 +1514,7 @@ pub async fn finance(
         }
     }
     .map(|day| day.to_string());
+    let as_of = today;
     let today = today.to_string();
     let month = month.to_string();
     let mut monthly_departments = HashMap::<String, i64>::new();
@@ -1572,11 +1573,22 @@ pub async fn finance(
         total += amount;
         net_paid += received;
         let c = customers.entry(sale.customer_id.clone()).or_insert(
-            json!({"id":sale.customer_id,"name":sale.customer["name"],"due":0,"paid":0,"debt":0}),
+            json!({"id":sale.customer_id,"name":sale.customer["name"],"due":0,"paid":0,"debt":0,"count":0,"oldest_debt_date":null,"debt_days":null}),
         );
+        c["count"] = json!(c["count"].as_i64().unwrap() + 1);
         c["due"] = json!(c["due"].as_i64().unwrap() + amount);
         c["paid"] = json!(c["paid"].as_i64().unwrap() + received);
         c["debt"] = json!(c["due"].as_i64().unwrap() - c["paid"].as_i64().unwrap());
+        if amount > received
+            && c["oldest_debt_date"]
+                .as_str()
+                .is_none_or(|oldest| sale.business_date.as_str() < oldest)
+        {
+            let day = NaiveDate::parse_from_str(&sale.business_date, "%Y-%m-%d")
+                .map_err(|_| ApiError::bad("读取单据业务日期失败。"))?;
+            c["oldest_debt_date"] = json!(sale.business_date);
+            c["debt_days"] = json!(as_of.signed_duration_since(day).num_days().max(0));
+        }
     }
     // Include people without sales so they can be selected and shown as zero.
     let catalog_rows = all(

@@ -581,3 +581,426 @@ test("账户汇总与流水使用相同期间，零流水账户可查，非法�
   await expect(table).toContainText("¥0.00");
   await expect(table).toContainText(zero.name);
 });
+
+test("客户账龄只取仍未结清的业务日期，结清退货作废不拖长账龄，同名分账", async ({
+  page,
+}) => {
+  const r = page.request,
+    f = await fixture(r);
+  const make = (days: number, extra = {}) =>
+    command(r, {
+      action: "confirm",
+      input: {
+        ...f.input,
+        business_date: shift(f.today, -days),
+        lines: [{ item_id: f.item.id, quantity: "1", price: "100" }],
+        ...extra,
+      },
+    });
+  let oldest = await make(90);
+  oldest = await command(r, {
+    action: "pay",
+    sale_id: oldest.id,
+    version: oldest.version,
+    account_id: f.account.id,
+    amount: "40",
+    business_date: f.today,
+  });
+  let young = await make(10);
+  let settled = await make(120);
+  await command(r, {
+    action: "pay",
+    sale_id: settled.id,
+    version: settled.version,
+    account_id: f.account.id,
+    amount: "100",
+    business_date: f.today,
+  });
+  const returned = await make(150);
+  await command(r, {
+    action: "return",
+    sale_id: returned.id,
+    version: returned.version,
+    lines: [{ item_id: f.item.id, quantity: "1" }],
+    business_date: f.today,
+  });
+  const voided = await make(180);
+  await command(r, {
+    action: "void",
+    sale_id: voided.id,
+    version: voided.version,
+  });
+  await command(r, {
+    action: "save",
+    input: { ...f.input, business_date: shift(f.today, -200) },
+  });
+  const sample = await post(r, "/sales/catalog", {
+    kind: "type",
+    name: `${f.tag}-免费`,
+    data: { billable: false },
+  });
+  await make(300, { type_id: sample.id });
+  // Reuse the old name for another customer; historical snapshots legitimately share a name.
+  await post(r, "/sales/catalog", { ...f.customer, name: `${f.tag}-现名` });
+  const other = await post(r, "/sales/catalog", {
+    kind: "customer",
+    name: f.tag,
+  });
+  await make(-5, { customer_id: other.id });
+  const account = async () =>
+    (await finance(r)).customers.find(
+      (c: { id: string }) => c.id === f.customer.id,
+    );
+  expect(await account()).toMatchObject({
+    name: f.tag,
+    count: 5,
+    due: 30000,
+    paid: 14000,
+    debt: 16000,
+    oldest_debt_date: shift(f.today, -90),
+    debt_days: 90,
+  });
+  const otherBalance = (await finance(r)).customers.find(
+    (c: { id: string }) => c.id === other.id,
+  );
+  expect(otherBalance).toMatchObject({
+    name: f.tag,
+    count: 1,
+    debt: 10000,
+    debt_days: 0,
+    oldest_debt_date: shift(f.today, 5),
+  });
+  expect(
+    (await finance(r, "month")).customers.find(
+      (c: { id: string }) => c.id === f.customer.id,
+    ),
+  ).toEqual(await account());
+  await command(r, {
+    action: "pay",
+    sale_id: oldest.id,
+    version: oldest.version,
+    account_id: f.account.id,
+    amount: "60",
+    business_date: f.today,
+  });
+  expect(await account()).toMatchObject({
+    debt: 10000,
+    oldest_debt_date: shift(f.today, -10),
+    debt_days: 10,
+  });
+  await command(r, {
+    action: "return",
+    sale_id: young.id,
+    version: young.version,
+    lines: [{ item_id: f.item.id, quantity: "1" }],
+    business_date: f.today,
+  });
+  expect(await account()).toMatchObject({
+    count: 5,
+    due: 20000,
+    paid: 20000,
+    debt: 0,
+    oldest_debt_date: null,
+    debt_days: null,
+  });
+});
+
+test("客户账册欠款筛选搜索和CSV一致，刷新保留条件，手机对账与只读财务权限", async ({
+  page,
+  browser,
+}, testInfo) => {
+  const r = page.request,
+    f = await fixture(r);
+  const tag = `=往来-${randomUUID().slice(0, 8)}`;
+  await post(r, "/sales/catalog", { ...f.customer, name: tag });
+  const debtor = await command(r, {
+    action: "confirm",
+    input: { ...f.input, business_date: shift(f.today, -70) },
+  });
+  const settledCustomer = await post(r, "/sales/catalog", {
+    kind: "customer",
+    name: `${tag}-结清`,
+  });
+  let settled = await command(r, {
+    action: "confirm",
+    input: { ...f.input, customer_id: settledCustomer.id },
+  });
+  await command(r, {
+    action: "pay",
+    sale_id: settled.id,
+    version: settled.version,
+    account_id: f.account.id,
+    amount: "100",
+    business_date: f.today,
+  });
+  await page.goto("/#/finance");
+  const region = page.getByRole("region", { name: "客户欠款", exact: true });
+  await page.getByLabel("搜索对账客户", { exact: true }).fill(tag);
+  const table = page.getByRole("table", { name: "客户往来账册" });
+  await expect(table.locator("tbody tr")).toHaveCount(2);
+  await expect(table).toContainText("已结清");
+  await region.getByRole("button", { name: "有欠款", exact: true }).click();
+  await expect(table.locator("tbody tr")).toHaveCount(1);
+  await expect(table).toContainText("70 天");
+  await expect(table.locator("tfoot")).toContainText("¥100.00");
+  await page.reload();
+  await expect(page.getByLabel("搜索对账客户", { exact: true })).toHaveValue(
+    tag,
+  );
+  await expect(
+    region.getByRole("button", { name: "有欠款", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  const downloading = page.waitForEvent("download");
+  await page
+    .getByRole("button", { name: "导出客户对账 CSV", exact: true })
+    .click();
+  const stream = await (await downloading).createReadStream();
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream!) chunks.push(Buffer.from(chunk));
+  const csv = Buffer.concat(chunks).toString("utf8");
+  expect(csv.trim().split("\n")).toHaveLength(2);
+  expect(csv).toContain(`"'${tag}"`);
+  expect(csv).toContain(f.customer.id);
+  expect(csv).not.toContain(settledCustomer.id);
+  expect(csv).toContain('"70"');
+  await page.setViewportSize({ width: 320, height: 640 });
+  const action = table.getByRole("button", { name: "对账", exact: true });
+  await action.scrollIntoViewIfNeeded();
+  await expect(action).toBeInViewport({ ratio: 1 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: testInfo.outputPath("finance-customer-ledger-mobile.png"),
+  });
+  await action.click();
+  await expect(page.getByRole("dialog")).toContainText(debtor.number);
+  await page.getByRole("button", { name: "关闭", exact: true }).click();
+  await page.getByLabel("搜索对账客户", { exact: true }).fill("not-found");
+  await expect(
+    page.getByText("没有符合条件的往来客户。", { exact: true }),
+  ).toBeVisible();
+  const role = await post(r, "/roles", {
+    name: tag,
+    permissions: ["finance.read"],
+  });
+  const username = `fin_${randomUUID().slice(0, 8)}`;
+  await post(r, "/users", {
+    username,
+    name: username,
+    password: "Finance-test-2026",
+    role: role.id,
+  });
+  const context = await browser.newContext({
+    baseURL: "http://127.0.0.1:4289",
+  });
+  try {
+    await post(context.request, "/login", {
+      username,
+      password: "Finance-test-2026",
+    });
+    const p = await context.newPage();
+    await p.goto(`/?finance_customer_q=${encodeURIComponent(tag)}#/finance`);
+    const ledger = p.getByRole("table", { name: "客户往来账册" });
+    await expect(ledger.locator("tbody tr")).toHaveCount(2);
+    await expect(ledger.getByRole("button")).toHaveCount(0);
+    await expect(ledger).toContainText("无单据查看权限");
+    expect(
+      (await context.request.get(`/api/sales/${debtor.id}`)).status(),
+    ).toBe(403);
+  } finally {
+    await context.close();
+  }
+});
+
+test("客户账册分页覆盖全部筛选客户，CSV不截断，结清后页码回到有效范围", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  const r = page.request,
+    f = await fixture(r);
+  const tag = `分页往来-${randomUUID().slice(0, 8)}`;
+  let last;
+  for (let i = 0; i < 51; i++) {
+    const customer = await post(r, "/sales/catalog", {
+      kind: "customer",
+      name: `${tag}-${String(i).padStart(2, "0")}`,
+    });
+    last = await command(r, {
+      action: "confirm",
+      input: {
+        ...f.input,
+        customer_id: customer.id,
+        lines: [{ item_id: f.item.id, quantity: "1", price: "1" }],
+      },
+    });
+  }
+  await page.goto(
+    `/?finance_customer_q=${encodeURIComponent(tag)}&finance_customers=debt#/finance`,
+  );
+  const region = page.getByRole("region", { name: "客户欠款", exact: true });
+  const table = region.getByRole("table", { name: "客户往来账册" });
+  await expect(table.locator("tbody tr")).toHaveCount(50);
+  await region.getByRole("button", { name: "下一页", exact: true }).click();
+  await expect(table.locator("tbody tr")).toHaveCount(1);
+  await expect(table).toContainText(`${tag}-50`);
+  await page.reload();
+  await expect(
+    region.getByText("共 51 户 · 第 2 页", { exact: true }),
+  ).toBeVisible();
+  const downloading = page.waitForEvent("download");
+  await page
+    .getByRole("button", { name: "导出客户对账 CSV", exact: true })
+    .click();
+  const stream = await (await downloading).createReadStream();
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream!) chunks.push(Buffer.from(chunk));
+  expect(
+    Buffer.concat(chunks).toString("utf8").trim().split("\n"),
+  ).toHaveLength(52);
+  await command(r, {
+    action: "pay",
+    sale_id: last.id,
+    version: last.version,
+    amount: "1",
+    account_id: f.account.id,
+    business_date: f.today,
+  });
+  await page.reload();
+  await expect(
+    region.getByText("共 50 户 · 第 1 页", { exact: true }),
+  ).toBeVisible();
+  await expect(page).not.toHaveURL(/finance_customer_page=/);
+  await expect(table.locator("tbody tr")).toHaveCount(50);
+});
+
+test("账户净收占比与筛选合计一致，零流水无假占比，退款负值及超过100%如实显示", async ({
+  page,
+}, testInfo) => {
+  const r = page.request,
+    f = await fixture(r);
+  const b = await post(r, "/sales/catalog", {
+    kind: "account",
+    name: `${f.tag}-乙`,
+  });
+  const zero = await post(r, "/sales/catalog", {
+    kind: "account",
+    name: `${f.tag}-零`,
+  });
+  const day = shift(f.today, 365),
+    next = shift(day, 1);
+  let sale = await command(r, { action: "confirm", input: f.input });
+  for (const [account_id, amount] of [
+    [f.account.id, "60"],
+    [b.id, "40"],
+  ])
+    sale = await command(r, {
+      action: "pay",
+      sale_id: sale.id,
+      version: sale.version,
+      amount,
+      account_id,
+      business_date: day,
+    });
+  sale = await command(r, {
+    action: "refund",
+    sale_id: sale.id,
+    version: sale.version,
+    amount: "10",
+    account_id: b.id,
+    business_date: day,
+  });
+  await command(r, {
+    action: "refund",
+    sale_id: sale.id,
+    version: sale.version,
+    amount: "50",
+    account_id: f.account.id,
+    business_date: next,
+  });
+  const another = await command(r, { action: "confirm", input: f.input });
+  await command(r, {
+    action: "pay",
+    sale_id: another.id,
+    version: another.version,
+    amount: "70",
+    account_id: b.id,
+    business_date: next,
+  });
+  await page.goto(`/?finance_from=${day}&finance_to=${day}#/accounts`);
+  const table = page.getByRole("table", { name: "账户汇总", exact: true });
+  const accountRow = (name: string) =>
+    table
+      .locator("tbody tr")
+      .filter({ has: page.getByText(name, { exact: true }) });
+  await expect(accountRow(f.tag).locator('[data-label="净收占比"]')).toHaveText(
+    "66.7%",
+  );
+  await expect(
+    accountRow(b.name).locator('[data-label="净收占比"]'),
+  ).toHaveText("33.3%");
+  await expect(
+    accountRow(zero.name).locator('[data-label="净收占比"]'),
+  ).toHaveText("0%");
+  await expect(
+    accountRow(zero.name).locator(".finance-share-track > span"),
+  ).toHaveCSS("width", "0px");
+  await expect(table.locator('tfoot [data-label="收款合计"]')).toHaveText(
+    "¥100.00",
+  );
+  await expect(table.locator('tfoot [data-label="退款合计"]')).toHaveText(
+    "¥10.00",
+  );
+  await expect(table.locator('tfoot [data-label="净收款"]')).toHaveText(
+    "¥90.00",
+  );
+  await page.getByLabel("结束日期", { exact: false }).fill(next);
+  await page.getByLabel("开始日期", { exact: false }).fill(next);
+  await expect(accountRow(f.tag).locator('[data-label="净收占比"]')).toHaveText(
+    "-250%",
+  );
+  await expect(
+    accountRow(b.name).locator('[data-label="净收占比"]'),
+  ).toHaveText("350%");
+  await expect(accountRow(f.tag).locator(".finance-share-track")).toHaveCount(
+    0,
+  );
+  await expect(accountRow(b.name).locator(".finance-share-track")).toHaveCount(
+    0,
+  );
+  await expect(table.locator('tfoot [data-label="净收款"]')).toHaveText(
+    "¥20.00",
+  );
+  await page.setViewportSize({ width: 320, height: 640 });
+  await accountRow(b.name).scrollIntoViewIfNeeded();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: testInfo.outputPath("finance-account-share-mobile.png"),
+  });
+  await chooseSelect(
+    page.getByRole("combobox", { name: "筛选账户", exact: false }),
+    f.account.id,
+  );
+  await expect(table.locator('tfoot [data-label="净收款"]')).toHaveText(
+    "¥-50.00",
+  );
+  await expect(accountRow(f.tag).locator('[data-label="净收占比"]')).toHaveText(
+    "—",
+  );
+  await chooseSelect(
+    page.getByRole("combobox", { name: "筛选账户", exact: false }),
+    zero.id,
+  );
+  await expect(
+    accountRow(zero.name).locator('[data-label="净收占比"]'),
+  ).toHaveText("—");
+  await expect(table.locator('tfoot [data-label="净收款"]')).toHaveText(
+    "¥0.00",
+  );
+});

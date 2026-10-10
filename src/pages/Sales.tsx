@@ -1812,6 +1812,18 @@ function FinancePanel({
   navigationIndex?: number;
 }) {
   const [customer, setCustomer] = useState<Finance["customers"][number]>();
+  const [customerFilter, setCustomerFilter] = useQueryValue<string>(
+    "finance_customers",
+    "all",
+  );
+  const [customerSearch, setCustomerSearch] = useQueryValue<string>(
+    "finance_customer_q",
+    "",
+  );
+  const [customerPage, setCustomerPage] = useQueryValue<number>(
+    "finance_customer_page",
+    1,
+  );
   const [performancePeriod, setPerformancePeriod] = useQueryValue<string>(
     "performance_period",
     "all",
@@ -1830,6 +1842,50 @@ function FinancePanel({
   const [start, setStart] = useQueryValue<string>("finance_from", "");
   const [end, setEnd] = useQueryValue<string>("finance_to", "");
   const data = resource.data;
+  const customers = (data?.customers ?? [])
+    .filter(
+      (c) =>
+        (customerFilter !== "debt" || c.debt > 0) &&
+        c.name
+          .toLocaleLowerCase()
+          .includes(customerSearch.trim().toLocaleLowerCase()),
+    )
+    .sort(
+      (a, b) =>
+        a.name.localeCompare(b.name, "zh-CN") || a.id.localeCompare(b.id),
+    );
+  const customerTotals = customers.reduce(
+    (sum, c) => ({
+      due: sum.due + c.due,
+      paid: sum.paid + c.paid,
+      debt: sum.debt + c.debt,
+    }),
+    { due: 0, paid: 0, debt: 0 },
+  );
+  const currentCustomerPage = Math.min(
+    customerPage,
+    Math.max(1, Math.ceil(customers.length / 50)),
+  );
+  const visibleCustomers = customers.slice(
+    (currentCustomerPage - 1) * 50,
+    currentCustomerPage * 50,
+  );
+  useEffect(() => {
+    if (
+      data &&
+      !resource.loading &&
+      !resource.error &&
+      currentCustomerPage !== customerPage
+    )
+      setCustomerPage(currentCustomerPage);
+  }, [
+    data,
+    resource.loading,
+    resource.error,
+    currentCustomerPage,
+    customerPage,
+    setCustomerPage,
+  ]);
   const focused = useRef("");
   useEffect(() => {
     if (!data || !section) return;
@@ -1911,18 +1967,13 @@ function FinancePanel({
       };
     });
   const total = entries.reduce((a, e) => a + e.amount, 0);
-  const download = () => {
-    const rows = [
-      ["单号", "日期", "账户", "金额（元）", "经办人", "备注"],
-      ...entries.map((e) => [
-        e.number,
-        e.business_date,
-        e.account_name,
-        (e.amount / 100).toFixed(2),
-        e.actor_name,
-        e.note,
-      ]),
-    ];
+  const receivedTotal = accounts.reduce((sum, a) => sum + a.received, 0);
+  const refundedTotal = accounts.reduce((sum, a) => sum + a.refunded, 0);
+  const download = (
+    rows: string[][],
+    filename: string,
+    numericColumns: number[],
+  ) => {
     const csv =
       "\uFEFF" +
       rows
@@ -1931,7 +1982,9 @@ function FinancePanel({
             .map(
               (x, column) =>
                 '"' +
-                (column !== 3 && /^[=+\-@\t\r]/.test(x) ? "'" : "") +
+                (!numericColumns.includes(column) && /^[=+\-@\t\r]/.test(x)
+                  ? "'"
+                  : "") +
                 x.replace(/"/g, '""') +
                 '"',
             )
@@ -1943,7 +1996,7 @@ function FinancePanel({
     );
     const a = document.createElement("a");
     a.href = url;
-    a.download = "销售收款对账.csv";
+    a.download = filename;
     document.body.append(a);
     a.click();
     a.remove();
@@ -1956,14 +2009,30 @@ function FinancePanel({
         <div>
           <span>销售应收</span>
           <strong>¥{moneyText(data.due)}</strong>
+          <small>
+            有效单据{" "}
+            {data.customers
+              .reduce((sum, c) => sum + c.count, 0)
+              .toLocaleString()}{" "}
+            张
+          </small>
         </div>
         <div>
           <span>净实收</span>
           <strong>¥{moneyText(data.paid)}</strong>
+          <small>
+            {data.due > 0
+              ? `已收比例 ${new Intl.NumberFormat("zh-CN", { style: "percent", maximumFractionDigits: 1 }).format(data.paid / data.due)}`
+              : "暂无计款应收"}
+          </small>
         </div>
         <div>
           <span>客户欠款</span>
           <strong>¥{moneyText(data.debt)}</strong>
+          <small>
+            {data.customers.filter((c) => c.debt > 0).length.toLocaleString()}{" "}
+            户有欠款
+          </small>
         </div>
       </div>
       <section
@@ -1972,24 +2041,211 @@ function FinancePanel({
         tabIndex={-1}
         aria-label="客户欠款"
       >
-        <h3>客户对账（全部有效单据）</h3>
-        <div className="sale-detail-lines">
-          {data.customers.map((c) => (
-            <div key={c.id}>
-              {can(user, "sales.read") ? (
-                <Button className="text-button" onClick={() => setCustomer(c)}>
-                  {c.name}
-                </Button>
-              ) : (
-                <strong>{c.name}</strong>
-              )}
-              <div className="finance-customer-amounts">
-                <span>应收 ¥{moneyText(c.due)}</span>
-                <span>净实收 ¥{moneyText(c.paid)}</span>
-                <span>欠款 ¥{moneyText(c.debt)}</span>
-              </div>
-            </div>
-          ))}
+        <div className="section-title">
+          <h3>客户对账（全部有效单据）</h3>
+          <Button
+            className="button small"
+            onClick={() =>
+              download(
+                [
+                  [
+                    "客户ID",
+                    "客户",
+                    "有效单据数",
+                    "应收（元）",
+                    "净实收（元）",
+                    "欠款（元）",
+                    "最早未结清业务日期",
+                    "最长欠款天数",
+                  ],
+                  ...customers.map((c) => [
+                    c.id,
+                    c.name,
+                    String(c.count),
+                    (c.due / 100).toFixed(2),
+                    (c.paid / 100).toFixed(2),
+                    (c.debt / 100).toFixed(2),
+                    c.oldest_debt_date || "",
+                    c.debt_days === null ? "" : String(c.debt_days),
+                  ]),
+                ],
+                "客户往来对账.csv",
+                [2, 3, 4, 5, 7],
+              )
+            }
+          >
+            导出客户对账 CSV
+          </Button>
+        </div>
+        <div className="filters finance-customer-filters">
+          <label className="search">
+            <Search size={18} aria-hidden="true" />
+            <Input
+              name="finance-customer-search"
+              type="search"
+              aria-label="搜索对账客户"
+              placeholder="客户名称…"
+              value={customerSearch}
+              onChange={(e) => {
+                setCustomerSearch(e.target.value);
+                setCustomerPage(1);
+              }}
+            />
+          </label>
+          <div className="filter-chips" role="group" aria-label="客户欠款筛选">
+            {[
+              [
+                "debt",
+                "有欠款",
+                data.customers.filter((c) => c.debt > 0).length,
+              ],
+              ["all", "全部往来", data.customers.length],
+            ].map(([value, label, count]) => (
+              <Button
+                key={value}
+                className="filter-chip"
+                aria-pressed={customerFilter === value}
+                onClick={() => {
+                  setCustomerFilter(String(value));
+                  setCustomerPage(1);
+                }}
+              >
+                {label}{" "}
+                <span aria-hidden="true">{Number(count).toLocaleString()}</span>
+              </Button>
+            ))}
+          </div>
+        </div>
+        <p className="hint">
+          欠款天数从最早未结清单据的业务日期算至 {data.monthly.to}，未来日期按 0
+          天；不表示合同逾期。已结清、作废及全部退货的单据不增加欠款天数。
+        </p>
+        {!customers.length ? (
+          <Empty>
+            {customerSearch || customerFilter === "debt"
+              ? "没有符合条件的往来客户。"
+              : "暂无有效单据往来客户。"}
+          </Empty>
+        ) : (
+          <TableScroll>
+            <table
+              className="finance-ledger-table finance-customer-table"
+              aria-label="客户往来账册"
+            >
+              <thead>
+                <tr>
+                  <th scope="col">客户</th>
+                  <th scope="col" className="numeric">
+                    应收款
+                  </th>
+                  <th scope="col" className="numeric">
+                    净实收
+                  </th>
+                  <th scope="col" className="numeric">
+                    欠款
+                  </th>
+                  <th scope="col">最长欠款天数</th>
+                  <th scope="col" className="ledger-actions">
+                    操作
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleCustomers.map((c) => (
+                  <tr key={c.id}>
+                    <td data-label="客户" className="finance-ledger-name">
+                      {can(user, "sales.read") ? (
+                        <Button
+                          className="text-button"
+                          onClick={() => setCustomer(c)}
+                        >
+                          {c.name}
+                        </Button>
+                      ) : (
+                        <strong>{c.name}</strong>
+                      )}
+                      <small>有效单据 {c.count.toLocaleString()} 张</small>
+                    </td>
+                    <td data-label="应收款" className="numeric">
+                      ¥{moneyText(c.due)}
+                    </td>
+                    <td data-label="净实收" className="numeric">
+                      ¥{moneyText(c.paid)}
+                    </td>
+                    <td
+                      data-label="欠款"
+                      className={`numeric ${c.debt > 0 ? "finance-debt-amount" : ""}`}
+                    >
+                      ¥{moneyText(c.debt)}
+                    </td>
+                    <td data-label="最长欠款天数">
+                      {c.debt_days === null ? (
+                        "已结清"
+                      ) : (
+                        <>
+                          <span
+                            className={`badge ${c.debt_days > 60 ? "red" : c.debt_days > 30 ? "amber" : ""}`}
+                          >
+                            {c.debt_days.toLocaleString()} 天
+                          </span>
+                          <small>起于 {c.oldest_debt_date}</small>
+                        </>
+                      )}
+                    </td>
+                    <td data-label="操作" className="document-row-actions">
+                      {can(user, "sales.read") ? (
+                        <Button
+                          className="button small"
+                          onClick={() => setCustomer(c)}
+                        >
+                          对账
+                        </Button>
+                      ) : (
+                        <span className="muted">无单据查看权限</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <th scope="row">筛选合计</th>
+                  <td data-label="应收款" className="numeric">
+                    ¥{moneyText(customerTotals.due)}
+                  </td>
+                  <td data-label="净实收" className="numeric">
+                    ¥{moneyText(customerTotals.paid)}
+                  </td>
+                  <td data-label="欠款" className="numeric">
+                    ¥{moneyText(customerTotals.debt)}
+                  </td>
+                  <td colSpan={2}></td>
+                </tr>
+              </tfoot>
+            </table>
+          </TableScroll>
+        )}
+        <div className="pagination">
+          <span role="status">
+            共 {customers.length.toLocaleString()} 户 · 第 {currentCustomerPage}{" "}
+            页
+          </span>
+          <div>
+            <Button
+              className="button small"
+              disabled={currentCustomerPage === 1}
+              onClick={() => setCustomerPage(currentCustomerPage - 1)}
+            >
+              上一页
+            </Button>
+            <Button
+              className="button small"
+              disabled={currentCustomerPage * 50 >= customers.length}
+              onClick={() => setCustomerPage(currentCustomerPage + 1)}
+            >
+              下一页
+            </Button>
+          </div>
         </div>
       </section>
       <section
@@ -2058,30 +2314,77 @@ function FinancePanel({
           <>
             <h3>账户汇总（{start || end ? "筛选期间" : "全部日期"}）</h3>
             <TableScroll>
-              <table aria-label="账户汇总">
+              <table
+                className="finance-ledger-table finance-account-table"
+                aria-label="账户汇总"
+              >
                 <thead>
                   <tr>
-                    <th>账户</th>
-                    <th>收款合计</th>
-                    <th>退款合计</th>
-                    <th>净收款</th>
-                    <th>操作</th>
+                    <th scope="col">账户</th>
+                    <th scope="col" className="numeric">
+                      收款合计
+                    </th>
+                    <th scope="col" className="numeric">
+                      退款合计
+                    </th>
+                    <th scope="col" className="numeric">
+                      净收款
+                    </th>
+                    <th scope="col">净收占比</th>
+                    <th scope="col" className="ledger-actions">
+                      操作
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {accounts.map((a) => (
                     <tr key={a.id}>
-                      <td>
+                      <td data-label="账户" className="finance-ledger-name">
                         <strong>{a.name}</strong>
                         <small>
                           {a.account_type || "未指定类型"}
                           {a.active === false ? " · 停用" : ""}
                         </small>
                       </td>
-                      <td>¥{moneyText(a.received)}</td>
-                      <td>¥{moneyText(a.refunded)}</td>
-                      <td>¥{moneyText(a.net)}</td>
-                      <td>
+                      <td data-label="收款合计" className="numeric">
+                        ¥{moneyText(a.received)}
+                      </td>
+                      <td data-label="退款合计" className="numeric">
+                        ¥{moneyText(a.refunded)}
+                      </td>
+                      <td data-label="净收款" className="numeric">
+                        ¥{moneyText(a.net)}
+                      </td>
+                      <td
+                        data-label="净收占比"
+                        className="finance-account-share"
+                      >
+                        {total > 0 ? (
+                          <>
+                            <span>
+                              {new Intl.NumberFormat("zh-CN", {
+                                style: "percent",
+                                maximumFractionDigits: 1,
+                              }).format(a.net / total)}
+                            </span>
+                            {a.net >= 0 && a.net <= total && (
+                              <span
+                                className="finance-share-track"
+                                aria-hidden="true"
+                              >
+                                <span
+                                  style={{ width: `${(a.net / total) * 100}%` }}
+                                />
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          <span aria-label="净收合计不大于零，不计算占比">
+                            —
+                          </span>
+                        )}
+                      </td>
+                      <td data-label="操作" className="document-row-actions">
                         <Button
                           className="button small"
                           onClick={() => {
@@ -2100,15 +2403,60 @@ function FinancePanel({
                       </td>
                     </tr>
                   ))}
+                  {!accounts.length && (
+                    <tr>
+                      <td colSpan={6}>没有符合条件的收款账户。</td>
+                    </tr>
+                  )}
                 </tbody>
+                <tfoot>
+                  <tr>
+                    <th scope="row">筛选合计</th>
+                    <td data-label="收款合计" className="numeric">
+                      ¥{moneyText(receivedTotal)}
+                    </td>
+                    <td data-label="退款合计" className="numeric">
+                      ¥{moneyText(refundedTotal)}
+                    </td>
+                    <td data-label="净收款" className="numeric">
+                      ¥{moneyText(total)}
+                    </td>
+                    <td data-label="净收占比">{total > 0 ? "100%" : "—"}</td>
+                    <td></td>
+                  </tr>
+                </tfoot>
               </table>
             </TableScroll>
+            <p className="hint">
+              净收占比 = 账户净收 ÷
+              筛选净收合计。合计不大于零时不计算；退款可能产生负占比或使其他账户超过
+              100%，此时仅显示实际比例。
+            </p>
             <h3 id="finance-cash-entries" tabIndex={-1}>
               账户收退款流水
             </h3>
             <div className="form-actions">
               <strong>筛选净收款：¥{moneyText(total)}</strong>
-              <Button className="button" onClick={download}>
+              <Button
+                className="button"
+                onClick={() =>
+                  download(
+                    [
+                      ["单号", "日期", "账户", "金额（元）", "经办人", "备注"],
+                      ...entries.map((e) => [
+                        e.number,
+                        e.business_date,
+                        e.account_name,
+                        (e.amount / 100).toFixed(2),
+                        e.actor_name,
+                        e.note,
+                      ]),
+                    ],
+                    "销售收款对账.csv",
+                    [3],
+                  )
+                }
+              >
                 导出对账 CSV
               </Button>
             </div>
@@ -3675,6 +4023,9 @@ export default function Sales({
                 due: 0,
                 paid: 0,
                 debt: 0,
+                count: 0,
+                oldest_debt_date: null,
+                debt_days: null,
               }),
               id: ledgerCustomer.id,
               name: ledgerCustomer.name,

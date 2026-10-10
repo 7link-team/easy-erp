@@ -144,6 +144,9 @@ export interface Finance {
     due: number;
     paid: number;
     debt: number;
+    count: number;
+    oldest_debt_date: string | null;
+    debt_days: number | null;
   }[];
   accounts: {
     active?: boolean;

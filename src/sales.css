@@ -13,12 +13,26 @@
   text-align: left;
   background: transparent;
 }
-.sale-list-item:hover strong { text-decoration: underline; text-underline-offset: 3px; }
-.sale-list-item small { color: var(--ink-3); }
-.sale-list-table .numeric { text-align: right; font-variant-numeric: tabular-nums; }
-.sale-list-table td { vertical-align: middle; }
-.sale-list-table small { font-size: var(--t-11); }
-.sale-list-number { min-width: 200px; }
+.sale-list-item:hover strong {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.sale-list-item small {
+  color: var(--ink-3);
+}
+.sale-list-table .numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.sale-list-table td {
+  vertical-align: middle;
+}
+.sale-list-table small {
+  font-size: var(--t-11);
+}
+.sale-list-number {
+  min-width: 200px;
+}
 .sale-amounts {
   background: var(--accent-soft);
   border: 1px solid var(--border);
@@ -414,40 +428,52 @@
 .finance-summary {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
   margin: 20px 0 24px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sheet);
+  background: var(--paper-0);
+  overflow: hidden;
 }
 .finance-summary > div {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
   padding: 20px;
-  border: 1px solid var(--border);
-  border-radius: var(--control-radius);
-  background: var(--accent-soft);
+}
+.finance-summary > div + div {
+  border-left: 1px solid var(--line-1);
 }
 .finance-summary span {
   color: var(--ink-2);
-  font-size: 14px;
+  font-size: var(--t-12);
+}
+.finance-summary small {
+  color: var(--ink-3);
+  font-size: var(--t-11);
 }
 .finance-summary strong {
-  font-size: 24px;
+  font-size: var(--t-24);
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
+.finance-summary > div:last-child strong {
+  color: var(--danger-ink);
+}
 @media (max-width: 600px) {
   .finance-summary {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 12px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .finance-summary > div {
-    flex-direction: row;
-    justify-content: space-between;
-    align-items: baseline;
-    padding: 16px;
+    padding: 16px 12px;
+  }
+  .finance-summary > div:last-child {
+    grid-column: 1 / -1;
+    border-left: 0;
+    border-top: 1px solid var(--line-1);
   }
   .finance-summary strong {
-    font-size: 20px;
+    font-size: var(--t-20);
   }
 }
 
@@ -472,19 +498,123 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
 }
-.finance-customer-amounts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 16px;
-  align-items: center;
-  font-size: 14px;
-  font-variant-numeric: tabular-nums;
-}
-.finance-customer-amounts > span {
-  white-space: nowrap;
-}
 @media (max-width: 1000px) {
   .finance-filters {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.finance-customer-filters {
+  padding: 0;
+  flex-wrap: wrap;
+}
+.finance-customer-filters .search {
+  flex: 1 1 240px;
+}
+.finance-customer-filters .filter-chips {
+  padding: 0;
+}
+.finance-ledger-table td {
+  vertical-align: middle;
+}
+.finance-ledger-name {
+  min-width: 180px;
+  max-width: 300px;
+  overflow-wrap: anywhere;
+}
+.finance-ledger-name .text-button {
+  text-align: left;
+  padding-inline: 0;
+}
+.finance-ledger-table small {
+  display: block;
+  color: var(--ink-3);
+  font-size: var(--t-11);
+}
+.finance-debt-amount {
+  color: var(--danger-ink);
+}
+.finance-account-share {
+  min-width: 120px;
+  font-variant-numeric: tabular-nums;
+}
+.finance-share-track {
+  display: block;
+  height: 6px;
+  margin-top: 6px;
+  background: var(--line-1);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.finance-share-track > span {
+  display: block;
+  height: 100%;
+  background: var(--brand);
+}
+@media (max-width: 760px) {
+  .table-wrap:has(.finance-ledger-table) {
+    border: 0;
+    overflow: visible;
+  }
+  .table-wrap .finance-ledger-table,
+  .finance-ledger-table tbody,
+  .finance-ledger-table tfoot {
+    display: block;
+    min-width: 0;
+    width: 100%;
+  }
+  .finance-ledger-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .finance-ledger-table tr {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--line-1);
+  }
+  .finance-ledger-table td,
+  .finance-ledger-table tfoot th {
+    display: block;
+    height: auto;
+    min-width: 0;
+    max-width: none;
+    padding: 0;
+    border: 0;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .finance-ledger-table .finance-ledger-name,
+  .finance-ledger-table td[colspan],
+  .finance-ledger-table tfoot th {
+    grid-column: 1 / -1;
+  }
+  .finance-ledger-table
+    td[data-label]:not(.finance-ledger-name):not(
+      .document-row-actions
+    )::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 4px;
+    color: var(--ink-3);
+    font-size: var(--t-11);
+  }
+  .finance-ledger-table td[data-label="最长欠款天数"],
+  .finance-ledger-table .finance-account-share {
+    grid-column: 1 / -1;
+  }
+  .finance-ledger-table .document-row-actions {
+    grid-column: 1 / -1;
+    padding-top: 12px;
+    border-top: 1px solid var(--line-1);
+    text-align: right;
+  }
+  .finance-ledger-table tfoot td:empty {
+    display: none;
   }
 }

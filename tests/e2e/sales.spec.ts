@@ -1045,6 +1045,7 @@ test("账户筛选对账与 CSV 退款保持数值", async ({ request, page }) =
   await page
     .getByRole("region", { name: "客户欠款", exact: true })
     .scrollIntoViewIfNeeded();
+  await page.getByLabel("搜索对账客户", { exact: true }).fill(customer.name);
   await page.getByRole("button", { name: customer.name, exact: true }).click();
   const ledger = page.getByRole("dialog", {
     name: `${customer.name} · 单据对账`,
@@ -1111,6 +1112,7 @@ test("账户筛选对账与 CSV 退款保持数值", async ({ request, page }) =
   await expect(
     page.getByRole("button", { name: "返回收款", exact: true }),
   ).toHaveCount(0);
+  await page.getByLabel("搜索对账客户", { exact: true }).fill(customer.name);
   await page.getByRole("button", { name: customer.name, exact: true }).click();
   await ledger.getByRole("button", { name: sale.number, exact: true }).click();
   await page.getByRole("button", { name: "登记收款", exact: true }).click();
@@ -1126,6 +1128,7 @@ test("账户筛选对账与 CSV 退款保持数值", async ({ request, page }) =
   await payment.getByRole("button", { name: "登记收款", exact: true }).click();
   await expect(payment).toHaveCount(0);
   await page.getByRole("button", { name: "返回收款", exact: true }).click();
+  await page.getByLabel("搜索对账客户", { exact: true }).fill(customer.name);
   await page.getByRole("button", { name: customer.name, exact: true }).click();
   await expect(
     ledger.getByRole("table", { name: "客户单据对账" }),
