@@ -9,6 +9,7 @@ export interface CatalogEntry {
   usage_count?: number | null;
   member_count?: number;
   data: {
+    account_type?: string;
     department_id?: string;
     phone?: string;
     contact?: string;

@@ -1343,3 +1343,31 @@ button { transition: background-color var(--dur-1) var(--ease), border-color var
   .global-search-trigger { min-height: 40px; width: 40px; }
   .global-search-group { padding-block: 12px; }
 }
+
+/* Dictionary ordering has equivalent pointer, keyboard and touch controls. */
+.dictionary-feedback:empty { display: none; }
+.dictionary-feedback { margin: 0; padding: 8px 16px; color: var(--ink-2); font-size: var(--t-12); }
+.dictionary-table .dictionary-order-cell { width: 100px; min-width: 100px; }
+.dictionary-order { display: flex; align-items: center; justify-content: center; gap: 2px; }
+.dictionary-order .icon-button { width: 28px; min-width: 28px; min-height: 32px; padding: 4px; }
+.dictionary-grip { display: flex; align-items: center; padding: 4px 0; cursor: grab; touch-action: none; user-select: none; }
+.dictionary-grip:active { cursor: grabbing; }
+.dictionary-position { min-width: 1.5em; font-variant-numeric: tabular-nums; }
+.dictionary-table tr[data-order-dragging="true"] { background: var(--brand-soft); }
+@media (min-width: 761px) {
+  .material-options-table { min-width: 1000px; }
+  .material-options-table th, .material-options-table td:not(.ledger-name):not(.ledger-note) { white-space: nowrap; }
+  .material-options-table .ledger-name { min-width: 180px; }
+  .dictionary-table td[data-label="类型"] { min-width: 100px; }
+  .dictionary-table:has(.dictionary-order-cell) .ledger-actions { position: sticky; right: 0; z-index: 1; background: var(--paper-0); border-left: 1px solid var(--line-1); }
+}
+@media (pointer: coarse) {
+  .dictionary-grip { display: none; }
+  .dictionary-order .icon-button { min-width: 44px; min-height: 44px; }
+}
+@media (max-width: 760px) {
+  .dictionary-table .dictionary-order-cell { display: block; grid-column: 1 / -1; grid-row: auto; width: auto; min-width: 0; background: transparent; }
+  .dictionary-order { justify-content: flex-start; }
+  .dictionary-order .icon-button { min-width: 44px; min-height: 44px; }
+  .dictionary-table:has(.dictionary-order-cell) .ledger-actions { grid-column: 1 / -1; grid-row: auto; border-top: 1px solid var(--line-1); padding-top: 8px; }
+}

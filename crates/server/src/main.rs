@@ -238,6 +238,7 @@ async fn main() -> anyhow::Result<()> {
             "/api/material-options/{id}",
             axum::routing::delete(options::remove),
         )
+        .route("/api/catalog-order", post(options::reorder))
         .route("/api/dashboard", get(dashboard::overview))
         .route("/api/sales", get(sales::list))
         .route(

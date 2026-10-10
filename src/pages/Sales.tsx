@@ -28,6 +28,7 @@ import {
   useResource,
   Empty,
 } from "../components";
+import { useDictionaryOrder } from "../DictionaryOrder";
 import TableImport from "../TableImport";
 import MaterialOptions, { type MaterialOption } from "./MaterialOptions";
 import { api, send, quantity, dateTime, type User, type Item } from "../api";
@@ -170,6 +171,9 @@ function ConfigForm({
   const [phone, setPhone] = useState(entry?.data.phone || "");
   const [contact, setContact] = useState(entry?.data.contact || "");
   const [address, setAddress] = useState(entry?.data.address || "");
+  const [accountType, setAccountType] = useState(
+    entry?.data.account_type || "",
+  );
   const [billable, setBillable] = useState(entry?.data.billable ?? true);
   const [active, setActive] = useState(entry?.active ?? true);
   const [sort, setSort] = useState(String(entry?.data.sort ?? 0));
@@ -202,6 +206,7 @@ function ConfigForm({
                   billable,
                   sort: Number(sort),
                   department_id: department,
+                  account_type: accountType,
                   note,
                 },
               });
@@ -251,6 +256,21 @@ function ConfigForm({
             <TextField label="联系电话" value={phone} onChange={setPhone} />
             <TextField label="地址" value={address} onChange={setAddress} />
           </>
+        )}
+        {kind === "account" && (
+          <Field label="账户类型">
+            {(p) => (
+              <Input
+                {...p}
+                name="account-type"
+                autoComplete="off"
+                maxLength={30}
+                placeholder="例如银行、现金、微信…"
+                value={accountType}
+                onChange={(e) => setAccountType(e.target.value)}
+              />
+            )}
+          </Field>
         )}
         {kind === "type" && (
           <>
@@ -2450,6 +2470,21 @@ export default function Sales({
         : ["spec", "kind", "unit"].includes(visibleConfigKind)
           ? "options"
           : "catalog";
+  const configOrder = useDictionaryOrder(
+    configRows,
+    visibleConfigKind,
+    catalog.loading,
+    view === "catalog" &&
+      ["type", "account", "department", "salesperson"].includes(
+        visibleConfigKind,
+      ) &&
+      can(user, `${configModule}.update`) &&
+      !action.busy,
+    () => {
+      setLocal((n) => n + 1);
+      refresh();
+    },
+  );
   const contactFields = ["customer", "company"].includes(visibleConfigKind);
   const openConfig = () =>
     setConfig({
@@ -3024,6 +3059,10 @@ export default function Sales({
                       )}
                     </>
                   )}
+                  {configOrder.error && <Notice>{configOrder.error}</Notice>}
+                  <p className="dictionary-feedback" role="status">
+                    {configOrder.message}
+                  </p>
                   {catalog.loading ? (
                     <Loading />
                   ) : !configRows.length ? (
@@ -3036,10 +3075,16 @@ export default function Sales({
                       >
                         <thead>
                           <tr>
-                            <th scope="col" className="ledger-sequence">
+                            <th
+                              scope="col"
+                              className={`ledger-sequence${view === "catalog" && visibleConfigKind !== "company" ? " dictionary-order-cell" : ""}`}
+                            >
                               序
                             </th>
                             <th scope="col">名称</th>
+                            {visibleConfigKind === "account" && (
+                              <th scope="col">类型</th>
+                            )}
                             {visibleConfigKind === "type" && (
                               <th scope="col">要不要收款</th>
                             )}
@@ -3090,8 +3135,15 @@ export default function Sales({
                         </thead>
                         <tbody>
                           {configRows.map((c, index) => (
-                            <tr key={c.id}>
-                              <td className="ledger-sequence">{index + 1}</td>
+                            <tr key={c.id} {...configOrder.rowProps(c)}>
+                              <td
+                                className={`ledger-sequence${view === "catalog" && visibleConfigKind !== "company" ? " dictionary-order-cell" : ""}`}
+                              >
+                                {view === "catalog" &&
+                                visibleConfigKind !== "company"
+                                  ? configOrder.controls(c, index)
+                                  : index + 1}
+                              </td>
                               <td className="ledger-name" data-label="名称">
                                 <strong>{c.name}</strong>
                                 {view === "customers" && (
@@ -3109,6 +3161,11 @@ export default function Sales({
                                   </>
                                 )}
                               </td>
+                              {c.kind === "account" && (
+                                <td data-label="类型">
+                                  {c.data.account_type || "未指定"}
+                                </td>
+                              )}
                               {c.kind === "type" && (
                                 <td data-label="要不要收款">
                                   <Button
@@ -3118,7 +3175,8 @@ export default function Sales({
                                     aria-checked={!!c.data.billable}
                                     disabled={
                                       !can(user, "catalog.update") ||
-                                      action.busy
+                                      action.busy ||
+                                      configOrder.busy
                                     }
                                     onClick={() =>
                                       updateCatalog(c, {
@@ -3224,6 +3282,9 @@ export default function Sales({
                                     <>
                                       <Button
                                         className="button ledger-edit"
+                                        disabled={
+                                          action.busy || configOrder.busy
+                                        }
                                         onClick={() =>
                                           setConfig({ kind: c.kind, entry: c })
                                         }
@@ -3234,7 +3295,9 @@ export default function Sales({
                                       {c.kind !== "company" && (
                                         <Button
                                           className="button ledger-edit"
-                                          disabled={action.busy}
+                                          disabled={
+                                            action.busy || configOrder.busy
+                                          }
                                           onClick={() =>
                                             updateCatalog(c, {
                                               active: !c.active,
@@ -3252,7 +3315,11 @@ export default function Sales({
                                     c.kind !== "company" && (
                                       <Button
                                         className="button danger-outline"
-                                        disabled={action.busy || !c.can_delete}
+                                        disabled={
+                                          action.busy ||
+                                          configOrder.busy ||
+                                          !c.can_delete
+                                        }
                                         title={
                                           !c.can_delete
                                             ? "已有单据或业务员关联，只能停用"

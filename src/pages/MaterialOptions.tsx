@@ -1,6 +1,6 @@
 import { Pencil, Plus } from "lucide-react";
 import { useState } from "react";
-import { Button, Form, Input, useConfirm } from "../ui";
+import { Button, Form, Input, Checkbox, Textarea, useConfirm } from "../ui";
 import {
   Field,
   Modal,
@@ -12,13 +12,25 @@ import {
   useAction,
   TableScroll,
 } from "../components";
-import { send, can, type User } from "../api";
+import { useDictionaryOrder } from "../DictionaryOrder";
+import { send, can, dateTime, type User } from "../api";
 export interface MaterialOption {
   id: string;
   field: string;
   name: string;
   version: number;
+  active: boolean;
+  sort: number;
+  note: string;
+  source: string;
+  last_used_at: number | null;
+  usage_count: number | null;
 }
+const sourceLabels: Record<string, string> = {
+  manual: "手工录入",
+  auto: "自动收录",
+  import: "表格导入",
+};
 const labels = { spec: "常用规格", kind: "物料分类", unit: "计量单位" };
 export default function MaterialOptions({
   user,
@@ -37,9 +49,19 @@ export default function MaterialOptions({
 }) {
   const [editing, setEditing] = useState<MaterialOption | "new">();
   const [name, setName] = useState("");
+  const [active, setActive] = useState(true);
+  const [sort, setSort] = useState("0");
+  const [note, setNote] = useState("");
   const action = useAction();
   const confirm = useConfirm();
   const rows = resource.data?.items.filter((o) => o.field === field) || [];
+  const order = useDictionaryOrder(
+    rows,
+    field,
+    resource.loading,
+    can(user, "options.update") && !action.busy,
+    refresh,
+  );
   return (
     <>
       <div className="section-title ledger-heading">
@@ -49,6 +71,10 @@ export default function MaterialOptions({
         </p>
       </div>
       {resource.error && <Notice>{resource.error}</Notice>}
+      {order.error && <Notice>{order.error}</Notice>}
+      <p className="dictionary-feedback" role="status">
+        {order.message}
+      </p>
       {action.error && !editing && <Notice>{action.error}</Notice>}
       {resource.loading ? (
         <Loading />
@@ -57,15 +83,30 @@ export default function MaterialOptions({
       ) : (
         <TableScroll>
           <table
-            className="dictionary-table"
+            className="dictionary-table material-options-table"
             aria-label={`${labels[field]}列表`}
           >
             <thead>
               <tr>
-                <th scope="col" className="ledger-sequence">
+                <th
+                  scope="col"
+                  className="ledger-sequence dictionary-order-cell"
+                >
                   序
                 </th>
                 <th scope="col">{field === "spec" ? "规格值" : "名称"}</th>
+                <th scope="col">状态</th>
+                <th scope="col" className="numeric">
+                  用到的物料
+                </th>
+                <th
+                  scope="col"
+                  title="最近用于新增或改选物料；升级前的时间未知"
+                >
+                  最近使用
+                </th>
+                <th scope="col">来源</th>
+                <th scope="col">说明</th>
                 <th scope="col" className="ledger-actions">
                   操作
                 </th>
@@ -73,18 +114,59 @@ export default function MaterialOptions({
             </thead>
             <tbody>
               {rows.map((o, index) => (
-                <tr key={o.id}>
-                  <td className="ledger-sequence">{index + 1}</td>
+                <tr key={o.id} {...order.rowProps(o)}>
+                  <td className="ledger-sequence dictionary-order-cell">
+                    {order.controls(o, index)}
+                  </td>
                   <td className="ledger-name" data-label="名称">
                     <strong>{o.name}</strong>
+                  </td>
+                  <td data-label="状态">
+                    <span className={`badge${o.active ? " ok" : ""}`}>
+                      {o.active ? "启用" : "停用"}
+                    </span>
+                  </td>
+                  <td className="numeric" data-label="用到的物料">
+                    {o.usage_count ?? "—"}
+                  </td>
+                  <td
+                    data-label="最近使用"
+                    title="最近用于新增或改选物料；升级前的时间未知"
+                  >
+                    {o.last_used_at ? dateTime(o.last_used_at) : "—"}
+                  </td>
+                  <td data-label="来源">{sourceLabels[o.source] || "未知"}</td>
+                  <td data-label="说明" className="ledger-note">
+                    {o.note || "—"}
                   </td>
                   <td className="ledger-actions">
                     <div className="row-actions">
                       {can(user, "options.update") && (
                         <Button
                           className="button ledger-edit"
+                          disabled={action.busy || order.busy}
+                          onClick={() =>
+                            void action.run(async () => {
+                              await send("/material-options", {
+                                ...o,
+                                active: !o.active,
+                              });
+                              refresh();
+                            })
+                          }
+                        >
+                          {o.active ? "停用" : "启用"}
+                        </Button>
+                      )}
+                      {can(user, "options.update") && (
+                        <Button
+                          className="button ledger-edit"
+                          disabled={action.busy || order.busy}
                           onClick={() => {
                             setName(o.name);
+                            setActive(o.active);
+                            setSort(String(o.sort));
+                            setNote(o.note);
                             setEditing(o);
                             action.setError("");
                           }}
@@ -96,7 +178,7 @@ export default function MaterialOptions({
                       {can(user, "options.delete") && (
                         <Button
                           className="button danger-outline"
-                          disabled={action.busy}
+                          disabled={action.busy || order.busy}
                           onClick={() =>
                             void action.run(async () => {
                               if (
@@ -134,6 +216,9 @@ export default function MaterialOptions({
             className="dictionary-add"
             onClick={() => {
               setName("");
+              setActive(true);
+              setSort("0");
+              setNote("");
               setEditing("new");
               action.setError("");
             }}
@@ -155,6 +240,9 @@ export default function MaterialOptions({
                   await send("/material-options", {
                     field,
                     name,
+                    active,
+                    sort: Number(sort),
+                    note,
                     ...(editing === "new"
                       ? {}
                       : { id: editing.id, version: editing.version }),
@@ -178,6 +266,42 @@ export default function MaterialOptions({
                 />
               )}
             </Field>
+            <Field
+              label="排列顺序"
+              hint="0–9999，数字较小的排在前面，也可在列表直接调整。"
+            >
+              {(p) => (
+                <Input
+                  {...p}
+                  name="option-sort"
+                  type="number"
+                  min={0}
+                  max={9999}
+                  step={1}
+                  value={sort}
+                  onChange={(e) => setSort(e.target.value)}
+                />
+              )}
+            </Field>
+            <Field label="说明">
+              {(p) => (
+                <Textarea
+                  {...p}
+                  name="option-note"
+                  maxLength={200}
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                />
+              )}
+            </Field>
+            <label className="checkbox">
+              <Checkbox
+                checked={active}
+                disabled={!can(user, "options.update")}
+                onChange={(e) => setActive(e.target.checked)}
+              />
+              启用（可用于新物料）
+            </label>
             {action.error && <Notice>{action.error}</Notice>}
             <div className="form-actions form-footer">
               <Button onClick={() => setEditing(undefined)}>取消</Button>

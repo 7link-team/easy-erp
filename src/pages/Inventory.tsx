@@ -35,12 +35,12 @@ export function ItemForm({
   onDone: () => void;
   onClose: () => void;
 }) {
-  const choices = useResource<{ items: { field: string; name: string }[] }>(
-    "/material-options",
-  );
+  const choices = useResource<{
+    items: { field: string; name: string; active: boolean }[];
+  }>("/material-options");
   const options = (field: string) =>
     (choices.data?.items || [])
-      .filter((c) => c.field === field)
+      .filter((c) => c.field === field && c.active)
       .map((c) => ({ value: c.name, label: c.name }));
   const [name, setName] = useState(item?.name ?? "");
   const [spec, setSpec] = useState(item?.spec ?? "");
@@ -201,7 +201,7 @@ export default function Inventory({
   openSale: (item: Item) => void;
 }) {
   const choices = useResource<{
-    items: { field: string; name: string }[];
+    items: { field: string; name: string; active: boolean }[];
     kinds: string[];
   }>("/material-options", revision);
   const typeOptions = Array.from(

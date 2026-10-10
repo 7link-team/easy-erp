@@ -375,6 +375,20 @@ pub(crate) async fn save_catalog_record(
     } else if !input.id.is_empty() {
         return Err(ApiError::missing());
     }
+    if input.kind == "account" {
+        let old_data = previous
+            .as_ref()
+            .map(|r| parsed(&text(r, "data")))
+            .transpose()?
+            .unwrap_or_else(|| json!({}));
+        let account_type = match input.data.get("account_type") {
+            Some(value) => value
+                .as_str()
+                .ok_or_else(|| ApiError::bad("账户类型请填写文字。"))?,
+            None => old_data["account_type"].as_str().unwrap_or(""),
+        };
+        data["account_type"] = json!(clean(account_type, "账户类型", 30, false)?);
+    }
     if input.kind == "salesperson" {
         let department_id = input.data["department_id"].as_str().unwrap_or("");
         let unchanged = previous.as_ref().is_some_and(|r| {

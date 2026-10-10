@@ -1,60 +1,52 @@
 # Task State
 
 ## Objective / Phase
-Active goal：全部做到位啊。以 docs/客户需求/20261009.md、会话确认及v2原型为准；整体尚未完成，不标记complete。
-当前阶段ACCEPTANCE：客户/基础资料批量维护已实现、最终验证和两轮审查通过，准备提交推送。Direct，无subagent；共享保存核心/预览事务/页面入口紧密关联。
-上一轮为progress：221f1ff提交推送，HEAD=origin，开始本轮时工作区干净。分支feat/sales-and-receivables；用户已授权全部提交推送，不合并、不发Release。
+Active goal：全部做到位啊。依据docs/客户需求/20261009.md、已确认需求及v2原型；整体未完成，不标记complete。
+当前ACCEPTANCE：字典详细管理、原子排序、账户类型。Direct，无subagent；本批共享迁移/保存核心/权限/交互紧密关联。
+分支feat/sales-and-receivables，上一提交2f8902d已推送。本批尚未提交。用户已授权全部提交推送，不合并、不发Release。
 
 ## Delivered
 - 2211f46：自定义角色/模块权限、逐行选料、固定标题/操作栏、财务同页、基础资料左清单右表格。
-- d3fd9c0：欠款/部分/全额收款，同事务库存和资金；欠款签字打印、两张照片、必填星号、关联单据计数。
-- e743d14 / 86ec3eb：列表筛选及导出、客户ID账款/补收上下文、物料导入弹窗、手机内容滚动。
-- c42d04f：退货作废历史金额汇总、晚响应/取消修复；Chromium93/WebKit93通过。
-- 4b4d416：真实工作台、15项业务菜单、财务三个入口同页定位、关于在菜单外；尾列操作与独立单据类型列，手机带标签。Chromium102+最终19/WebKit102通过。
-- 221f1ff：全局物料/单据/客户搜索、权限隔离、精确ID定位/导出、dirty guard；修复WebKit无变化URL重复写入。最终Chromium44/WebKit44、72显示组合通过。
+- d3fd9c0：欠款/部分/全额收款、事务扣库存与记账、欠款签字打印/两张照片、必填星号、关联单据计数。
+- e743d14 / 86ec3eb：筛选导出、客户ID账款/补收上下文、物料导入弹窗、手机滚动。
+- c42d04f：退货作废历史金额汇总、晚响应/取消修复；Chromium93/WebKit93。
+- 4b4d416：真实工作台、15业务菜单、财务三个入口同页定位、关于菜单外；尾列操作与独立单据类型列，手机类型标签；Chromium102+最终19/WebKit102。用户确认类型缺失已经解决，勿重复实现。
+- 221f1ff：权限隔离全局搜索、精确ID定位/导出、dirty guard；WebKit相同URL写入频率修复。最终Chromium44/WebKit44、72显示组合。
+- 2f8902d：八类资料CSV/XLSX原子导入导出、预览回滚/确认重验/幂等/部门ID防错绑、同权限保存核心和Modal。WebKit77+最终7、Chromium相关回归+catalog5+最终7；216显示/36嵌入组合；Rust7。详细历史见需求复核与decisions，不重做。
 
-## Current implementation
-- transfer.rs八类资料模式：customer/type/account/department/salesperson/spec/kind/unit，CSV/XLSX模板、预览、确认、导出。公司信息仍单条维护。
-- sales::save_catalog_record和options::save_record由原表单/导入共用，options INSERT使用显式列。无schema变更。
-- 新资料预览在回滚事务中执行同一保存核心，每行savepoint，成功行参与后续去重但全部回滚；错误按行提示。确认重新校验，失败全批回滚；requests沿用幂等键。取得写锁后重新鉴权，防止等待时权限撤销。
-- 模块create授权导入，read授权导出；停用数据需update。旧物料/期初模式仍限管理员。预览任务绑定用户/一小时有效期。
-- 同名不覆盖，业务员在所属部门内去重，按已有启用部门完整名称关联；预览记录部门ID，确认防止改名后其他部门复用旧名称造成错误归属，变化时整批回滚要求重预览。旧业务员预览缺ID也须重预览，其他模式兼容。模板明确计款/状态/排序；候选不修改库存或历史。
-- 客户页/字典页导入与CSV/Excel导出按钮；导入复用TableImport/Modal固定类型，保留预览/取消/底部常显。客户导出遵循查询或精确ID定位。提交中禁用文件/类型更改避免预览错配。
-- success/error Notice和删除描边文字用既有ink令牌，改善浅色对比度。
-- 测试修正：queries原先写死管理员姓名，改为/api/me的当前管理员（共享DB可能由inventory以王厂长初始化）；catalog模糊“搜索物料”命中全局按钮，改searchbox+精确名称。业务断言未减弱。
+## Current Implementation / Design
+- material_options_meta_v1增加active/sort/note/source/last_used_at；原v1迁移仅调用旧字段seed，运行期ensure补充停用校验和真实使用时间。旧值来源未知、时间空，不伪造。当前物料引用按规范化文字计数，含停用物料。
+- options.save_record共享表单/导入，省略元数据保留旧值；manual/import/auto来源由服务端决定。停用拒绝新选用；物料未改字段允许保留。候选删除/改名不改物料或历史。items.read但无options.read只取id/field/name/version/active；引用数需两项read权限。
+- /api/catalog-order支持spec/kind/unit/type/account/department/salesperson；各模块update授权，完整ID/version清单原子排序、版本递增和审计；重复/漏项/过期/跨类别拒绝且无部分更新。
+- DictionaryOrder共用hook：拖拽+上下按钮、状态播报、键盘焦点恢复、提交/刷新busy控制。MaterialOptions完整字段/启停/编辑；Inventory过滤停用建议。销售配置行修改/启停/删除/计款在排序busy禁用。
+- 候选新四列模板兼容旧单列及旧预览；账户新五列含账户类型，兼容旧四列及预览。账户类型保存在既有data，旧API缺省保留，显式空清除，无资金影响。
+- backup.rs严格known legacy集合增加metadata前版本，临时副本迁移验证后恢复。
+- 桌面候选合理最小列宽与短字段不换行，字典尾列固定；手机每条排序/内容/操作分区，上下按钮44px。复用现有样式、表单、TableScroll，不新增依赖。
 
 ## Verification / Actual Evidence
-- 专项reference-transfer6 PASS（24秒）/tmp/erp-reference-focused-final.log，覆盖八模式、模板、预览不保存、失败、冲突回滚、幂等、权限撤销、CSV/Excel、手机弹窗和筛选导出。初始fixture/断言错误已按既有接口纠正，不改产品迎合测试。
-- 最终前端→后端构建PASS /tmp/erp-reference-delivery-{frontend,backend}.log。Rust7 PASS /tmp/erp-reference-unit.log；随后仅CSS/测试变更，无Rust逻辑变更。typecheck:e2e/prettier/cargo fmt/diff-check PASS。
-- 首轮相关Chromium65 PASS/1 FAIL（9.6m）/tmp/erp-reference-chromium.log：失败为上述管理员姓名测试，trace在tmp/reference-chromium-failures。
-- 最终构建Chromium补测31 PASS/1 FAIL（3.8m）/tmp/erp-reference-delivery-chromium.log，覆盖inventory/queries/reference-transfer/catalog/roles；唯一失败为上述模糊搜索定位，trace在tmp/reference-catalog-failures。随后catalog全部5 PASS /tmp/erp-reference-catalog-final.log。
-- WebKit相关77 PASS（11.5m）/tmp/erp-reference-delivery-webkit.log。最后部门ID校验新增回归后重新构建后端，Rust7/typecheck PASS；最终reference-transfer Chromium7 PASS（19.7秒）/WebKit7 PASS（21.4秒），/tmp/erp-reference-identity-{backend,unit,chromium,webkit}.log。所有测试会话已结束，4289释放；仅注释文字之后修正，无语义变化。
-- 216显示组合PASS /tmp/erp-reference-visual-complete.log（客户/类型/单位×1280/800/390/320×浅深×三字号×页面/成功/错误）；桌面与320截图人工查看。
-- 最终嵌入预览36组合PASS /tmp/erp-reference-embedded.log，页面/成功/错误、浅深/桌面手机及常显操作。tmp/reference-page-customers-320.png确认新增入口布局，无横向溢出。
-- 视觉最初脚本缺baseURL与未等待主题过渡导致工具误报，已修正；实际成功文字3.53:1问题已修复。渐变对比度由人工检查，未声明全站无障碍/像素一致。
+- 首轮专项Chromium13 PASS（30.9秒），/tmp/erp-dictionary-focused.log。
+- 权限补测后的前端→后端构建PASS，/tmp/erp-dictionary-final-{frontend,backend}.log；typecheck:e2e PASS；Rust7 PASS /tmp/erp-dictionary-final-unit.log；cargo fmt/prettier/diff-check PASS。
+- 相关Chromium71 PASS（5.1m），/tmp/erp-dictionary-final-chromium.log：dictionary-management/reference-transfer/catalog/inventory/sales/roles/ui/backup-policy/zip-backups/navigation。
+- 初轮嵌入预览96页面+96编辑组合PASS /tmp/erp-dictionary-visual.log，人工发现桌面挤列/操作横滑后做上述最小CSS修正并为计款补busy保护。
+- 最终UI改动后前端→后端构建PASS /tmp/erp-dictionary-delivery-{frontend,backend}.log。
+- WebKit相关71 PASS（6.9m），/tmp/erp-dictionary-delivery-webkit.log。最终192显示组合及固定尾列几何断言PASS /tmp/erp-dictionary-delivery-visual.log；人工又发现账户类型短文字挤列，补100px最小列宽，Vite账户48组合PASS /tmp/erp-dictionary-account-visual.log；最终嵌入账户48组合也PASS /tmp/erp-dictionary-accepted-visual.log。最终前端→后端构建PASS /tmp/erp-dictionary-accepted-{frontend,backend}.log；最终Chromium dictionary-management/catalog/ui 29 PASS（2.3m），WebKit dictionary-management 6 PASS（21.7秒），/tmp/erp-dictionary-accepted-{chromium,webkit}.log；测试服务均已退出，4289释放。
+- 实际桌面最终截图已查看，文字与操作列正常；Vite5173单据类型桌面1280/手机390实测为“销售单”，截图tmp/dictionary-final-document-type-*.png。
 
 ## Constraints / Preview
-- 成本与业绩目标暂停：原需求无目标、成本口径未确认。历史快照不随现值重算。单位精度物料级，最多3位；不要改成字典全局精度。
-- 每条回复以✅ CLAUDE.md loaded 🎉开头；遵循CLAUDE.md、已应用web-design-guidelines，规则/tmp/erp-web-interface-guidelines.md。
-- 显式stage，保留tmp、数据库、服务，排除生成物；前端先构建再后端嵌入。用户授权提交推送。
-- Vite5173代理4280；最终预览4280 session61333，/tmp/erp-live，admin / Aa123456!。保留5500、4290、8912。
-- 实体打印机/相机/手机软键盘未测；PDF/签字/上传/照片备份恢复已验证。
+- 成本与业绩目标暂停，原需求无目标、成本口径未确认。历史快照不按现值重算。单位精度保持物料级最多3位，不改为字典全局精度。
+- 每条回复以✅ CLAUDE.md loaded 🎉开头。已应用.claude/skills/web-design-guidelines/SKILL.md，最新规则/tmp/erp-web-interface-guidelines.md。
+- 显式stage；保留tmp、数据库及服务；排除生成物。必须前端构建再后端嵌入。
+- 预览Vite5173代理4280，数据/tmp/erp-live，admin / Aa123456!。升级前API备份backup-20261010-144857-addb16d7.zip，记录/tmp/erp-dictionary-preview-backup.json。
+- 当前最终预览4280 session6145已运行最新嵌入构建（含账户类型100px最小宽度）。保留5500、4290、8912。
+- 真实打印机/相机/手机软键盘未测；不得将浏览器仿真说成物理设备测试，不宣称全站无障碍或像素一致。
 
-## Remaining Overall Scope
-1. 本批自查/需求验收PASS，显式提交推送并核验HEAD=origin。
-2. material_options状态/排序/说明/引用数/最近使用/来源；兼容迁移与备份，未知旧来源/时间保持未知；候选删改不回写物料/历史。
-3. 字典拖拽排序及键盘/触控替代；其余页面按原型逐项复核。
-4. 新确认差异：基础资料收款账户“类型”（银行/现金等）原型有，ConfigForm/CatalogEntry尚无；后续补可维护展示字段，勿影响历史资金。
-5. 成本/目标保持暂停；其他已授权工作不重复询问。
-
-## Next Batch Research (Not Implemented)
-- material_options_v1迁移调用运行期options::ensure种子化候选。未来ensure若依赖新增列，会破坏从零/旧库升级；必须保留旧列初始化路径或冻结原迁移种子逻辑为等价实现。本批已将位置式INSERT改显式列。
-- inventory更新对未改变spec/kind/unit跳过ensure，可保留旧停用值；新建/改变值才应用新启停规则。来源仅记录未来实际操作，旧值未知。
-- backup.rs schemas排除session_idle_v1后按名称排序；known legacy集合要新增兼容，先在临时副本迁移验证再恢复。不要放宽未知schema恢复。
-- 候选模板升级须兼容本批单列模板。删除仍按已确认“只删候选不改业务”，不要用原型泛化文案擅自逆转。
+## Remaining / Next Action
+1. 本批构建/测试/视觉/自查/验收已PASS；显式stage/commit/push，核验HEAD=origin与clean。
+3. 后续原型逐页差异复核。已确认还有基础资料账户“本月实际净收”、部门“负责人/本月业绩”、业务员“本月业绩/关联账号”、分类“本月出库额”等原型列需要对现有财务/用户数据评估，不能拿演示数填充。单位全局小数位仍属已确认例外，不实施。先对照prototype.html#basedata与Sales.tsx/finance接口核实真实缺项，遵循已确认scope。
+4. 成本/目标保持暂停；其他已授权任务不重复询问。
 
 ## Self-Review / Acceptance
-本批PASS：范围对应原型资料批量维护；复用保存核心/权限/事务/解析/Modal，无新依赖或schema；原子性、幂等、并发关联ID、预览取消、权限撤销已测。现有物料/字典/开单/退款/打印/备份恢复/角色回归通过。入口、真实导出数据、手机固定操作/错误状态与文字对比度通过；无生成物应提交。总体仍有上述原型差异，不标记全部完成。
+本批PASS：范围对应已授权字典管理与原型排序；复用原保存核心/事务/权限/表格/表单，无新依赖。完整清单原子排序、停用/旧值、权限隔离、新旧模板/API/备份及历史不回写实际通过。最终界面支持拖拽/键盘/触屏按钮、固定操作列和弹窗操作；按web-design-guidelines检查本批组件并修复挤列与触屏尺寸问题。生成物/tmp/数据库不提交。原始客户销售/库存/财务及角色回归通过；整体原型仍有后续差异，不标记全部完成。
 
-## Next Action / Checkpoint
-2026-10-10：本批最终结果已验证，显式stage/commit/push并核验HEAD=origin；交付版本以Git为准。交付后下一步实现material_options元数据与兼容迁移/备份（先处理旧迁移调用ensure的依赖），然后字典排序与账户类型、其余原型审查。成本/目标暂停，无需重复询问已授权工作。
+## Last Checkpoint
+2026-10-10：本批最终验收PASS，预览已更新；双浏览器相关各71及最后受影响补测Chromium29/WebKit6通过。下一步显式提交推送，再继续上列原型资料/财务差异核对。

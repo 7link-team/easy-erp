@@ -16,6 +16,10 @@ async function table(
   const response = await request.get(`/api/templates/${mode}?format=csv`);
   expect(response.ok(), await response.text()).toBeTruthy();
   const heading = (await response.text()).trimStart().trimEnd();
+  rows = rows.map((row) => [
+    ...row,
+    ...Array(Math.max(0, heading.split(",").length - row.length)).fill(""),
+  ]);
   return Buffer.from(
     heading +
       "\n" +
@@ -79,15 +83,15 @@ test("八类资料模板、预览不保存、原子导入、重复确认和CSV/E
       [`${prefix}-客户`, "联系人", "00123456", "地址", "启用", "7", "备注"],
     ],
     ["type", [`${prefix}-单据类型`, "否", "启用", "3", "不计款"]],
-    ["account", [`${prefix}-账户`, "停用", "4", "备注"]],
+    ["account", [`${prefix}-账户`, "银行", "停用", "4", "备注"]],
     ["department", [`${prefix}-新部门`, "启用", "2", "备注"]],
     [
       "salesperson",
       [`${prefix}-业务员`, department.name, "00123", "启用", "1", "备注"],
     ],
-    ["spec", [`${prefix}-规格`]],
-    ["kind", [`${prefix}-分类`]],
-    ["unit", [prefix]],
+    ["spec", [`${prefix}-规格`, "启用", "0", ""]],
+    ["kind", [`${prefix}-分类`, "启用", "0", ""]],
+    ["unit", [prefix, "启用", "0", ""]],
   ];
   for (const [mode, row] of cases) {
     const before = await preview(page.request, mode, [row]);

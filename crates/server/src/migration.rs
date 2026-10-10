@@ -10,6 +10,7 @@ impl MigratorTrait for Migrator {
             Box::new(Sales),
             Box::new(MaterialOptions),
             Box::new(Roles),
+            Box::new(MaterialOptionMetadata),
         ]
     }
 }
@@ -307,7 +308,7 @@ impl MigrationTrait for MaterialOptions {
                 .map(|r| crate::db::text(r, "name"))
                 .chain(defaults.iter().map(|v| String::from(*v)));
             for name in names {
-                crate::options::ensure(db, field, &name)
+                crate::options::seed(db, field, &name)
                     .await
                     .map_err(|e| DbErr::Custom(e.to_string()))?;
             }
@@ -335,5 +336,30 @@ impl MigrationTrait for Roles {
     }
     async fn down(&self, _: &SchemaManager) -> std::result::Result<(), DbErr> {
         Err(DbErr::Custom("不自动回退角色权限".into()))
+    }
+}
+
+struct MaterialOptionMetadata;
+impl MigrationName for MaterialOptionMetadata {
+    fn name(&self) -> &str {
+        "material_options_meta_v1"
+    }
+}
+#[async_trait::async_trait]
+impl MigrationTrait for MaterialOptionMetadata {
+    async fn up(&self, m: &SchemaManager) -> std::result::Result<(), DbErr> {
+        for sql in [
+            "ALTER TABLE material_options ADD COLUMN active INTEGER NOT NULL DEFAULT 1",
+            "ALTER TABLE material_options ADD COLUMN sort INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE material_options ADD COLUMN note TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE material_options ADD COLUMN source TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE material_options ADD COLUMN last_used_at INTEGER NOT NULL DEFAULT 0",
+        ] {
+            m.get_connection().execute_unprepared(sql).await?;
+        }
+        Ok(())
+    }
+    async fn down(&self, _: &SchemaManager) -> std::result::Result<(), DbErr> {
+        Err(DbErr::Custom("不自动回退候选资料管理字段".into()))
     }
 }

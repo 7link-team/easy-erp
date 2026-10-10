@@ -388,17 +388,37 @@ pub async fn restore(
         && [
             current_schema
                 .iter()
-                .filter(|v| v.as_str() != "roles_v1")
+                .filter(|v| v.as_str() != "material_options_meta_v1")
                 .cloned()
                 .collect::<Vec<_>>(),
             current_schema
                 .iter()
-                .filter(|v| !["roles_v1", "material_options_v1"].contains(&v.as_str()))
+                .filter(|v| !["material_options_meta_v1", "roles_v1"].contains(&v.as_str()))
                 .cloned()
                 .collect::<Vec<_>>(),
             current_schema
                 .iter()
-                .filter(|v| !["roles_v1", "material_options_v1", "sales_v1"].contains(&v.as_str()))
+                .filter(|v| {
+                    ![
+                        "material_options_meta_v1",
+                        "roles_v1",
+                        "material_options_v1",
+                    ]
+                    .contains(&v.as_str())
+                })
+                .cloned()
+                .collect::<Vec<_>>(),
+            current_schema
+                .iter()
+                .filter(|v| {
+                    ![
+                        "material_options_meta_v1",
+                        "roles_v1",
+                        "material_options_v1",
+                        "sales_v1",
+                    ]
+                    .contains(&v.as_str())
+                })
                 .cloned()
                 .collect::<Vec<_>>(),
         ]
