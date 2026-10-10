@@ -1,3 +1,4 @@
+import { can } from "../api";
 import {
   Disclosure,
   Button,
@@ -66,7 +67,7 @@ export default function Records({
         <div>
           <h1>记录</h1>
           <p>
-            {user.role === "admin"
+            {can(user, "records.all")
               ? "查看每笔收发和人员操作，历史记录始终保留。"
               : "查看自己登记的收发和操作记录。"}
           </p>
@@ -214,7 +215,7 @@ export default function Records({
               </small>
             </div>
           ))}
-          {user.role === "admin" &&
+          {can(user, "records.void") &&
             detail.status === "posted" &&
             !["void", "adjustment", "sales"].includes(detail.kind) && (
               <Disclosure className="more" title="录错了？作废这笔记录">

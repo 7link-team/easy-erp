@@ -194,11 +194,15 @@ export function Submit({
     </Button>
   );
 }
-export function useResource<T>(path: string, revision = 0) {
+export function useResource<T>(path: string | undefined, revision = 0) {
   const [data, setData] = useState<T>();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   useEffect(() => {
+    if (!path) {
+      setLoading(false);
+      return;
+    }
     const controller = new AbortController();
     setLoading(true);
     setError("");

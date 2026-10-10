@@ -37,6 +37,8 @@ pub async fn prepare_update(
         username: "system".into(),
         name: "退出或升级前备份".into(),
         role: "admin".into(),
+        role_name: "管理员".into(),
+        permissions: vec![],
         can_in: false,
         can_out: false,
         can_count: false,

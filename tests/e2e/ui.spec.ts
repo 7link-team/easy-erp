@@ -33,30 +33,54 @@ async function fits(page: Page) {
 
 test("深浅主题和三档字号可切换并在刷新后保留", async ({ page }) => {
   await login(page);
-  await expect(page.getByRole("button", { name: "中号字（默认）", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(
+    page.getByRole("button", { name: "中号字（默认）", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
   const sizes: number[] = [];
   for (const name of ["小号字", "中号字（默认）", "大号字"]) {
     await page.getByRole("button", { name, exact: true }).click();
-    sizes.push(await page.locator("main h1").evaluate(el => parseFloat(getComputedStyle(el).fontSize)));
+    sizes.push(
+      await page
+        .locator("main h1")
+        .evaluate((el) => parseFloat(getComputedStyle(el).fontSize)),
+    );
   }
   expect(sizes[0]).toBeLessThan(sizes[1]);
   expect(sizes[1]).toBeLessThan(sizes[2]);
   await page.getByRole("button", { name: "切换到深色界面" }).click();
   await page.reload();
-  await expect(page.getByRole("button", { name: "大号字", exact: true })).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByRole("button", { name: "切换到浅色界面" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "大号字", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(
+    page.getByRole("button", { name: "切换到浅色界面" }),
+  ).toBeVisible();
   await expect(page.locator("html")).toHaveCSS("color-scheme", "dark");
-  const paper = await page.locator("html").evaluate(el => getComputedStyle(el).getPropertyValue("--paper-2").trim());
-  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute("content", paper);
+  const paper = await page
+    .locator("html")
+    .evaluate((el) =>
+      getComputedStyle(el).getPropertyValue("--paper-2").trim(),
+    );
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute(
+    "content",
+    paper,
+  );
   await page.getByRole("button", { name: "切换到浅色界面" }).click();
   await expect(page.locator("html")).toHaveCSS("color-scheme", "light");
   await page.setViewportSize({ width: 375, height: 667 });
   await page.getByRole("button", { name: "更多", exact: true }).click();
-  await page.getByRole("dialog").getByRole("button", { name: "小号字", exact: true }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "小号字", exact: true })
+    .click();
   await expect(page.locator("html")).toHaveAttribute("data-size", "sm");
   await page.reload();
   await page.getByRole("button", { name: "更多", exact: true }).click();
-  await expect(page.getByRole("dialog").getByRole("button", { name: "小号字", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(
+    page
+      .getByRole("dialog")
+      .getByRole("button", { name: "小号字", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
 });
 
 test("侧栏标题固定，工作台开单入口与其他操作统一排列", async ({ page }) => {
@@ -66,17 +90,25 @@ test("侧栏标题固定，工作台开单入口与其他操作统一排列", as
   const brand = page.locator(".sidebar .brand");
   const titlePosition = (await brand.boundingBox())!.y;
   const menu = page.getByRole("navigation", { name: "主要导航" });
-  await menu.evaluate(el => { el.scrollTop = el.scrollHeight; });
-  expect(await menu.evaluate(el => el.scrollTop)).toBeGreaterThan(0);
+  await menu.evaluate((el) => {
+    el.scrollTop = el.scrollHeight;
+  });
+  expect(await menu.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
   expect((await brand.boundingBox())!.y).toBe(titlePosition);
   await expect(brand).toBeInViewport();
-  await expect(menu.getByRole("button", { name: "版本", exact: true })).toBeInViewport();
+  await expect(
+    menu.getByRole("button", { name: "版本", exact: true }),
+  ).toBeInViewport();
   const actions = page.locator(".task-grid").getByRole("button");
   await expect(actions).toHaveCount(4);
-  const desktop = await actions.evaluateAll(els => els.map(el => el.getBoundingClientRect().top));
+  const desktop = await actions.evaluateAll((els) =>
+    els.map((el) => el.getBoundingClientRect().top),
+  );
   expect(new Set(desktop).size).toBe(1);
   await page.setViewportSize({ width: 320, height: 568 });
-  const mobile = await actions.evaluateAll(els => els.map(el => el.getBoundingClientRect().top));
+  const mobile = await actions.evaluateAll((els) =>
+    els.map((el) => el.getBoundingClientRect().top),
+  );
   expect(mobile[0]).toBe(mobile[1]);
   expect(mobile[2]).toBe(mobile[3]);
   expect(mobile[2]).toBeGreaterThan(mobile[0]);
@@ -86,6 +118,7 @@ test("侧栏标题固定，工作台开单入口与其他操作统一排列", as
 });
 
 test("收发多物料局部滚动，确认按钮始终可见", async ({ page }) => {
+  test.setTimeout(90_000);
   await login(page);
   for (let i = 0; i < 9; i++) {
     const response = await page.request.post("/api/items", {
@@ -93,16 +126,29 @@ test("收发多物料局部滚动，确认按钮始终可见", async ({ page }) 
       data: { name: `滚动验收${i}`, kind: "原材料", unit: "个", precision: 0 },
     });
     expect(response.ok()).toBeTruthy();
+    const created = await response.json();
+    const receipt = await page.request.post("/api/movements", {
+      headers: { "X-ERP-Request": "1" },
+      data: {
+        request_id: crypto.randomUUID(),
+        kind: "receipt",
+        lines: [{ item_id: created.id, quantity: "1" }],
+      },
+    });
+    expect(receipt.ok()).toBeTruthy();
   }
   for (const direction of ["入库", "出库"]) {
     await page.goto("/");
     await page
       .getByRole("button", { name: new RegExp(`我要${direction}`) })
       .click();
-    await page.getByLabel("查找要收发的物料").fill("滚动验收");
-    await expect(page.locator(".picker-item")).toHaveCount(9);
-    for (const item of await page.locator(".picker-item").all())
-      await item.click();
+    for (let i = 0; i < 9; i++) {
+      await page.getByRole("button", { name: "添加一行", exact: true }).click();
+      await page.getByLabel("查找要收发的物料").fill(`滚动验收${i}`);
+      await page
+        .getByRole("button", { name: `选择滚动验收${i}`, exact: true })
+        .click();
+    }
     const confirm = page.getByRole("button", {
       name: `确认${direction}`,
       exact: true,
@@ -117,9 +163,7 @@ test("收发多物料局部滚动，确认按钮始终可见", async ({ page }) 
       await page.setViewportSize(viewport);
       for (const bottom of [false, true]) {
         await page.evaluate((bottom) => {
-          for (const el of document.querySelectorAll(
-            "main, .entry-fields, .picker-list",
-          ))
+          for (const el of document.querySelectorAll("main, .document-fields"))
             el.scrollTop = bottom ? el.scrollHeight : 0;
         }, bottom);
         await expect(confirm).toBeInViewport({ ratio: 1 });
@@ -387,17 +431,22 @@ for (const viewport of [
       await expect(page.locator("main h1")).toBeVisible();
       await fits(page);
       if (name === "收款") {
-        const tabs = page.getByRole("tablist", {
-          name: "财务栏目",
-          exact: true,
-        });
-        await expect(tabs.getByRole("tab")).toHaveCount(3);
-        await tabs.getByRole("tab", { name: "账户流水", exact: true }).click();
+        await expect(
+          page.getByRole("tablist", { name: "财务栏目", exact: true }),
+        ).toHaveCount(0);
+        await expect(
+          page.getByRole("region", { name: "客户欠款", exact: true }),
+        ).toBeVisible();
+        await page
+          .getByRole("region", { name: "账户流水", exact: true })
+          .scrollIntoViewIfNeeded();
         await expect(
           page.getByRole("combobox", { name: "筛选账户", exact: false }),
         ).toBeVisible();
         await fits(page);
-        await tabs.getByRole("tab", { name: "部门业绩", exact: true }).click();
+        await page
+          .getByRole("region", { name: "部门业绩", exact: true })
+          .scrollIntoViewIfNeeded();
         await expect(
           page.getByRole("table", { name: "业绩归属汇总" }),
         ).toBeVisible();
@@ -430,7 +479,7 @@ for (const viewport of [
           configTabs.getByRole("tab", { name: "业务员", exact: true }),
         ).toHaveAttribute("aria-selected", "true");
         await page
-          .getByRole("button", { name: "新增 / 设置", exact: true })
+          .getByRole("button", { name: "新增业务员", exact: true })
           .click();
         const dialog = page.getByRole("dialog", {
           name: "新增业务员",
@@ -485,9 +534,11 @@ for (const viewport of [
       }
       if (name === "人员") {
         if (viewport.width === 375) {
-          const table = page.getByRole("region", {
-            name: "可横向滚动的数据表格",
-          });
+          const table = page
+            .getByRole("region", { name: "人员账号" })
+            .getByRole("region", {
+              name: "可横向滚动的数据表格",
+            });
           await expect(table).toBeVisible();
           await table.focus();
           await page.keyboard.press("ArrowRight");
@@ -619,12 +670,8 @@ test("全站栏目选中样式一致、侧栏分区与普通页面打印", async
   await login(page);
   await page.setViewportSize({ width: 1280, height: 800 });
   const navigation = page.getByRole("navigation", { name: "主要导航" });
-  await expect(
-    navigation.getByRole("group", { name: "概览" }),
-  ).toBeVisible();
-  await expect(
-    navigation.getByRole("group", { name: "设置" }),
-  ).toBeVisible();
+  await expect(navigation.getByRole("group", { name: "概览" })).toBeVisible();
+  await expect(navigation.getByRole("group", { name: "设置" })).toBeVisible();
   await expect(
     navigation
       .getByRole("group", { name: "销售" })
@@ -670,21 +717,23 @@ test("全站栏目选中样式一致、侧栏分区与普通页面打印", async
       exact: true,
     });
     const selected = config.getByRole("tab", { selected: true });
-    styles.push(
-      await selected.evaluate((el) => {
-        const style = getComputedStyle(el);
-        return {
-          color: style.color,
-          border: style.borderBottomColor,
-          thickness: style.borderBottomWidth,
-          font: style.fontSize,
-          radius: style.borderRadius,
-          height: style.minHeight,
-        };
-      }),
-    );
     expect(styles[1]).toEqual(styles[0]);
-    expect(styles[2]).toEqual(styles[0]);
+    // Dictionary navigation follows the prototype: a side list on desktop,
+    // horizontal choices on mobile, not the ordinary underline tab style.
+    await expect(config).toHaveAttribute("aria-orientation", width > 760 ? "vertical" : "horizontal");
+    const sideBox = await page.locator(".dictionary-side").boundingBox();
+    const contentBox = await page.locator(".dictionary-main").boundingBox();
+    expect(sideBox).not.toBeNull();
+    expect(contentBox).not.toBeNull();
+    if (width > 760) {
+      expect(sideBox!.width).toBe(208);
+      expect(contentBox!.x - sideBox!.x - sideBox!.width).toBe(16);
+      expect(contentBox!.y).toBe(sideBox!.y);
+    } else {
+      expect(contentBox!.y).toBeGreaterThanOrEqual(sideBox!.y + sideBox!.height);
+    }
+    await expect(page.getByRole("table", { name: "单据类型列表" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "新增单据类型", exact: true })).toBeVisible();
     await selected.focus();
     await page.keyboard.press("End");
     await expect(
@@ -730,7 +779,9 @@ test("普通开单人的配置栏目只提供客户并能快速建档", async ({
     });
     await worker.goto("/#/finance");
     await expect(
-      worker.getByText("财务汇总仅管理员可查看。", { exact: true }),
+      worker.getByText("当前角色没有此页面的查看权限，请联系管理员。", {
+        exact: true,
+      }),
     ).toBeVisible();
     await expect(
       worker
@@ -750,7 +801,7 @@ test("普通开单人的配置栏目只提供客户并能快速建档", async ({
     await expect(config).toBeHidden();
     await expect(worker.locator("main h1")).toBeVisible();
     await worker
-      .getByRole("button", { name: "新增 / 设置", exact: true })
+      .getByRole("button", { name: "新增客户", exact: true })
       .click();
     const dialog = worker.getByRole("dialog", {
       name: "新增客户",
@@ -763,11 +814,19 @@ test("普通开单人的配置栏目只提供客户并能快速建档", async ({
     await expect(worker.getByText(name, { exact: true })).toBeVisible();
     await worker.goto("/#/sales");
     await worker.getByRole("button", { name: "新建单据", exact: true }).click();
-    await worker.getByRole("combobox", { name: "客户 必填", exact: true }).click();
-    await expect(worker.getByRole("option", { name: "新增客户", exact: true })).toBeVisible();
+    await worker
+      .getByRole("combobox", { name: "客户 必填", exact: true })
+      .click();
+    await expect(
+      worker.getByRole("option", { name: "新增客户", exact: true }),
+    ).toBeVisible();
     await worker.keyboard.press("Escape");
-    await worker.getByRole("combobox", { name: "业绩部门", exact: false }).click();
-    await expect(worker.getByRole("option", { name: "新增部门", exact: true })).toHaveCount(0);
+    await worker
+      .getByRole("combobox", { name: "业绩部门", exact: false })
+      .click();
+    await expect(
+      worker.getByRole("option", { name: "新增部门", exact: true }),
+    ).toHaveCount(0);
     await worker.keyboard.press("Escape");
   } finally {
     await context.close();
@@ -777,7 +836,10 @@ test("普通开单人的配置栏目只提供客户并能快速建档", async ({
 test("长表单弹窗标题与操作区常显，取消不保存", async ({ page }, testInfo) => {
   await login(page);
   await page.goto("/#/inventory");
-  for (const viewport of [{ width: 1280, height: 600 }, { width: 320, height: 568 }]) {
+  for (const viewport of [
+    { width: 1280, height: 600 },
+    { width: 320, height: 568 },
+  ]) {
     await page.setViewportSize(viewport);
     await page.getByRole("button", { name: "添加物料", exact: true }).click();
     const dialog = page.getByRole("dialog");
@@ -785,11 +847,15 @@ test("长表单弹窗标题与操作区常显，取消不保存", async ({ page 
     const footer = dialog.locator(".form-footer");
     const titleY = (await heading.boundingBox())!.y;
     await expect(footer).toBeInViewport({ ratio: 1 });
-    await dialog.locator(".modal-body").evaluate(el => { el.scrollTop = el.scrollHeight; });
+    await dialog.locator(".modal-body").evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
     expect((await heading.boundingBox())!.y).toBe(titleY);
     await expect(footer).toBeInViewport({ ratio: 1 });
     await fits(page);
-    await page.screenshot({ path: testInfo.outputPath(`sticky-modal-${viewport.width}.png`) });
+    await page.screenshot({
+      path: testInfo.outputPath(`sticky-modal-${viewport.width}.png`),
+    });
     await dialog.getByRole("button", { name: "取消", exact: true }).click();
     await expect(dialog).toHaveCount(0);
   }

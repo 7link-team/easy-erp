@@ -97,12 +97,25 @@ pub struct User {
     pub username: String,
     pub name: String,
     pub role: String,
+    pub role_name: String,
+    pub permissions: Vec<String>,
     pub can_in: bool,
     pub can_out: bool,
     pub can_count: bool,
     pub active: bool,
 }
 impl User {
+    pub fn can(&self, permission: &str) -> bool {
+        self.role == "admin" || self.permissions.iter().any(|p| p == permission)
+    }
+    pub fn require(&self, permission: &str) -> Result<()> {
+        if self.can(permission) {
+            Ok(())
+        } else {
+            Err(ApiError::forbidden())
+        }
+    }
+
     pub fn admin(&self) -> Result<()> {
         if self.role == "admin" {
             Ok(())
@@ -111,9 +124,11 @@ impl User {
         }
     }
 }
-fn user(row: &sea_orm::QueryResult) -> User {
+async fn user(db: &impl sea_orm::ConnectionTrait, row: &sea_orm::QueryResult) -> Result<User> {
     let writable = text(row, "role") != "viewer";
-    User {
+    let mut result = User {
+        role_name: String::new(),
+        permissions: vec![],
         id: text(row, "id"),
         username: text(row, "username"),
         name: text(row, "name"),
@@ -122,7 +137,9 @@ fn user(row: &sea_orm::QueryResult) -> User {
         can_out: writable && int(row, "can_out") == 1,
         can_count: writable && int(row, "can_count") == 1,
         active: int(row, "active") == 1,
-    }
+    };
+    crate::roles::hydrate(db, &mut result).await?;
+    Ok(result)
 }
 pub fn token() -> String {
     let mut bytes = [0; 32];
@@ -195,7 +212,7 @@ pub async fn current(state: &AppState, headers: &HeaderMap) -> Result<User> {
         })
         .ok_or_else(ApiError::unauthorized)?;
     let row=one(&state.db,"SELECT users.* FROM sessions JOIN users ON sessions.user_id=users.id WHERE sessions.id=? AND sessions.expires_at>? AND users.active=1",vec![digest(session).into(),now().into()]).await?.ok_or_else(ApiError::unauthorized)?;
-    Ok(user(&row))
+    user(&state.db, &row).await
 }
 pub async fn status(State(s): State<AppState>) -> Result<Json<serde_json::Value>> {
     let initialized = one(&s.db, "SELECT id FROM users LIMIT 1", vec![])
@@ -253,6 +270,8 @@ pub async fn setup(
         username: login,
         name,
         role: "admin".into(),
+        role_name: "管理员".into(),
+        permissions: vec![],
         can_in: true,
         can_out: true,
         can_count: true,
@@ -317,7 +336,7 @@ pub async fn login(
             "账号或密码不正确，请检查后重试。".into(),
         ));
     }
-    let actor = user(&row.unwrap());
+    let actor = user(&s.db, &row.unwrap()).await?;
     let raw = token();
     let age = if input.remember {
         REMEMBERED_IDLE
@@ -447,7 +466,7 @@ pub async fn consume_browser_ticket(
         return Err(invalid());
     }
     let row = one(&s.db, "SELECT users.*,sessions.idle_seconds FROM sessions JOIN users ON users.id=sessions.user_id WHERE sessions.id=? AND sessions.expires_at>? AND users.active=1", vec![ticket.source_session.into(),now().into()]).await?.ok_or_else(invalid)?;
-    let actor = user(&row);
+    let actor = user(&s.db, &row).await?;
     let age = int(&row, "idle_seconds");
     let raw = token();
     execute(
@@ -500,13 +519,11 @@ pub async fn logout(State(s): State<AppState>, headers: HeaderMap) -> Result<Res
 }
 pub async fn users(State(s): State<AppState>, headers: HeaderMap) -> Result<Json<Vec<User>>> {
     current(&s, &headers).await?.admin()?;
-    Ok(Json(
-        all(&s.db, "SELECT * FROM users ORDER BY created_at", vec![])
-            .await?
-            .iter()
-            .map(user)
-            .collect(),
-    ))
+    let mut users = Vec::new();
+    for row in all(&s.db, "SELECT * FROM users ORDER BY created_at", vec![]).await? {
+        users.push(user(&s.db, &row).await?);
+    }
+    Ok(Json(users))
 }
 #[derive(Deserialize)]
 pub struct NewUser {
@@ -514,12 +531,17 @@ pub struct NewUser {
     name: String,
     password: String,
     role: String,
+    #[serde(default = "enabled")]
+    active: bool,
     #[serde(default)]
     can_in: bool,
     #[serde(default)]
     can_out: bool,
     #[serde(default)]
     can_count: bool,
+}
+fn enabled() -> bool {
+    true
 }
 pub async fn create_user(
     State(s): State<AppState>,
@@ -530,9 +552,6 @@ pub async fn create_user(
     actor.admin()?;
     let login = username(&input.username)?;
     let name = clean(&input.name, "姓名", 50, true)?;
-    if !["worker", "viewer"].contains(&input.role.as_str()) {
-        return Err(ApiError::bad("请选择操作员或查看员。"));
-    }
     let hash = hash(input.password).await?;
     let _lock = s.writes.lock().await;
     if one(
@@ -545,16 +564,26 @@ pub async fn create_user(
     {
         return Err(ApiError::conflict("该登录账号已存在，请换一个账号。"));
     }
-    let writable = input.role == "worker";
-    let u = User {
+    let role = crate::roles::resolve(
+        &s.db,
+        &input.role,
+        input.can_in,
+        input.can_out,
+        input.can_count,
+    )
+    .await?;
+    let writable = role != "viewer";
+    let mut u = User {
+        role_name: String::new(),
+        permissions: vec![],
         id: id(),
         username: login,
         name,
-        role: input.role,
+        role,
         can_in: writable && input.can_in,
         can_out: writable && input.can_out,
         can_count: writable && input.can_count,
-        active: true,
+        active: input.active,
     };
     let txn = s.db.begin().await?;
     execute(
@@ -569,7 +598,7 @@ pub async fn create_user(
             (u.can_in as i64).into(),
             (u.can_out as i64).into(),
             (u.can_count as i64).into(),
-            1i64.into(),
+            (u.active as i64).into(),
             now().into(),
         ],
     )
@@ -583,6 +612,7 @@ pub async fn create_user(
     )
     .await?;
     txn.commit().await?;
+    crate::roles::hydrate(&s.db, &mut u).await?;
     Ok(Json(u))
 }
 #[derive(Deserialize)]
@@ -590,8 +620,11 @@ pub struct UpdateUser {
     name: String,
     role: Option<String>,
     active: bool,
+    #[serde(default)]
     can_in: bool,
+    #[serde(default)]
     can_out: bool,
+    #[serde(default)]
     can_count: bool,
     password: Option<String>,
 }
@@ -620,14 +653,22 @@ pub async fn update_user(
         return Err(ApiError::bad("不能停用管理员账号。"));
     }
     let old_role = text(&old, "role");
-    let role = input.role.as_deref().unwrap_or(&old_role);
-    if (old_role == "admin" && role != "admin")
-        || (old_role != "admin" && !["worker", "viewer"].contains(&role))
-    {
-        return Err(ApiError::bad(
-            "管理员角色不能更改；其他账号只能选择操作员或查看员。",
-        ));
-    }
+    let requested = input.role.as_deref().unwrap_or(&old_role);
+    let role = if old_role == "admin" {
+        if requested != "admin" {
+            return Err(ApiError::bad("管理员角色不能更改。"));
+        }
+        "admin".to_string()
+    } else {
+        crate::roles::resolve(
+            &s.db,
+            requested,
+            input.can_in,
+            input.can_out,
+            input.can_count,
+        )
+        .await?
+    };
     let can_in = role != "viewer" && input.can_in;
     let can_out = role != "viewer" && input.can_out;
     let can_count = role != "viewer" && input.can_count;
@@ -641,7 +682,7 @@ pub async fn update_user(
             (can_in as i64).into(),
             (can_out as i64).into(),
             (can_count as i64).into(),
-            role.into(),
+            role.clone().into(),
             uid.clone().into(),
         ],
     )

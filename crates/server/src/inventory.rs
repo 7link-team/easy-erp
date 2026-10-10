@@ -64,7 +64,7 @@ pub async fn items(
     headers: HeaderMap,
     Query(filter): Query<Filter>,
 ) -> Result<Json<JsonValue>> {
-    current(&s, &headers).await?;
+    current(&s, &headers).await?.require("items.read")?;
     let q = clean(filter.q.as_deref().unwrap_or(""), "搜索内容", 100, false)?;
     let kind = filter.kind.unwrap_or_default();
     let page = filter.page.unwrap_or(1).clamp(1, 1_000_000);
@@ -141,7 +141,7 @@ pub async fn create_item(
     Json(input): Json<ItemInput>,
 ) -> Result<Json<JsonValue>> {
     let actor = current(&s, &headers).await?;
-    actor.admin()?;
+    actor.require("items.create")?;
     validate_item(&input)?;
     let _lock = s.writes.lock().await;
     let txn = s.db.begin().await?;
@@ -227,7 +227,7 @@ pub async fn update_item(
     Json(input): Json<ItemInput>,
 ) -> Result<Json<JsonValue>> {
     let actor = current(&s, &headers).await?;
-    actor.admin()?;
+    actor.require("items.update")?;
     validate_item(&input)?;
     let _lock = s.writes.lock().await;
     let txn = s.db.begin().await?;
@@ -289,7 +289,7 @@ pub async fn delete_item(
     Path(iid): Path<String>,
 ) -> Result<Json<JsonValue>> {
     let actor = current(&s, &headers).await?;
-    actor.admin()?;
+    actor.require("items.delete")?;
     let _lock = s.writes.lock().await;
     let txn = s.db.begin().await?;
     let old = one(
@@ -319,7 +319,7 @@ pub async fn archive_item(
     Path(iid): Path<String>,
 ) -> Result<Json<JsonValue>> {
     let actor = current(&s, &headers).await?;
-    actor.admin()?;
+    actor.require("items.delete")?;
     let _lock = s.writes.lock().await;
     let txn = s.db.begin().await?;
     ensure_not_counting(&txn, &iid).await?;
@@ -368,19 +368,16 @@ pub async fn movement(
 
 pub(crate) async fn post_movement(s: &AppState, actor: User, input: Movement) -> Result<JsonValue> {
     let kind = MovementKind::parse(&input.kind)?;
-    if kind.admin_only() {
-        actor.admin()?;
-    } else if actor.role != "admin"
-        && (actor.role == "viewer"
-            || (kind.incoming() && !actor.can_in)
-            || (!kind.incoming() && !actor.can_out))
-    {
-        return Err(ApiError::forbidden());
-    }
+    actor.require(if kind.admin_only() {
+        "movement.special"
+    } else if kind.incoming() {
+        "movement.in"
+    } else {
+        "movement.out"
+    })?;
     if matches!(kind, MovementKind::ReturnIn | MovementKind::ReturnOut)
         && input.reference_id.is_empty()
     {
-        actor.admin()?;
         clean(&input.note, "无原单退回原因", 500, true)?;
     }
     clean(&input.note, "备注", 500, kind == MovementKind::Scrap)?;
@@ -577,8 +574,9 @@ pub async fn documents(
     Query(filter): Query<Filter>,
 ) -> Result<Json<JsonValue>> {
     let actor = current(&s, &headers).await?;
+    actor.require("records.read")?;
     let offset = (filter.page.unwrap_or(1).clamp(1, 1_000_000) - 1) * 50;
-    let actor_filter = if actor.role == "admin" {
+    let actor_filter = if actor.can("records.all") {
         String::new()
     } else {
         actor.id
@@ -608,7 +606,7 @@ pub async fn void_document(
     Json(input): Json<Reason>,
 ) -> Result<Json<JsonValue>> {
     let actor = current(&s, &headers).await?;
-    actor.admin()?;
+    actor.require("records.void")?;
     let reason = clean(&input.reason, "作废原因", 500, true)?;
     let _lock = s.writes.lock().await;
     let txn = s.db.begin().await?;
@@ -619,6 +617,9 @@ pub async fn void_document(
     )
     .await?
     .ok_or_else(ApiError::missing)?;
+    if !actor.can("records.all") && text(&old, "actor_id") != actor.id {
+        return Err(ApiError::forbidden());
+    }
     if one(
         &txn,
         "SELECT document_id FROM sales_inventory WHERE document_id=?",
@@ -722,7 +723,8 @@ pub async fn audits(
     Query(filter): Query<Filter>,
 ) -> Result<Json<JsonValue>> {
     let actor = current(&s, &headers).await?;
-    let uid = if actor.role == "admin" {
+    actor.require("records.read")?;
+    let uid = if actor.can("records.all") {
         String::new()
     } else {
         actor.id

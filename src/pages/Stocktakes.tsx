@@ -1,3 +1,4 @@
+import { can } from "../api";
 import { Button, Form, Input, Checkbox, Textarea } from "../ui";
 import { useEffect, useState } from "react";
 import {
@@ -67,9 +68,9 @@ export default function Stocktakes({
       <div className="page-heading">
         <div>
           <h1>清点</h1>
-          <p>填写实际数到的数量，管理员确认后更新库存。</p>
+          <p>填写实际数到的数量，确认清点后更新库存。</p>
         </div>
-        {user.role === "admin" && (
+        {can(user, "stocktake.create") && (
           <Button
             className="button primary"
             onClick={() => {
@@ -273,7 +274,9 @@ export default function Stocktakes({
                     inputMode={line.precision ? "decimal" : "numeric"}
                     required
                     value={values[line.item_id] ?? ""}
-                    readOnly={editing.status !== "open"}
+                    readOnly={
+                      editing.status !== "open" || !can(user, "stocktake.count")
+                    }
                     onChange={(e) =>
                       setValues((v) => ({
                         ...v,
@@ -285,9 +288,9 @@ export default function Stocktakes({
               </Field>
             ))}
             {action.error && <Notice>{action.error}</Notice>}
-            {editing.status === "open" && user.role === "admin" && (
+            {editing.status === "open" && can(user, "stocktake.finish") && (
               <section className="section-divider">
-                <h3>管理员确认</h3>
+                <h3>确认清点</h3>
                 <p className="hint">
                   请先保存上面的清点数量，再确认。确认后按实际数量更新库存。
                 </p>
@@ -308,8 +311,10 @@ export default function Stocktakes({
             )}
             {editing.status === "open" && (
               <div className="form-actions form-footer">
-                <Submit busy={action.busy}>保存清点数量</Submit>
-                {user.role === "admin" && (
+                {can(user, "stocktake.count") && (
+                  <Submit busy={action.busy}>保存清点数量</Submit>
+                )}
+                {can(user, "stocktake.finish") && (
                   <>
                     <Button
                       className="button"

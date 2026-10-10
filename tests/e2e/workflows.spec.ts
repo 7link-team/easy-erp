@@ -40,7 +40,16 @@ test("物料分页前后切换与搜索重置页码", async ({ page }) => {
     ).ok(),
   ).toBeTruthy();
   await navigate(page, "物料");
+  const inventorySearch = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return (
+      url.pathname === "/api/items" &&
+      url.searchParams.get("q") === "翻页验收" &&
+      url.searchParams.get("page") === "1"
+    );
+  });
   await page.getByLabel("搜索物料", { exact: true }).fill("翻页验收");
+  await inventorySearch;
   await expect(page.locator("tbody tr")).toHaveCount(50);
   await page.getByRole("button", { name: "下一页", exact: true }).click();
   await expect(page.locator("tbody tr")).toHaveCount(2);
@@ -102,8 +111,11 @@ test("断网提交保留表单，重试成功且只入账一次", async ({ page 
   });
   expect(created.ok()).toBeTruthy();
   await page.getByRole("button", { name: /我要入库/ }).click();
+  await page.getByRole("button", { name: "添加一行", exact: true }).click();
   await page.getByLabel("查找要收发的物料").fill("网络恢复验收");
-  await page.getByRole("button", { name: /网络恢复验收.*点击添加/ }).click();
+  await page
+    .getByRole("button", { name: "选择网络恢复验收", exact: true })
+    .click();
   await page.getByLabel(/入库数量/).fill("3");
   await page.route("**/api/movements", (route) => route.abort(), { times: 1 });
   await page.getByRole("button", { name: "确认入库", exact: true }).click();
@@ -217,13 +229,24 @@ test("全部收发用途、数量限制、移除物料、连续登记、记录�
         url.searchParams.get("q") === "收发用途验收"
       );
     });
+    await page.getByRole("button", { name: "添加一行", exact: true }).click();
     await page.getByLabel("查找要收发的物料").fill("收发用途验收");
     await results;
-    await expect(page.locator(".picker-item")).toHaveCount(1);
-    await page.getByRole("button", { name: /收发用途验收.*点击添加/ }).click();
+    await expect(
+      page.getByRole("button", { name: "选择收发用途验收", exact: true }),
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "选择收发用途验收", exact: true })
+      .click();
     await page.getByRole("button", { name: "移除收发用途验收" }).click();
-    await expect(page.getByText("先选物料，再填写数量。")).toBeVisible();
-    await page.getByRole("button", { name: /收发用途验收.*点击添加/ }).click();
+    await expect(
+      page.getByText("点击“添加一行”，选择物料后填写本次数量。"),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "添加一行", exact: true }).click();
+    await page.getByLabel("查找要收发的物料").fill("收发用途验收");
+    await page
+      .getByRole("button", { name: "选择收发用途验收", exact: true })
+      .click();
     await chooseSelect(page.getByLabel("用途 必填", { exact: true }), kind);
     await page
       .getByLabel("备注或原因", { exact: false })
@@ -257,7 +280,13 @@ test("全部收发用途、数量限制、移除物料、连续登记、记录�
         exact: true,
       })
       .click();
-    await expect(page.getByText("先选物料，再填写数量。")).toBeVisible();
+    await expect(
+      page.getByText("点击“添加一行”，选择物料后填写本次数量。"),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "添加一行", exact: true }).click();
+    await page.getByLabel("查找要收发的物料").fill("收发用途验收");
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "移除空行", exact: true }).click();
   }
   const docs = await (await page.request.get("/api/documents")).json();
   expect(
@@ -380,7 +409,7 @@ test("查看员权限、角色更改、停用、重置密码与退出登录", as
   await chooseSelect(page.getByLabel("角色 必填", { exact: true }), "viewer");
   await expect(
     page.getByRole("checkbox", { name: "入库", exact: true }),
-  ).toBeDisabled();
+  ).toHaveCount(0);
   await page.getByRole("button", { name: "保存账号" }).click();
   const row = page.getByRole("row").filter({ hasText: "ui_viewer" });
   await expect(row).toContainText("查看员");
@@ -412,7 +441,10 @@ test("查看员权限、角色更改、停用、重置密码与退出登录", as
       ).status(),
     ).toBe(403);
     await row.getByRole("button", { name: "修改权限" }).click();
-    await chooseSelect(page.getByLabel("角色 必填", { exact: true }), "worker");
+    await chooseSelect(
+      page.getByLabel("角色 必填", { exact: true }),
+      "worker-111",
+    );
     await page.getByRole("checkbox", { name: "允许此账号登录" }).uncheck();
     await page
       .getByLabel("重置密码", { exact: false })
@@ -430,7 +462,6 @@ test("查看员权限、角色更改、停用、重置密码与退出登录", as
     ).toBe(401);
     await row.getByRole("button", { name: "修改权限" }).click();
     await page.getByRole("checkbox", { name: "允许此账号登录" }).check();
-    await page.getByRole("checkbox", { name: "入库", exact: true }).check();
     await page.getByRole("button", { name: "保存账号" }).click();
     await expect(row).toContainText("操作员");
     expect(

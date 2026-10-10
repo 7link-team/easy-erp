@@ -1,3 +1,4 @@
+import { can } from "../api";
 import { Disclosure } from "../ui";
 import { Form, Input, Select, ComboBox, Button, Checkbox } from "../ui";
 import { useEffect, useState } from "react";
@@ -239,14 +240,14 @@ export default function Inventory({
           <h1>物料</h1>
           <p>找物料、看数量。每笔收发都有记录。</p>
         </div>
-        {user.role === "admin" && (
+        {can(user, "items.create") && (
           <Button className="button primary" onClick={() => setEditing("new")}>
             <Plus size={19} />
             添加物料
           </Button>
         )}
       </div>
-      <section className="panel">
+      <section className="panel ledger-sheet inventory-sheet">
         <div className="filters">
           <label className="search">
             <Search size={20} />
@@ -333,7 +334,7 @@ export default function Inventory({
                     </td>
                     <td role="cell">
                       <div className="row-actions">
-                        {(user.role === "admin" || user.can_in) && (
+                        {can(user, "movement.in") && (
                           <Button
                             className="button small"
                             disabled={item.counting}
@@ -343,28 +344,33 @@ export default function Inventory({
                             入库
                           </Button>
                         )}
-                        {(user.role === "admin" || user.can_out) && (
+                        {can(user, "movement.out") && (
                           <Button
                             className="button small"
-                            disabled={item.counting}
+                            disabled={item.counting || item.balance <= 0}
+                            title={item.balance <= 0 ? "无库存，暂不能出库" : undefined}
                             onClick={() => move("out", item)}
                           >
                             <ArrowUpFromLine size={16} />
                             出库
                           </Button>
                         )}
-                        {(user.role === "admin" ||
-                          (user.role === "worker" && user.can_out)) && (
+                        {can(user, "sales.create") && (
                           <Button
                             className="button small"
-                            disabled={item.counting}
+                            disabled={item.counting || item.balance <= 0}
+                            title={
+                              item.balance <= 0
+                                ? "无库存，暂不能开单出库"
+                                : undefined
+                            }
                             onClick={() => openSale(item)}
                           >
                             <ReceiptText size={16} />
                             开单出库
                           </Button>
                         )}
-                        {user.role === "admin" && (
+                        {can(user, "items.update") && (
                           <Button
                             className="icon-button"
                             onClick={() => setEditing(item)}
@@ -373,7 +379,7 @@ export default function Inventory({
                             <Pencil size={17} />
                           </Button>
                         )}
-                        {user.role === "admin" &&
+                        {can(user, "items.delete") &&
                           item.balance === 0 &&
                           !item.counting && (
                             <Button

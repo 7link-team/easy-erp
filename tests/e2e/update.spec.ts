@@ -47,8 +47,9 @@ test("未提交的入库内容阻止应用更新安装", async ({ page }) => {
   await start(page);
   await page.request.post("/api/items", { headers: { "X-ERP-Request": "1" }, data: { name: "更新保护物料", kind: "原材料", unit: "个", precision: 0 } });
   await page.getByRole("button", { name: /我要入库/ }).click();
-  await page.getByLabel("查找要收发的物料").fill("更新保护物料");
-  await page.getByRole("button", { name: /更新保护物料.*点击添加/ }).click();
+  await page.getByRole("button", { name: "添加一行", exact: true }).click();
+    await page.getByLabel("查找要收发的物料").fill("更新保护物料");
+  await page.getByRole("button", { name: "选择更新保护物料", exact: true }).click();
   await page.getByLabel("入库数量", { exact: false }).fill("3");
   await page.getByRole("button", { name: "检查应用更新", exact: true }).click();
   await page.getByRole("button", { name: "下载更新", exact: true }).click();

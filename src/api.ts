@@ -52,7 +52,9 @@ export interface User {
   id: string;
   username: string;
   name: string;
-  role: "admin" | "worker" | "viewer";
+  role: string;
+  role_name: string;
+  permissions: string[];
   can_in: boolean;
   can_out: boolean;
   can_count: boolean;
@@ -142,3 +144,6 @@ export const dateTime = (n: number) =>
     minute: "2-digit",
     hour12: false,
   }).format(n);
+
+export const can = (user: User, permission: string) =>
+  user.role === "admin" || user.permissions.includes(permission);

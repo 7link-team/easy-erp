@@ -129,6 +129,13 @@ export interface Finance {
   }[];
   entries: (CashEntry & { sale_id: string; number: string })[];
 }
+export function correctablePayments(sale: Sale) {
+  return sale.payments.filter(
+    (entry) =>
+      !entry.reversal_of &&
+      !sale.payments.some((reversal) => reversal.reversal_of === entry.id),
+  );
+}
 export const moneyText = (cents: number) =>
   new Intl.NumberFormat("zh-CN", {
     minimumFractionDigits: 2,

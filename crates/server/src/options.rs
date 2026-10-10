@@ -54,7 +54,10 @@ pub async fn ensure(db: &impl ConnectionTrait, field: &str, name: &str) -> Resul
     Ok(text(&row, "name"))
 }
 pub async fn list(State(s): State<AppState>, headers: HeaderMap) -> Result<Json<Value>> {
-    current(&s, &headers).await?;
+    let actor = current(&s, &headers).await?;
+    if !actor.can("options.read") && !actor.can("items.read") {
+        return Err(ApiError::forbidden());
+    }
     let rows = all(
         &s.db,
         "SELECT * FROM material_options ORDER BY field,name",
@@ -90,7 +93,11 @@ pub async fn save(
 ) -> Result<Json<Value>> {
     let _guard = s.writes.lock().await;
     let actor = current(&s, &headers).await?;
-    actor.admin()?;
+    actor.require(if input.id.is_empty() {
+        "options.create"
+    } else {
+        "options.update"
+    })?;
     let name = validate(&input.field, &input.name)?;
     if name.is_empty() {
         return Err(ApiError::bad("请填写选项名称。"));
@@ -148,7 +155,7 @@ pub async fn remove(
 ) -> Result<Json<Value>> {
     let _guard = s.writes.lock().await;
     let actor = current(&s, &headers).await?;
-    actor.admin()?;
+    actor.require("options.delete")?;
     let txn = s.db.begin().await?;
     let row = one(
         &txn,

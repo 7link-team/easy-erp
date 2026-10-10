@@ -9,6 +9,7 @@ impl MigratorTrait for Migrator {
             Box::new(SessionIdle),
             Box::new(Sales),
             Box::new(MaterialOptions),
+            Box::new(Roles),
         ]
     }
 }
@@ -315,5 +316,24 @@ impl MigrationTrait for MaterialOptions {
     }
     async fn down(&self, _: &SchemaManager) -> std::result::Result<(), DbErr> {
         Err(DbErr::Custom("不自动回退基础资料".into()))
+    }
+}
+
+struct Roles;
+impl MigrationName for Roles {
+    fn name(&self) -> &str {
+        "roles_v1"
+    }
+}
+#[async_trait::async_trait]
+impl MigrationTrait for Roles {
+    async fn up(&self, m: &SchemaManager) -> std::result::Result<(), DbErr> {
+        m.get_connection().execute_unprepared("CREATE TABLE roles (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, permissions TEXT NOT NULL, version INTEGER NOT NULL)").await?;
+        crate::roles::initialize(m.get_connection())
+            .await
+            .map_err(|e| DbErr::Custom(e.to_string()))
+    }
+    async fn down(&self, _: &SchemaManager) -> std::result::Result<(), DbErr> {
+        Err(DbErr::Custom("不自动回退角色权限".into()))
     }
 }

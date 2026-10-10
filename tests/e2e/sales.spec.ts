@@ -678,7 +678,7 @@ root=sys.argv[1]
 with tempfile.TemporaryDirectory() as d:
  src=sqlite3.connect(os.path.join(root,'inventory.sqlite')); dest=sqlite3.connect(os.path.join(d,'legacy.sqlite')); src.backup(dest); src.close()
  for (name,) in dest.execute("SELECT name FROM sqlite_master WHERE type='table' AND (name='sales' OR name LIKE 'sales_%')").fetchall(): dest.execute('DROP TABLE '+name)
- dest.execute("DELETE FROM seaql_migrations WHERE version IN ('sales_v1','material_options_v1')"); dest.execute("DROP TABLE material_options"); dest.execute('UPDATE items SET precision=0'); dest.commit()
+ dest.execute("DELETE FROM seaql_migrations WHERE version IN ('sales_v1','material_options_v1','roles_v1')"); dest.execute("DROP TABLE material_options"); dest.execute("UPDATE users SET role='worker' WHERE role LIKE 'worker-%'"); dest.execute("UPDATE users SET role='viewer',can_in=0,can_out=0,can_count=0 WHERE role NOT IN ('admin','worker','viewer')"); dest.execute("DROP TABLE roles"); dest.execute('UPDATE items SET precision=0'); dest.commit()
  schema=[r[0] for r in dest.execute("SELECT version FROM seaql_migrations WHERE version <> 'session_idle_v1' ORDER BY version")]; dest.close()
  data=open(os.path.join(d,'legacy.sqlite'),'rb').read()
  with zipfile.ZipFile(os.path.join(root,'backups',sys.argv[2]),'w') as z:
@@ -880,7 +880,9 @@ test("部门业务员归属、跨部门校验、历史快照及业绩退货作�
   let sale = await command(request, { action: "confirm", input: attributed });
   expect(sale.department_name).toBe(department.name);
   expect(sale.salesperson_name).toBe(salesperson.name);
-  expect(sale.actor_name).toBe("管理员");
+  expect(sale.actor_name).toBe(
+    (await (await request.get("/api/me")).json()).name,
+  );
   await page.goto("/#/sales");
   await page.getByLabel("搜索销售单").fill(department.name);
   await page.getByRole("button", { name: new RegExp(sale.number) }).click();
@@ -953,7 +955,9 @@ test("部门业务员归属、跨部门校验、历史快照及业绩退货作�
   ).toMatchObject({ count: 1, due: 80000, paid: 5000, debt: 75000 });
   await page.getByRole("button", { name: "返回列表", exact: true }).click();
   await page.getByRole("tab", { name: "收款与欠款", exact: true }).click();
-  await page.getByRole("tab", { name: "部门业绩", exact: true }).click();
+  await page
+    .getByRole("region", { name: "部门业绩", exact: true })
+    .scrollIntoViewIfNeeded();
   const row = page
     .getByRole("table", { name: "业绩归属汇总" })
     .getByRole("row")
@@ -1007,9 +1011,14 @@ test("账户筛选对账与 CSV 退款保持数值", async ({ request, page }) =
   ).toBeVisible();
   await page.reload();
   await expect(
-    page.getByRole("tab", { name: "客户欠款", exact: true }),
-  ).toHaveAttribute("aria-selected", "true");
-  await page.getByRole("tab", { name: "账户流水", exact: true }).click();
+    page.getByRole("region", { name: "客户欠款", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("tablist", { name: "财务栏目", exact: true }),
+  ).toHaveCount(0);
+  await page
+    .getByRole("region", { name: "账户流水", exact: true })
+    .scrollIntoViewIfNeeded();
   await chooseSelect(
     page.getByRole("combobox", { name: "筛选账户", exact: false }),
     account.id,
@@ -1033,7 +1042,9 @@ test("账户筛选对账与 CSV 退款保持数值", async ({ request, page }) =
   expect(csv).toContain('"-20.00"');
   expect(csv).not.toContain('"\'-20.00"');
   expect(csv).toContain('"50.00"');
-  await page.getByRole("tab", { name: "客户欠款", exact: true }).click();
+  await page
+    .getByRole("region", { name: "客户欠款", exact: true })
+    .scrollIntoViewIfNeeded();
   await page.getByRole("button", { name: customer.name, exact: true }).click();
   const ledger = page.getByRole("dialog", {
     name: `${customer.name} · 单据对账`,
@@ -1120,7 +1131,9 @@ test("账户筛选对账与 CSV 退款保持数值", async ({ request, page }) =
     ledger.getByRole("table", { name: "客户单据对账" }),
   ).toContainText("¥960.00");
   await page.keyboard.press("Escape");
-  await page.getByRole("tab", { name: "账户流水", exact: true }).click();
+  await page
+    .getByRole("region", { name: "账户流水", exact: true })
+    .scrollIntoViewIfNeeded();
   await expect(
     page
       .getByRole("table", { name: "账户累计汇总" })
@@ -1444,7 +1457,7 @@ test("超库存即时提示且禁止确认，草稿保留，修订按原数量�
 test("新增业务员中再新增部门，保留姓名且只保存当前弹窗", async ({ page }) => {
   await page.goto("/#/catalog");
   await page.getByRole("tab", { name: "业务员", exact: true }).click();
-  await page.getByRole("button", { name: "新增 / 设置", exact: true }).click();
+  await page.getByRole("button", { name: "新增业务员", exact: true }).click();
   const salesperson = page.getByRole("dialog", {
     name: "新增业务员",
     exact: true,
@@ -1482,4 +1495,166 @@ test("新增业务员中再新增部门，保留姓名且只保存当前弹窗",
   await expect(
     page.getByText(`嵌套业务员-${suffix}`, { exact: true }),
   ).toBeVisible();
+});
+
+test("物料行可更换和删除，零库存禁选且保留其他行", async ({ page }) => {
+  const a = await fixture(page.request);
+  const b = await fixture(page.request);
+  const c = await fixture(page.request);
+  const emptyName = `零库存-${randomUUID().slice(0, 8)}`;
+  await post(page.request, "/items", {
+    name: emptyName,
+    kind: "成品",
+    unit: "袋",
+  });
+  await page.goto("/#/inventory");
+  await page.getByLabel("搜索物料", { exact: true }).fill(emptyName);
+  const emptyRow = page.getByRole("row").filter({ hasText: emptyName });
+  await expect(emptyRow.getByRole("button", { name: "出库", exact: true })).toBeDisabled();
+  await expect(emptyRow.getByRole("button", { name: "开单出库", exact: true })).toBeDisabled();
+  await expect(emptyRow.getByRole("button", { name: "入库", exact: true })).toBeEnabled();
+  await page.goto("/#/sales");
+  await page.getByRole("button", { name: "新建单据", exact: true }).click();
+  await expect(
+    page.getByRole("region", { name: "基本信息", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "添加一行", exact: true }).click();
+  await page.getByLabel("开单查找物料").fill(emptyName);
+  await expect(
+    page.getByRole("button", { name: `无库存${emptyName}`, exact: true }),
+  ).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "移除空行", exact: true }).click();
+  await expect(page.locator(".sale-line")).toHaveCount(0);
+  for (const [index, { item }] of [a, b].entries()) {
+    await page.getByRole("button", { name: "添加一行", exact: true }).click();
+    await page.getByLabel("开单查找物料").fill(item.name);
+    await page
+      .getByRole("button", { name: `选择${item.name}`, exact: true })
+      .click();
+    await page.getByLabel(`${item.name} 数量`).fill(String(index + 3));
+    await page.getByLabel(`${item.name} 单价`).fill("12.5");
+  }
+  await page
+    .getByRole("button", { name: `更换物料：${a.item.name}`, exact: true })
+    .click();
+  await page.getByLabel("开单查找物料").fill(b.item.name);
+  await expect(
+    page.getByRole("button", { name: `已添加${b.item.name}`, exact: true }),
+  ).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await expect(page.getByLabel(`${a.item.name} 数量`)).toHaveValue("3");
+  await page
+    .getByRole("button", { name: `更换物料：${a.item.name}`, exact: true })
+    .click();
+  await page.getByLabel("开单查找物料").fill(c.item.name);
+  await page
+    .getByRole("button", { name: `选择${c.item.name}`, exact: true })
+    .click();
+  await expect(page.getByLabel(`${c.item.name} 数量`)).toBeFocused();
+  await expect(page.getByLabel(`${c.item.name} 数量`)).toHaveValue("1");
+  await expect(page.getByLabel(`${c.item.name} 单价`)).toHaveValue("");
+  await expect(page.getByLabel(`${b.item.name} 数量`)).toHaveValue("4");
+  await expect(page.getByLabel(`${b.item.name} 单价`)).toHaveValue("12.5");
+  await expect(page.locator(".sale-line")).toHaveCount(2);
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page
+    .getByRole("button", { name: `移除${c.item.name}`, exact: true })
+    .click();
+  await expect(page.locator(".sale-line")).toHaveCount(1);
+  await expect(page.getByLabel(`${b.item.name} 数量`)).toHaveValue("4");
+  await expect(
+    page.locator(".sale-editor > form > .form-footer"),
+  ).toBeInViewport({ ratio: 1 });
+});
+
+test("更正流水无记录时说明原因，有收退款时可选择并排除已冲销流水", async ({
+  page,
+}) => {
+  const { input, item } = await fixture(page.request);
+  let sale = await command(page.request, { action: "confirm", input });
+  const openSale = async () => {
+    await page.goto("/#/sales");
+    await page.reload();
+    await page.getByRole("button", { name: new RegExp(sale.number) }).click();
+  };
+  await openSale();
+  await expect(
+    page.getByRole("button", { name: "更正流水", exact: true }),
+  ).toBeDisabled();
+  await expect(
+    page.getByText("暂无可更正流水，请先登记收款。", { exact: true }),
+  ).toBeVisible();
+  sale = await command(page.request, {
+    sale_id: sale.id,
+    version: sale.version,
+    action: "pay",
+    amount: "60",
+    account_id: "cash",
+  });
+  const original = sale.payments[0];
+  await openSale();
+  await page.getByRole("button", { name: "更正流水", exact: true }).click();
+  const dialog = page.getByRole("dialog", {
+    name: "更正收款流水",
+    exact: true,
+  });
+  await chooseSelect(
+    dialog.getByRole("combobox", { name: "原流水 必填", exact: true }),
+    original.id,
+  );
+  await expect(dialog.getByLabel("更正后金额", { exact: false })).toHaveValue(
+    "60",
+  );
+  await expect(
+    dialog.getByRole("combobox", { name: "收款账户", exact: false }),
+  ).toHaveAttribute("data-value", "cash");
+  await dialog.getByLabel("更正后金额", { exact: false }).fill("50");
+  await dialog.getByLabel("操作原因", { exact: false }).fill("更正误录金额");
+  await dialog
+    .getByRole("button", { name: "更正收款流水", exact: true })
+    .click();
+  await expect(dialog).toHaveCount(0);
+  sale = await (await page.request.get(`/api/sales/${sale.id}`)).json();
+  expect(sale.paid).toBe(5000);
+  expect(
+    sale.payments.filter(
+      (p: { reversal_of: string }) => p.reversal_of === original.id,
+    ),
+  ).toHaveLength(1);
+  sale = await command(page.request, {
+    sale_id: sale.id,
+    version: sale.version,
+    action: "refund",
+    amount: "10",
+    account_id: "cash",
+  });
+  const refund = sale.payments.find(
+    (p: { amount: number; reversal_of: string }) =>
+      p.amount === -1000 && !p.reversal_of,
+  );
+  await openSale();
+  await page.getByRole("button", { name: "更正流水", exact: true }).click();
+  await dialog
+    .getByRole("combobox", { name: "原流水 必填", exact: true })
+    .click();
+  await expect(
+    page.getByRole("option").filter({ hasText: "60.00" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("option").filter({ hasText: "退款" }),
+  ).toHaveCount(1);
+  await page.locator(`[role="option"][data-value="${refund.id}"]`).click();
+  await expect(dialog.getByLabel("更正后金额", { exact: false })).toHaveValue(
+    "10",
+  );
+  await dialog.getByLabel("更正后金额", { exact: false }).fill("5");
+  await dialog.getByLabel("操作原因", { exact: false }).fill("更正退款金额");
+  await dialog
+    .getByRole("button", { name: "更正收款流水", exact: true })
+    .click();
+  await expect(dialog).toHaveCount(0);
+  sale = await (await page.request.get(`/api/sales/${sale.id}`)).json();
+  expect(sale.paid).toBe(4500);
+  expect(await itemBalance(page.request, item.name)).toBe(90000);
 });

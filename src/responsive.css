@@ -37,7 +37,6 @@
 .form-grid > *,
 .task-grid > *,
 .home-columns > *,
-.movement-layout > *,
 .document-body,
 .recent-row > div,
 .page-heading > div {
@@ -133,12 +132,6 @@ tbody tr:hover {
 .row-actions {
   align-items: center;
 }
-.picker-item > span:first-child {
-  min-width: 0;
-}
-.picker-item > span:last-child {
-  flex-shrink: 0;
-}
 .document {
   flex-wrap: wrap;
 }
@@ -228,12 +221,6 @@ tbody tr:hover {
   }
   .filters .search {
     flex-basis: 100%;
-  }
-  .movement-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .picker-list {
-    max-height: 260px;
   }
 }
 

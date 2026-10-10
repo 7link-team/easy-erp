@@ -10,6 +10,7 @@ mod migration;
 mod money;
 mod network;
 mod options;
+mod roles;
 mod sales;
 mod state;
 mod stocktake;
@@ -160,7 +161,7 @@ async fn main() -> anyhow::Result<()> {
     .is_some()
         && db::one(
             &db,
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='material_options'",
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='roles'",
             vec![],
         )
         .await?
@@ -217,6 +218,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/me", get(auth::me))
         .route("/api/users", get(auth::users).post(auth::create_user))
         .route("/api/users/{id}", put(auth::update_user))
+        .route("/api/roles", get(roles::list).post(roles::save))
+        .route("/api/roles/{id}", axum::routing::delete(roles::remove))
         .route(
             "/api/items",
             get(inventory::items).post(inventory::create_item),

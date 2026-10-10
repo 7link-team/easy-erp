@@ -739,7 +739,6 @@ td small { font-size: var(--t-11); color: var(--ink-3); }
 .filters { gap: var(--s-3); }
 .search input { padding-left: 40px; }
 .password input { padding-right: 48px; }
-.selected-item { background: var(--brand-soft); border: 1px solid var(--brand-line); }
 .modal-heading { background: linear-gradient(170deg, var(--paper-1), var(--paper-0)); }
 .modal-heading h2 { font-size: var(--t-16); font-weight: var(--w-semi); }
 .notice.error { background: var(--danger-soft); color: var(--danger); border-color: var(--danger-line); }
@@ -1001,3 +1000,139 @@ button { transition: background-color var(--dur-1) var(--ease), border-color var
 
 .mobile-display-settings { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); padding-bottom: var(--s-4); }
 .mobile-display-settings .size-switch .ui-button { width: 44px; height: 44px; }
+
+.panel > :first-child { margin-top: 0; }
+.panel > :last-child { margin-bottom: 0; }
+.form-grid { gap: var(--s-4); margin-bottom: var(--s-4); }
+.field { margin-bottom: var(--s-4); }
+
+.roles-section {
+  margin-top: var(--s-6);
+}
+.permission-matrix fieldset {
+  padding: var(--s-4);
+  margin-bottom: var(--s-4);
+  border: 1px solid var(--line-2);
+}
+.permission-matrix legend {
+  padding-inline: var(--s-2);
+  font-weight: var(--w-semi);
+}
+.permission-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-3) var(--s-4);
+}
+.permission-options .checkbox {
+  margin: 0;
+  align-items: flex-start;
+}
+@media (max-width: 480px) {
+  .permission-options {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Ledger layouts follow design-system/v2/prototype.html. */
+.dictionary {
+  display: grid;
+  grid-template-columns: 208px minmax(0, 1fr);
+  align-items: start;
+  gap: var(--s-4);
+}
+.dictionary-side {
+  position: sticky;
+  top: calc(var(--h-topbar) + var(--s-4));
+  padding: var(--s-3);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sheet);
+  background: var(--paper-0);
+}
+.dictionary-side[hidden] { display: none; }
+.dictionary-label { padding: 0 var(--s-2) var(--s-2); font-size: var(--t-11); color: var(--ink-3); }
+.dictionary-side .ui-tabs-list { flex-direction: column; gap: 2px; margin: 0; border: 0; overflow: visible; }
+.dictionary-side .ui-tab {
+  position: relative;
+  justify-content: space-between;
+  gap: var(--s-2);
+  width: 100%;
+  min-height: 38px;
+  padding: var(--s-2) 10px;
+  border: 0;
+  border-radius: var(--r-control);
+  font-size: var(--t-13);
+  font-weight: var(--w-medium);
+}
+.dictionary-side .ui-tab[data-state="active"] { background: var(--brand-soft); color: var(--brand-ink); font-weight: var(--w-semi); }
+.dictionary-side .ui-tab[data-state="active"]::before { content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 2px; background: var(--brand); }
+.dictionary-count { font-size: var(--t-11); font-variant-numeric: tabular-nums; color: var(--ink-3); }
+.dictionary-side .ui-tab[data-state="active"] .dictionary-count { color: inherit; }
+.dictionary-tip { margin: var(--s-3) 0 0; padding: var(--s-3) var(--s-2) 0; border-top: 1px solid var(--line-1); font-size: var(--t-11); line-height: 1.7; }
+.ledger-sheet { min-width: 0; background: var(--paper-0); border: 1px solid var(--line-2); border-radius: var(--r-sheet); }
+.ledger-sheet .ledger-heading { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s-3); margin: 0; padding: var(--s-3) var(--s-4); border-bottom: 2px solid var(--brand); }
+.ledger-heading h2 { margin: 0; font-size: var(--t-14); }
+.ledger-heading p { flex: 1; min-width: 180px; margin: 0; text-align: right; font-size: var(--t-11); }
+.ledger-sheet > .table-wrap { border: 0; border-radius: 0; }
+.dictionary-table .ledger-sequence { width: 44px; min-width: 44px; padding-inline: var(--s-2); text-align: center; color: var(--ink-3); background: var(--paper-1); font-variant-numeric: tabular-nums; }
+.dictionary-table .ledger-name { min-width: 140px; }
+.dictionary-table td { overflow-wrap: anywhere; }
+.dictionary-table .ledger-actions { width: 1%; white-space: nowrap; text-align: right; }
+.ledger-actions .row-actions { justify-content: flex-end; }
+.ledger-actions .ledger-edit { border-color: transparent; background: transparent; box-shadow: none; }
+.ledger-footer { padding: var(--s-3) var(--s-4); border-top: 1px solid var(--line-1); background: var(--paper-1); }
+.dictionary-add { display: flex; align-items: center; justify-content: center; gap: var(--s-2); min-height: 40px; width: 100%; padding: var(--s-2) var(--s-3); border: 1px dashed var(--line-2); border-radius: var(--r-control); background: transparent; color: var(--ink-2); font-size: var(--t-12); }
+.dictionary-add:hover { background: var(--brand-soft); color: var(--brand-ink); border-color: var(--brand); }
+@media (pointer: coarse) {
+  .dictionary-side .ui-tab, .dictionary-add, .ledger-actions .button { min-height: 44px; }
+}
+@media (max-width: 760px) {
+  .dictionary { grid-template-columns: minmax(0, 1fr); gap: var(--s-3); }
+  .dictionary-side { position: static; padding: var(--s-2); }
+  .dictionary-side .ui-tabs-list { flex-direction: row; gap: var(--s-2); overflow-x: auto; }
+  .dictionary-side .ui-tab { width: auto; min-height: 44px; }
+  .dictionary-label, .dictionary-tip { display: none; }
+  .ledger-heading p { flex-basis: 100%; text-align: left; }
+  .table-wrap .dictionary-table, .dictionary-table tbody { display: block; width: 100%; min-width: 0; }
+  .dictionary-table thead, .dictionary-table .ledger-sequence { display: none; }
+  .dictionary-table tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--s-2) var(--s-3); padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--line-1); }
+  .dictionary-table tr:last-child { border-bottom: 0; }
+  .dictionary-table td { display: block; min-width: 0; height: auto; padding: 0; border: 0; }
+  .dictionary-table td[data-label]:not(.ledger-name) { grid-column: 1 / -1; }
+  .dictionary-table td[data-label]:not(.ledger-name)::before { content: attr(data-label); margin-right: var(--s-3); color: var(--ink-3); }
+  .dictionary-table .ledger-actions { grid-column: 2; grid-row: 1; width: auto; }
+  .dictionary-table .ledger-actions .row-actions { flex-wrap: wrap; }
+  .dictionary-table .ledger-name { align-self: center; min-width: 0; }
+}
+
+/* One sheet edge for tables; spacing belongs to the toolbar and cells. */
+.panel.ledger-sheet { padding: 0; }
+.ledger-sheet > .filters, .sale-list-sheet > .search { margin: 0; padding: var(--s-4); }
+.sale-list-sheet > .search input { padding-left: 40px; }
+.sale-list-sheet > .search > svg { left: calc(var(--s-4) + 12px); }
+.ledger-sheet > .pagination, .sale-list-sheet > .form-actions { margin: 0; padding: var(--s-3) var(--s-4); border-top: 1px solid var(--line-1); }
+.ledger-sheet > .table-hint, .ledger-sheet > .notice { margin: var(--s-3) var(--s-4); }
+.ledger-heading > div { min-width: 0; flex: 1; }
+.ledger-heading > div p { text-align: left; margin-top: var(--s-2); }
+@media (max-width: 760px) {
+  .table-wrap .sale-list-table, .sale-list-table tbody { display: block; min-width: 0; width: 100%; }
+  .sale-list-table thead { display: none; }
+  .sale-list-table tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--s-2) var(--s-3); padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--line-1); }
+  .sale-list-table tr:last-child { border-bottom: 0; }
+  .sale-list-table td { display: block; min-width: 0; height: auto; padding: 0; border: 0; }
+  .sale-list-table .sale-list-number { grid-column: 1 / -1; }
+  .sale-list-table td[data-label="开单 / 业绩归属"] { grid-column: 1; }
+  .sale-list-table td[data-label="状态"] { grid-column: 1; }
+  .sale-list-table .numeric { grid-column: 2; grid-row: 3 / 5; align-self: end; }
+  .sale-list-table td[data-label="业务日期"] { text-align: right; }
+}
+
+@media (max-width: 760px) {
+  .dictionary { margin-inline: calc(-1 * var(--s-4)); gap: 0; }
+  .dictionary-side { border-inline: 0; border-radius: 0; padding: var(--s-3) var(--s-4); }
+  .dictionary-main { border-inline: 0; border-top: 0; border-radius: 0; }
+  .workspace main .panel.ledger-sheet, .catalog-customers > .ledger-sheet {
+    margin-inline: calc(-1 * var(--s-4));
+    border-inline: 0;
+    border-radius: 0;
+  }
+}

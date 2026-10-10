@@ -622,47 +622,6 @@ td small {
   display: flex;
   gap: 10px;
 }
-.movement-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(330px, 1fr);
-  gap: 24px;
-  align-items: start;
-}
-.picker-list {
-  margin-top: 20px;
-  max-height: 600px;
-  overflow: auto;
-}
-.picker-item {
-  width: 100%;
-  background: var(--paper-0);
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  text-align: left;
-  padding: 17px 12px;
-  border-bottom: 1px solid var(--border);
-  border-radius: 5px;
-}
-.picker-item:hover {
-  background: var(--paper-1);
-}
-.picker-item > span:last-child {
-  text-align: right;
-  white-space: nowrap;
-}
-.picker-item small {
-  margin-top: 5px;
-}
-.selected-item {
-  padding: 14px 16px;
-  background: var(--paper-1);
-  border-radius: 8px;
-  margin-bottom: 18px;
-}
-.selected-item .field {
-  margin-bottom: 0;
-}
 .complete {
   max-width: 650px;
   margin: 35px auto;
@@ -790,9 +749,8 @@ td small {
   font-size: 14px;
   margin-bottom: 28px;
 }
-.login-card form > .button {
+.login-card .form-footer > .button {
   width: 100%;
-  margin-top: 22px;
 }
 .password {
   position: relative;

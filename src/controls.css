@@ -549,4 +549,4 @@ a.button {
 @media print {
   .form-footer { position: static; }
 }
-.login-card .form-footer { bottom: 0; }
+.login-card .form-footer { bottom: 0; padding: 0; border: 0; background: transparent; }

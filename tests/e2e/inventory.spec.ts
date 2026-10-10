@@ -45,7 +45,11 @@ test.describe.serial("真实主机与浏览器的库存闭环", () => {
       page.getByRole("cell", { name: /^镀锌螺丝 M6/ }),
     ).toBeVisible();
 
-    await page.getByRole("row").filter({ hasText: "镀锌螺丝" }).getByRole("button", { name: "入库", exact: true }).click();
+    await page
+      .getByRole("row")
+      .filter({ hasText: "镀锌螺丝" })
+      .getByRole("button", { name: "入库", exact: true })
+      .click();
     await page.getByLabel("入库数量", { exact: false }).fill("100");
     await page.getByRole("button", { name: "确认入库" }).click();
     await expect(
@@ -55,7 +59,10 @@ test.describe.serial("真实主机与浏览器的库存闭环", () => {
     await expect(page.getByText("预计", { exact: false })).toHaveCount(0);
     await page.getByRole("button", { name: "返回工作台" }).click();
     await page.getByRole("button", { name: /我要出库/ }).click();
-    await page.getByRole("button", { name: /镀锌螺丝.*点击添加/ }).click();
+    await page.getByRole("button", { name: "添加一行", exact: true }).click();
+    await page
+      .getByRole("button", { name: "选择镀锌螺丝", exact: true })
+      .click();
     await page.getByLabel("出库数量", { exact: false }).fill("120");
     await page.getByRole("button", { name: "确认出库" }).click();
     await expect(page.getByRole("alert")).toContainText("当前库存 100");
@@ -188,6 +195,10 @@ test.describe.serial("真实主机与浏览器的库存闭环", () => {
     await page
       .getByLabel("登录密码", { exact: false })
       .fill("Worker-test-2026");
+    await chooseSelect(
+      page.getByLabel("角色 必填", { exact: true }),
+      "worker-111",
+    );
     await page.getByRole("button", { name: "保存账号" }).click();
     await expect(
       page.getByRole("cell", { name: "张师傅", exact: true }),
@@ -204,9 +215,7 @@ test.describe.serial("真实主机与浏览器的库存闭环", () => {
       .fill("Worker-test-2026");
     await worker.getByRole("button", { name: "登录", exact: true }).click();
     await expect(worker.getByRole("heading", { name: /张师傅/ })).toBeVisible();
-    await expect(
-      worker.getByRole("button", { name: "人员" }),
-    ).toHaveCount(0);
+    await expect(worker.getByRole("button", { name: "人员" })).toHaveCount(0);
     const forbidden = await worker.request.post("/api/items", {
       headers,
       data: { name: "不能新增", kind: "其他", unit: "个", precision: 0 },

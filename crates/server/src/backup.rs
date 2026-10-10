@@ -192,6 +192,7 @@ async fn validate_database(path: &FsPath) -> Result<sea_orm::DatabaseConnection>
         ));
     }
     crate::sales::validate_backup(&db).await?;
+    crate::roles::validate_backup(&db).await?;
     Ok(db)
 }
 pub async fn settings(s: &AppState) -> Result<Schedule> {
@@ -387,12 +388,17 @@ pub async fn restore(
         && [
             current_schema
                 .iter()
-                .filter(|v| v.as_str() != "material_options_v1")
+                .filter(|v| v.as_str() != "roles_v1")
                 .cloned()
                 .collect::<Vec<_>>(),
             current_schema
                 .iter()
-                .filter(|v| !["material_options_v1", "sales_v1"].contains(&v.as_str()))
+                .filter(|v| !["roles_v1", "material_options_v1"].contains(&v.as_str()))
+                .cloned()
+                .collect::<Vec<_>>(),
+            current_schema
+                .iter()
+                .filter(|v| !["roles_v1", "material_options_v1", "sales_v1"].contains(&v.as_str()))
                 .cloned()
                 .collect::<Vec<_>>(),
         ]
@@ -417,6 +423,7 @@ pub async fn restore(
             .map_sqlx_sqlite_opts(move |o| o.filename(&source));
         let staged = Database::connect(options).await?;
         crate::migration::Migrator::up(&staged, None).await?;
+        crate::roles::validate_backup(&staged).await?;
         staged.close().await?;
     }
     // Snapshot current data first. Failure leaves all current data untouched.
@@ -452,6 +459,7 @@ pub async fn restore(
             "stocktakes",
             "items",
             "users",
+            "roles",
             "settings",
         ];
         // Identifiers come only from this compile-time allowlist, never from backup/user data.
@@ -527,6 +535,8 @@ pub async fn scheduler(s: AppState) {
                     username: "system".into(),
                     name: "自动备份".into(),
                     role: "admin".into(),
+                    role_name: "管理员".into(),
+                    permissions: vec![],
                     can_in: false,
                     can_out: false,
                     can_count: false,

@@ -86,15 +86,15 @@ test("手输物料选项去重，候选改删不修改业务，单位记录保�
     .getByRole("navigation")
     .getByRole("button", { name: "基础资料", exact: true })
     .click();
-  await page.getByRole("tab", { name: "规格", exact: true }).click();
-  const entry = page.locator(".sale-revision").filter({ hasText: names.spec });
+  await page.getByRole("tab", { name: "常用规格", exact: true }).click();
+  const entry = page.getByRole("row").filter({ hasText: names.spec });
   await entry.getByRole("button", { name: "修改", exact: true }).click();
   await page
     .getByLabel("选项名称", { exact: false })
     .fill(`${names.spec}-修正`);
   await page.getByRole("button", { name: "保存选项", exact: true }).click();
   const renamed = page
-    .locator(".sale-revision")
+    .getByRole("row")
     .filter({ hasText: `${names.spec}-修正` });
   await renamed.getByRole("button", { name: "删除候选", exact: true }).click();
   await page

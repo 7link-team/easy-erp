@@ -1,49 +1,36 @@
 # Task State
-
-## Task / Objective
-2026-10-10：改进开单逐行选料、超库存即时反馈、可维护下拉弹窗新增及表单固定操作区。用户已授权此前工作全部提交推送；本轮承接其连续反馈。
-
-## Current Phase
-ACCEPTANCE — PASS
-
-## Execution Mode
-Direct：共享控件和销售表单紧密关联，无子代理。
-
-## Completed Work
-- 明细末尾“添加一行”，新行搜索选择物料，带出规格/单位/库存，自动聚焦数量；保留前面已填行，禁止重复选入与清点锁定物料。
-- 超库存即时行内提示；确认前聚焦并拦截，允许草稿；已确认单修订按当前库存加原单数量计算可开上限。items 支持最多 50 个 ids 查询，旧单按批加载库存。
-- 客户/部门/业务员/账户下拉末项采用分隔线、浅色底、统一 + 图标；复用 ConfigForm 弹窗新增，成功自动选择，父表单保持；沿用权限，移除独立快速新增客户按钮。
-- 最终表单操作使用 form-footer，分页保持普通布局；开单标题/返回及底部操作固定，仅字段区滚动；清点表单合并最终操作区。
-- 修复嵌套弹窗冒泡提交父表单，以及 Radix 新选项注册导致账户值清空；恢复原必填校验 alert 语义，新增库存即时提示使用 polite。
-
-## Important Decisions / Constraints
-- 用户最终确认列表底部逐行添加；不采用固定页脚添加物料或独立批量选料弹窗。
-- 字典仍可手输；固定业务枚举与纯筛选不增加创建入口；新增部门、业务员、账户限管理员。
-- 保留 tmp/ 演示数据库与独立预览；不合并、不发 Release，不提交报告/截图/缓存。
-- .claude/skills/web-design-guidelines 已读取，最新远端规则已抓取；审核本次变更，不宣称旧应用全面无障碍达标。
-
+## Goal / Objective
+用户 active goal：“全部做到位啊”。以 docs/客户需求/20261009.md 原始业务需求 + 会话确认事项为准，补齐功能并按 design-system/v2/prototype.html 做完整视觉对齐。用户已授权全部提交推送；不合并、不发 Release。
+## Phase / Execution
+REVIEW 已验证批次；随后 ANALYSIS/IMPLEMENTATION 功能与细节补齐。Direct，尚未使用 subagent。当前基线 c6ebd7c；下列第一批代码尚待单独提交。
+## Verified first batch
+- 共享 ItemPicker/document.css；开单与收发逐行添加、更换、删除，预选物料直接显示，标题/最终操作固定。入库允许零库存，出库/销售禁选，物料列表零库存出库快捷按钮也禁用。
+- 超库存即时提示/拦截确认但可存草稿；修订可开量考虑原单。
+- 更正流水仅列未冲销原流水，无记录禁用并说明。财务同页客户欠款/账户流水/部门业绩，不用二级 tab。
+- 自定义角色与模块动作权限已完整接入前后端；受保护管理员，旧 worker/viewer 16 组合迁移，成员会话撤销，备份/旧备份迁移。角色矩阵与嵌套新建保留父表单。
+- 基础资料初步恢复 208px 左清单 + 16px 间距 + 右表格 + 底部新增；客户/单据改表格，物料/人员去双边框留白；手机账册全宽、字段16px；登录白底修正。
+## Latest steering / scope correction
+用户指出初步视觉仍不到位、原型功能缺失，要求全部做到位。
+曾在选择题选择“本轮也增加成本与业绩目标管理”；随后对移动加权算法稳定性提出质疑，并指出原始需求无销售额目标。已重新阅读全文并答复：原文只有部门/业务员业绩归属，未要求成本核算或目标。成本和目标扩展暂停，尚未写任何相关代码；不能从原型“完成度”推导考核功能。成本算法没有获得确认。其他已有业务范围继续实现。
+## Next implementation boundary
+1. 补基础资料真实维护：当前只有弹窗新增/编辑，缺原型行内启停/计款操作、真实引用统计、排序与说明等。先复用 sales_catalog data 和现有事务、审计、版本检查；不要更改历史快照/候选删除语义。评估导入导出需按现有机制做预览/事务，不能假按钮。
+2. 补库存/单据筛选和相关查询入口。当前物料只有搜索/分类/低库存，没有零库存/停用列表；销售只有搜索/分页，缺状态筛选。客户需可查询对应实际账款（按财务权限）；退货查询目前藏详情。
+3. 逐页结构/密度/字段/行内操作视觉对照；保留用户最新确认的交互，不盲目复刻原型样例数据。工作台假趋势、均价/目标等无来源指标不许显示。
+4. 原始客户闭环全部重新验收（多品类开单→库存→折扣/抹零/欠款→补收/退款/更正→部门业务员→照片/打印→权限/审计/备份）。
+## Constraints
+- 先功能契约后代码；不自行新增会计规则。应收≠实收，历史不可随当前字典修改，数量最多3位小数。
+- 保留 tmp/ 数据库、预览服务器与截图。显式 staging，排除本地测试产物。
+- 每条用户可见回复必须以“✅ CLAUDE.md loaded 🎉”开头。
+- User明确要求 .claude/skills/web-design-guidelines；已读取/应用，最新规则在 /tmp/erp-web-interface-guidelines.md。静态及视觉审核不等于全站无障碍认证。
 ## Verification
-- 最终 npm run build、cargo build --locked -p easy-erp-server、npm run typecheck:e2e：PASS。
-- Rust 6 项、Node 6 项：PASS。
-- Chromium：ui / sales / workflows 相关回归 39 项 PASS，清点搜索等待修正后独立补测 1 项 PASS，全部 40 个场景通过。
-- WebKit：最终 ui / sales / workflows 40 项 PASS（4.6m）。覆盖 11 行继续添加、库存超额/草稿/修订、嵌套新增、角色权限、长弹窗及窄屏。
-- 18 组屏宽 × 主题 × 字号的表单/创建下拉对比度与溢出抽查：0 发现；最终桌面/手机截图已查看，自动检查跳过渐变背景。
-- 最新预览实际浏览器登录、ids 查询存在/不存在物料：PASS；git diff --check 与暂存检查：PASS。
-- 初轮必填错误 role 回归已修复；清点分页测试原先在搜索刷新时点击，trace 证实未发第 2 页请求，现等待目标响应，保留所有业务断言，双浏览器补验通过。
-
-## Self-Review / Acceptance
-PASS：范围、既有控件复用、架构、复杂度、相关回归、交付文件卫生与需求验收。
-用户要求逐行就地填写、超库存可见提示、相关资料弹窗新增保留输入、统一下拉新增视觉、最终操作常显均已验证。
-Guidelines 变更审查：src/pages/Sales.tsx、src/ui.tsx、src/components.tsx、src/controls.css、src/sales.css 的新增交互通过标签、错误关联、键盘焦点、标题层级、主题与布局检查；不宣称全站无障碍认证。
-真实 iOS 软键盘未做实体设备验证，沿用现有 visualViewport 适配。
-
+- 最新 npm build / server build / e2e typecheck / cargo fmt PASS。
+- Rust 7 passed（/tmp/erp-final-unit.log）。
+- 前批全量 Chromium 76 个不同场景已通过；最新原型相关 Chromium 47 passed /tmp/erp-prototype-chromium.log。
+- 最新全量 WebKit **76 passed (14.6m)** /tmp/erp-prototype-webkit.log。
+- 零库存快捷出库新增断言已在WebKit通过；Chromium补测正运行 /tmp/erp-zero-final.log。
+- 表单18显示组合PASS /tmp/erp-form-aligned-audit.log；五个账册页面90显示组合无纯色对比度/溢出发现 /tmp/erp-ledger-audit.log。渐变人工检查，实体手机软键盘/打印机未测。
 ## Preview
-5173 Vite → 4280，数据 /tmp/erp-live；4280 已重启载入新构建，PID 52351。
-4290 数据 tmp/demo-sales-tk87dgiu、8912 原型保留。
-
-## Delivery / Next Action
-实现、测试与验收无剩余事项。交付文件显式暂存，排除 tmp、数据、报告和截图；与本状态一起提交推送 feat/sales-and-receivables，提交号及远端同步以 Git 为准。
-用户刷新 5173 即可体验；不需要新的产品决策或确认。SSH 22 不通时使用 ssh.github.com:443 + HostKeyAlias=github.com。
-
-## Last Checkpoint
-2026-10-10：双浏览器相关场景全部通过，最新本地预览登录及库存查询验证完成，自审与验收 PASS。
+Vite http://127.0.0.1:5173 → backend 4280，数据 /tmp/erp-live，PID **68970**（已重启最新已验证binary）。admin / Aa123456!。5500用户原型、4290与8912预览保留。
+截图 tmp/reference-basedata.png、reference-mobile-basedata.png；最新实装 tmp/aligned-{catalog,customers,sales,inventory,users}-{1280,390,320}-{light,dark}.png。
+## Next Action
+确认零库存 Chromium 补测成功，审查显式 stage 并提交/推送已验证批次。随后实施基础资料功能及精细原型对齐，不把第一批提交当作整个 active goal 完成。

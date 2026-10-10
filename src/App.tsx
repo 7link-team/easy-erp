@@ -1,3 +1,4 @@
+import { can } from "./api";
 import { Form, Input, Button, Checkbox } from "./ui";
 import { NativeTools, UpdateProvider } from "./NativeTools";
 import { ServiceUpdate } from "./ServiceUpdate";
@@ -292,12 +293,18 @@ function Home({
   navigate: (page: Page) => void;
 }) {
   const { data, error } = useResource<{ items: Document[] }>(
-    "/documents",
+    can(user, "records.read") ? "/documents" : undefined,
     revision,
   );
-  const stock = useResource<{ total: number }>("/items", revision);
+  const stock = useResource<{ total: number }>(
+    can(user, "items.read") ? "/items" : undefined,
+    revision,
+  );
   const [webAccess, setWebAccess] = useState(false);
-  const low = useResource<{ total: number }>("/items?low=true", revision);
+  const low = useResource<{ total: number }>(
+    can(user, "items.read") ? "/items?low=true" : undefined,
+    revision,
+  );
   return (
     <>
       <div className="page-heading">
@@ -319,27 +326,38 @@ function Home({
         </div>
       </div>
       {webAccess && <WebAccess onClose={() => setWebAccess(false)} />}
-      <div className="stock-summary">
-        <Button className="summary-card" onClick={() => navigate("inventory")}>
-          <span>物料总数</span>
-          <strong>
-            {stock.data?.total ?? "—"}
-            <small>种</small>
-          </strong>
-          <ChevronRight size={18} />
-        </Button>
-        <Button className="summary-card" onClick={() => navigate("inventory")}>
-          <span>库存不足</span>
-          <strong className={low.data?.total ? "warning-number" : ""}>
-            {low.data?.total ?? "—"}
-            <small>种</small>
-          </strong>
-          <ChevronRight size={18} />
-        </Button>
-      </div>
+      {can(user, "items.read") && (
+        <div className="stock-summary">
+          <Button
+            className="summary-card"
+            onClick={() => navigate("inventory")}
+          >
+            <span>物料总数</span>
+            <strong>
+              {stock.data?.total ?? "—"}
+              <small>种</small>
+            </strong>
+            <ChevronRight size={18} />
+          </Button>
+          <Button
+            className="summary-card"
+            onClick={() => navigate("inventory")}
+          >
+            <span>库存不足</span>
+            <strong className={low.data?.total ? "warning-number" : ""}>
+              {low.data?.total ?? "—"}
+              <small>种</small>
+            </strong>
+            <ChevronRight size={18} />
+          </Button>
+        </div>
+      )}
       <div className="task-grid">
-        {(user.role === "admin" || (user.role === "worker" && user.can_out)) && (
-          <Button className="task-card sales-entry" onClick={() => navigate("sales")}>
+        {can(user, "sales.read") && (
+          <Button
+            className="task-card sales-entry"
+            onClick={() => navigate("sales")}
+          >
             <span className="task-icon">
               <ReceiptText size={28} />
             </span>
@@ -347,7 +365,7 @@ function Home({
             <span>多物料开单、登记收款</span>
           </Button>
         )}
-        {(user.role === "admin" || user.can_in) && (
+        {can(user, "movement.in") && (
           <Button className="task-card inbound" onClick={() => navigate("in")}>
             <span className="task-icon">
               <ArrowDownToLine size={28} />
@@ -356,7 +374,7 @@ function Home({
             <span>收货、完工、退回</span>
           </Button>
         )}
-        {(user.role === "admin" || user.can_out) && (
+        {can(user, "movement.out") && (
           <Button
             className="task-card outbound"
             onClick={() => navigate("out")}
@@ -368,52 +386,61 @@ function Home({
             <span>领料、发货</span>
           </Button>
         )}
-        <Button
-          className="task-card lookup"
-          onClick={() => navigate("inventory")}
-        >
-          <span className="task-icon">
-            <PackageSearch size={28} />
-          </span>
-          <strong>查库存</strong>
-          <span>找物料、看数量</span>
-        </Button>
+        {can(user, "items.read") && (
+          <Button
+            className="task-card lookup"
+            onClick={() => navigate("inventory")}
+          >
+            <span className="task-icon">
+              <PackageSearch size={28} />
+            </span>
+            <strong>查库存</strong>
+            <span>找物料、看数量</span>
+          </Button>
+        )}
       </div>
-      <div className="activity-feed">
-        <section className="panel">
-          <div className="section-title">
-            <h2>{user.role === "admin" ? "最近的出入库" : "我最近的出入库"}</h2>
-            <Button className="text-button" onClick={() => navigate("records")}>
-              查看全部 →
-            </Button>
-          </div>
-          {error && <Notice>{error}</Notice>}
-          {data?.items.length ? (
-            data.items.slice(0, 6).map((doc) => (
-              <div className="recent-row" key={doc.id}>
-                <span className="badge">
-                  {movementLabels[doc.kind] ?? doc.kind}
-                </span>
-                <div>
-                  <strong>{doc.lines[0]?.name ?? "库存调整"}</strong>
-                  <small>
-                    {doc.actor_name} · {dateTime(doc.created_at)}
-                  </small>
-                </div>
-                <span>
-                  {doc.lines.length === 1
-                    ? `${quantity(doc.lines[0].quantity, doc.lines[0].precision)} ${doc.lines[0].unit}`
-                    : `${doc.lines.length} 种物料`}
-                </span>
-              </div>
-            ))
-          ) : (
-            <div className="empty">
-              还没有记录，完成第一笔入库后会显示在这里。
+      {can(user, "records.read") && (
+        <div className="activity-feed">
+          <section className="panel">
+            <div className="section-title">
+              <h2>
+                {can(user, "records.all") ? "最近的出入库" : "我最近的出入库"}
+              </h2>
+              <Button
+                className="text-button"
+                onClick={() => navigate("records")}
+              >
+                查看全部 →
+              </Button>
             </div>
-          )}
-        </section>
-      </div>
+            {error && <Notice>{error}</Notice>}
+            {data?.items.length ? (
+              data.items.slice(0, 6).map((doc) => (
+                <div className="recent-row" key={doc.id}>
+                  <span className="badge">
+                    {movementLabels[doc.kind] ?? doc.kind}
+                  </span>
+                  <div>
+                    <strong>{doc.lines[0]?.name ?? "库存调整"}</strong>
+                    <small>
+                      {doc.actor_name} · {dateTime(doc.created_at)}
+                    </small>
+                  </div>
+                  <span>
+                    {doc.lines.length === 1
+                      ? `${quantity(doc.lines[0].quantity, doc.lines[0].precision)} ${doc.lines[0].unit}`
+                      : `${doc.lines.length} 种物料`}
+                  </span>
+                </div>
+              ))
+            ) : (
+              <div className="empty">
+                还没有记录，完成第一笔入库后会显示在这里。
+              </div>
+            )}
+          </section>
+        </div>
+      )}
     </>
   );
 }
@@ -546,29 +573,41 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
   ];
   const nav = [
     { id: "home", label: "工作台", icon: LayoutDashboard },
-    { id: "inventory", label: "物料", icon: PackageSearch },
-    ...(user.role === "admin" || (user.role === "worker" && user.can_out)
+    ...(can(user, "items.read")
+      ? [{ id: "inventory", label: "物料", icon: PackageSearch }]
+      : []),
+    ...(can(user, "sales.read")
       ? [{ id: "sales", label: "开单", icon: ReceiptText }]
       : []),
-    ...(user.role === "admin" || (user.role === "worker" && user.can_out)
+    ...(can(user, "customers.read")
       ? [{ id: "customers", label: "客户", icon: ContactRound }]
       : []),
-    ...(user.role === "admin"
+    ...(can(user, "finance.read")
       ? [{ id: "finance", label: "收款", icon: Wallet }]
       : []),
-    { id: "records", label: "记录", icon: ClipboardList },
-    ...(user.role === "admin" || user.can_count
+    ...(can(user, "records.read")
+      ? [{ id: "records", label: "记录", icon: ClipboardList }]
+      : []),
+    ...(can(user, "stocktake.read")
       ? [{ id: "stocktakes", label: "清点", icon: ClipboardCheck }]
+      : []),
+    ...(["catalog.read", "options.read", "accounts.read"].some((p) =>
+      can(user, p),
+    )
+      ? [{ id: "catalog", label: "基础资料", icon: ListChecks }]
       : []),
     ...(user.role === "admin"
       ? [
-          { id: "catalog", label: "基础资料", icon: ListChecks },
           { id: "users", label: "人员", icon: UsersRound },
           { id: "settings", label: "备份", icon: Settings },
         ]
       : []),
     { id: "updates", label: "版本", icon: RefreshCw },
   ];
+  const allowedPage =
+    nav.some((entry) => entry.id === page) ||
+    (page === "in" && can(user, "movement.in")) ||
+    (page === "out" && can(user, "movement.out"));
   return (
     <div className="app-shell" data-flow={page === "in" || page === "out"}>
       {browserError && (
@@ -597,7 +636,6 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
               label: "财务",
               domain: "money",
               ids: ["finance"],
-              lock: "最高权限",
             },
             {
               label: "设置",
@@ -616,7 +654,6 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
               >
                 <p className="nav-group-title" aria-hidden="true">
                   {group.label}
-                  {group.lock && <span className="lock">{group.lock}</span>}
                 </p>
                 {nav
                   .filter(({ id }) => group.ids.includes(id))
@@ -698,13 +735,7 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
             <span className="user-avatar">{user.name.slice(0, 1)}</span>
             <span className="account-name">
               {user.name}
-              <small>
-                {user.role === "admin"
-                  ? "管理员"
-                  : user.role === "viewer"
-                    ? "查看员"
-                    : "操作员"}
-              </small>
+              <small>{user.role_name}</small>
             </span>
             <Button
               className="button small desktop-logout"
@@ -722,13 +753,16 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
         </header>
         <ServiceUpdate dirty={dirty} />
         <main id="main" tabIndex={-1}>
+          {!allowedPage && (
+            <Notice>当前角色没有此页面的查看权限，请联系管理员。</Notice>
+          )}
           {logout.error && <Notice>{logout.error}</Notice>}
           <Suspense fallback={<Loading />}>
             {page === "updates" && <UpdatesPage />}
             {page === "home" && (
               <Home user={user} revision={revision} navigate={navigate} />
             )}
-            {page === "inventory" && (
+            {page === "inventory" && can(user, "items.read") && (
               <Inventory
                 user={user}
                 revision={revision}
@@ -741,7 +775,8 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
                 }}
               />
             )}
-            {(page === "in" || page === "out") && (
+            {((page === "in" && can(user, "movement.in")) ||
+              (page === "out" && can(user, "movement.out"))) && (
               <Movement
                 key={`${page}-${initialItem?.id ?? ""}`}
                 user={user}
@@ -756,10 +791,14 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
               />
             )}
             {["sales", "finance", "customers", "catalog"].includes(page) &&
-              (user.role === "admin" ||
-                (["sales", "customers"].includes(page) &&
-                  user.role === "worker" &&
-                  user.can_out)) && (
+              {
+                sales: can(user, "sales.read"),
+                finance: can(user, "finance.read"),
+                customers: can(user, "customers.read"),
+                catalog: ["catalog.read", "options.read", "accounts.read"].some(
+                  (p) => can(user, p),
+                ),
+              }[page as "sales" | "finance" | "customers" | "catalog"] && (
                 <Sales
                   key={`${page}-${initialItem?.id || ""}`}
                   initialItem={page === "sales" ? initialItem : undefined}
@@ -772,16 +811,10 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
                   }}
                 />
               )}
-            {page === "catalog" && user.role !== "admin" && (
-              <Notice>基础资料管理仅管理员可操作。</Notice>
-            )}
-            {page === "finance" && user.role !== "admin" && (
-              <Notice>财务汇总仅管理员可查看。</Notice>
-            )}
-            {page === "records" && (
+            {page === "records" && can(user, "records.read") && (
               <Records user={user} revision={revision} refresh={refresh} />
             )}
-            {page === "stocktakes" && (
+            {page === "stocktakes" && can(user, "stocktake.read") && (
               <Stocktakes user={user} revision={revision} refresh={refresh} />
             )}
             {page === "users" && user.role === "admin" && (
@@ -799,13 +832,7 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
             <span className="user-avatar">{user.name.slice(0, 1)}</span>
             <div>
               <strong>{user.name}</strong>
-              <small>
-                {user.role === "admin"
-                  ? "管理员"
-                  : user.role === "viewer"
-                    ? "查看员"
-                    : "操作员"}
-              </small>
+              <small>{user.role_name}</small>
             </div>
           </div>
           <div className="mobile-display-settings">

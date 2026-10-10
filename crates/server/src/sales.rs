@@ -118,15 +118,11 @@ pub struct Command {
     pub lines: Vec<InputLine>,
 }
 fn sales_access(actor: &User) -> Result<()> {
-    if actor.role == "admin" || (actor.role == "worker" && actor.can_out) {
-        Ok(())
-    } else {
-        Err(ApiError::forbidden())
-    }
+    actor.require("sales.read")
 }
 fn owner(actor: &User, sale: &Sale) -> Result<()> {
     sales_access(actor)?;
-    if actor.role != "admin" && actor.id != sale.actor_id {
+    if !actor.can("sales.all") && actor.id != sale.actor_id {
         return Err(ApiError::forbidden());
     }
     Ok(())
@@ -165,7 +161,6 @@ async fn entry(db: &impl ConnectionTrait, eid: &str, kind: &str) -> Result<Value
 }
 pub async fn catalog(State(s): State<AppState>, headers: HeaderMap) -> Result<Json<Value>> {
     let actor = current(&s, &headers).await?;
-    sales_access(&actor)?;
     let rows = all(
         &s.db,
         "SELECT * FROM sales_catalog ORDER BY kind,name",
@@ -174,7 +169,12 @@ pub async fn catalog(State(s): State<AppState>, headers: HeaderMap) -> Result<Js
     .await?;
     let mut items = vec![];
     for r in rows {
-        if actor.role == "admin" || text(&r, "kind") != "account" {
+        let permission = match text(&r, "kind").as_str() {
+            "account" => "accounts.read",
+            "customer" => "customers.read",
+            _ => "catalog.read",
+        };
+        if actor.can(permission) {
             items.push(catalog_json(&r)?);
         }
     }
@@ -203,10 +203,21 @@ pub async fn save_catalog(
 ) -> Result<Json<Value>> {
     let _guard = s.writes.lock().await;
     let actor = current(&s, &headers).await?;
-    sales_access(&actor)?;
-    if actor.role != "admin" && (input.kind != "customer" || !input.id.is_empty() || !input.active)
-    {
-        return Err(ApiError::forbidden());
+    let module = match input.kind.as_str() {
+        "customer" => "customers",
+        "account" => "accounts",
+        _ => "catalog",
+    };
+    actor.require(&format!(
+        "{module}.{}",
+        if input.id.is_empty() {
+            "create"
+        } else {
+            "update"
+        }
+    ))?;
+    if !input.active {
+        actor.require(&format!("{module}.update"))?;
     }
     if ![
         "customer",
@@ -360,7 +371,7 @@ async fn prepare(
     if rate > 10000 {
         return Err(ApiError::bad("折扣率须在 0–100% 之间。"));
     }
-    if actor.role != "admin" && (rate != 10000 || rounding != 0) {
+    if !actor.can("sales.discount") && (rate != 10000 || rounding != 0) {
         return Err(ApiError::forbidden());
     }
     if !billable && (rate != 10000 || rounding != 0) {
@@ -643,7 +654,7 @@ async fn detail(db: &impl ConnectionTrait, actor: &User, sale: Sale) -> Result<V
     )
     .await?;
     result["payments"]=json!(payments.iter().map(|r|json!({"id":text(r,"id"),"account_id":text(r,"account_id"),"account_name":text(r,"account_name"),"amount":int(r,"amount"),"actor_name":text(r,"actor_name"),"business_date":text(r,"business_date"),"note":text(r,"note"),"reversal_of":text(r,"reversal_of")})).collect::<Vec<_>>());
-    result["attachments"]=json!(all(db,"SELECT id,mime,active,actor_name,created_at FROM sales_attachments WHERE sale_id=? AND (active=1 OR ?=1) ORDER BY created_at",vec![sale.id.clone().into(),(actor.role=="admin").into()]).await?.iter().map(|r|json!({"id":text(r,"id"),"mime":text(r,"mime"),"active":int(r,"active")==1,"actor_name":text(r,"actor_name"),"created_at":int(r,"created_at")})).collect::<Vec<_>>());
+    result["attachments"]=json!(all(db,"SELECT id,mime,active,actor_name,created_at FROM sales_attachments WHERE sale_id=? AND (active=1 OR ?=1) ORDER BY created_at",vec![sale.id.clone().into(),actor.can("sales.history").into()]).await?.iter().map(|r|json!({"id":text(r,"id"),"mime":text(r,"mime"),"active":int(r,"active")==1,"actor_name":text(r,"actor_name"),"created_at":int(r,"created_at")})).collect::<Vec<_>>());
     result["returns"] = json!(
         all(
             db,
@@ -675,7 +686,7 @@ pub async fn list(
     let q = clean(filter.q.as_deref().unwrap_or(""), "搜索", 100, false)?;
     let customer = filter.customer_id.unwrap_or_default();
     let page = filter.page.unwrap_or(1).clamp(1, 1000000);
-    let rows=all(&txn,"SELECT data FROM sales WHERE (?=1 OR actor_id=?) AND (?='' OR customer_id=?) AND (?='' OR instr(data,?)>0) ORDER BY created_at DESC,id LIMIT 50 OFFSET ?",vec![(actor.role=="admin").into(),actor.id.clone().into(),customer.clone().into(),customer.into(),q.clone().into(),q.into(),((page-1)*50).into()]).await?;
+    let rows=all(&txn,"SELECT data FROM sales WHERE (?=1 OR actor_id=?) AND (?='' OR customer_id=?) AND (?='' OR instr(data,?)>0) ORDER BY created_at DESC,id LIMIT 50 OFFSET ?",vec![actor.can("sales.all").into(),actor.id.clone().into(),customer.clone().into(),customer.into(),q.clone().into(),q.into(),((page-1)*50).into()]).await?;
     let mut items = vec![];
     for row in rows {
         let sale: Sale = serde_json::from_str(&text(&row, "data"))
@@ -711,8 +722,20 @@ pub async fn command(
     let _guard = s.writes.lock().await;
     let actor = current(&s, &headers).await?;
     sales_access(&actor)?;
-    if !["save", "confirm"].contains(&input.action.as_str()) {
-        actor.admin()?;
+    let permission = match input.action.as_str() {
+        "save" => "sales.create",
+        "confirm" => "sales.confirm",
+        "revise" => "sales.revise",
+        "pay" => "sales.pay",
+        "refund" => "sales.refund",
+        "correct" => "sales.correct",
+        "return" => "sales.return",
+        "void" => "sales.void",
+        _ => return Err(ApiError::bad("单据操作无效。")),
+    };
+    actor.require(permission)?;
+    if input.sale_id.is_empty() {
+        actor.require("sales.create")?;
     }
     let hash = auth::digest(&format!("sales:{}", serde_json::to_string(&input).unwrap()));
     let txn = s.db.begin().await?;
@@ -753,11 +776,6 @@ pub async fn command(
         500,
         old.as_ref().is_some_and(|o| o.status == "posted"),
     )?;
-    if old.as_ref().is_some_and(|o| o.status == "posted")
-        || !["save", "confirm"].contains(&input.action.as_str())
-    {
-        actor.admin()?;
-    }
     let before = if let Some(o) = &old {
         Some(detail(&txn, &actor, o.clone()).await?)
     } else {
@@ -865,6 +883,7 @@ pub async fn command(
                 .await?;
                 let over = paid(&txn, &sale.id).await? - due(&sale, &returns);
                 if over > 0 {
+                    actor.require("sales.refund")?;
                     cash(
                         &txn,
                         &actor,
@@ -985,6 +1004,7 @@ pub async fn command(
                     inventory_delta(&txn, &actor, &sale.id, &delta, &reason).await?;
                     let remaining = paid(&txn, &sale.id).await?;
                     if remaining > 0 {
+                        actor.require("sales.refund")?;
                         cash(
                             &txn,
                             &actor,
@@ -1068,6 +1088,7 @@ pub async fn command(
                     returns = returned(&txn, &sale.id).await?;
                     let excess = paid(&txn, &sale.id).await? - due(&sale, &returns);
                     if excess > 0 {
+                        actor.require("sales.refund")?;
                         cash(
                             &txn,
                             &actor,
@@ -1134,7 +1155,7 @@ pub async fn finance(
 ) -> Result<Json<Value>> {
     let actor = current(&s, &headers).await?;
     let txn = s.db.begin().await?;
-    actor.admin()?;
+    actor.require("finance.read")?;
     let mut customers: HashMap<String, Value> = HashMap::new();
     let mut performance: HashMap<(String, String), Value> = HashMap::new();
     let mut total = 0;
@@ -1192,6 +1213,7 @@ pub async fn upload(
     mut multipart: Multipart,
 ) -> Result<Json<Value>> {
     let actor = current(&s, &headers).await?;
+    actor.require("sales.upload")?;
     owner(&actor, &load(&s.db, &sid).await?)?;
     let field = multipart
         .next_field()
@@ -1231,6 +1253,7 @@ pub async fn upload(
     let _guard = s.writes.lock().await;
     let actor = current(&s, &headers).await?;
     let sale = load(&s.db, &sid).await?;
+    actor.require("sales.upload")?;
     owner(&actor, &sale)?;
     if sale.status == "voided" {
         return Err(ApiError::conflict("不能向作废单据上传凭证。"));
@@ -1290,7 +1313,7 @@ pub async fn attachment(
     .ok_or_else(ApiError::missing)?;
     owner(&actor, &load(&s.db, &text(&row, "sale_id")).await?)?;
     if int(&row, "active") != 1 {
-        actor.admin()?;
+        actor.require("sales.history")?;
     }
     let bytes: Vec<u8> = row
         .try_get("", "data")
@@ -1304,7 +1327,7 @@ pub async fn remove_attachment(
 ) -> Result<Json<Value>> {
     let _guard = s.writes.lock().await;
     let actor = current(&s, &headers).await?;
-    actor.admin()?;
+    actor.require("sales.attachment_delete")?;
     let txn = s.db.begin().await?;
     let row = one(
         &txn,
@@ -1313,6 +1336,7 @@ pub async fn remove_attachment(
     )
     .await?
     .ok_or_else(ApiError::missing)?;
+    owner(&actor, &load(&txn, &text(&row, "sale_id")).await?)?;
     execute(
         &txn,
         "UPDATE sales_attachments SET active=0 WHERE id=?",
@@ -1336,7 +1360,8 @@ pub async fn revision(
     Path((sid, version)): Path<(String, i64)>,
 ) -> Result<Json<Value>> {
     let actor = current(&s, &headers).await?;
-    actor.admin()?;
+    actor.require("sales.history")?;
+    owner(&actor, &load(&s.db, &sid).await?)?;
     let row = one(
         &s.db,
         "SELECT data FROM sales_revisions WHERE sale_id=? AND version=?",
