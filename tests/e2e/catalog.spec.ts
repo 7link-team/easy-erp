@@ -205,7 +205,9 @@ test("库存开单带入物料，单据类型手输新增去重并保留历史�
   await expect(page).toHaveURL(/#\/customers$/);
   await expect(page.getByText(customer.name, { exact: true })).toBeVisible();
   await page.goto("/#/inventory");
-  await page.getByLabel("搜索物料", { exact: false }).fill(itemName);
+  await page
+    .getByRole("searchbox", { name: "搜索物料", exact: true })
+    .fill(itemName);
   const row = page.getByRole("row").filter({ hasText: itemName });
   await row.getByRole("button", { name: "开单出库", exact: true }).click();
   await expect(

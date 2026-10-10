@@ -189,7 +189,7 @@ a.button {
   border-color: var(--danger);
 }
 .button.danger-outline {
-  color: var(--control-danger);
+  color: var(--danger-ink);
 }
 .ui-select {
   display: inline-flex;

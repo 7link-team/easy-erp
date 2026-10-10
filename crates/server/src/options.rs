@@ -1,6 +1,6 @@
 //! Material options are suggestions, not mutable business references.
 use crate::{
-    auth::{clean, current},
+    auth::{User, clean, current},
     db::*,
     error::{ApiError, Result},
     state::AppState,
@@ -35,7 +35,7 @@ pub async fn ensure(db: &impl ConnectionTrait, field: &str, name: &str) -> Resul
     }
     execute(
         db,
-        "INSERT INTO material_options VALUES (?,?,?,?,1) ON CONFLICT(field,key) DO NOTHING",
+        "INSERT INTO material_options (id,field,name,key,version) VALUES (?,?,?,?,1) ON CONFLICT(field,key) DO NOTHING",
         vec![
             id().into(),
             field.into(),
@@ -80,11 +80,11 @@ pub async fn list(State(s): State<AppState>, headers: HeaderMap) -> Result<Json<
 #[derive(Deserialize)]
 pub struct Input {
     #[serde(default)]
-    id: String,
-    field: String,
-    name: String,
+    pub id: String,
+    pub field: String,
+    pub name: String,
     #[serde(default)]
-    version: i64,
+    pub version: i64,
 }
 pub async fn save(
     State(s): State<AppState>,
@@ -93,6 +93,16 @@ pub async fn save(
 ) -> Result<Json<Value>> {
     let _guard = s.writes.lock().await;
     let actor = current(&s, &headers).await?;
+    let txn = s.db.begin().await?;
+    let result = save_record(&txn, &actor, input).await?;
+    txn.commit().await?;
+    Ok(Json(result))
+}
+pub(crate) async fn save_record(
+    txn: &impl ConnectionTrait,
+    actor: &User,
+    input: Input,
+) -> Result<Value> {
     actor.require(if input.id.is_empty() {
         "options.create"
     } else {
@@ -102,14 +112,13 @@ pub async fn save(
     if name.is_empty() {
         return Err(ApiError::bad("请填写选项名称。"));
     }
-    let txn = s.db.begin().await?;
     let eid = if input.id.is_empty() {
         id()
     } else {
         input.id.clone()
     };
     let old = one(
-        &txn,
+        txn,
         "SELECT * FROM material_options WHERE id=?",
         vec![eid.clone().into()],
     )
@@ -123,7 +132,7 @@ pub async fn save(
         }
     }
     if let Some(r) = one(
-        &txn,
+        txn,
         "SELECT id FROM material_options WHERE field=? AND key=? AND id<>?",
         vec![
             input.field.clone().into(),
@@ -136,12 +145,11 @@ pub async fn save(
         if !input.id.is_empty() {
             return Err(ApiError::conflict("名称已存在，请使用已有选项。"));
         }
-        return Ok(Json(json!({"id":text(&r,"id")})));
+        return Ok(json!({"id":text(&r,"id")}));
     }
-    execute(&txn,"INSERT INTO material_options VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET name=excluded.name,key=excluded.key,version=material_options.version+1",vec![eid.clone().into(),input.field.clone().into(),name.clone().into(),key(&name).into()]).await?;
-    audit(&txn,&actor,"修改物料候选选项",&eid,json!({"field":input.field,"before":old.as_ref().map(|r|text(r,"name")),"name":name,"scope":"候选列表"})).await?;
-    txn.commit().await?;
-    Ok(Json(json!({"id":eid})))
+    execute(txn,"INSERT INTO material_options (id,field,name,key,version) VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET name=excluded.name,key=excluded.key,version=material_options.version+1",vec![eid.clone().into(),input.field.clone().into(),name.clone().into(),key(&name).into()]).await?;
+    audit(txn,actor,"修改物料候选选项",&eid,json!({"field":input.field,"before":old.as_ref().map(|r|text(r,"name")),"name":name,"scope":"候选列表"})).await?;
+    Ok(json!({"id":eid}))
 }
 #[derive(Deserialize)]
 pub struct Version {

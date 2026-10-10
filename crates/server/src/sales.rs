@@ -292,6 +292,16 @@ pub async fn save_catalog(
 ) -> Result<Json<Value>> {
     let _guard = s.writes.lock().await;
     let actor = current(&s, &headers).await?;
+    let txn = s.db.begin().await?;
+    let result = save_catalog_record(&txn, &actor, input).await?;
+    txn.commit().await?;
+    Ok(Json(result))
+}
+pub(crate) async fn save_catalog_record(
+    txn: &impl ConnectionTrait,
+    actor: &User,
+    input: CatalogInput,
+) -> Result<Value> {
     let module = match input.kind.as_str() {
         "customer" => "customers",
         "account" => "accounts",
@@ -345,7 +355,6 @@ pub async fn save_catalog(
                 .ok_or_else(|| ApiError::bad("请选择是否计款。"))?
         );
     }
-    let txn = s.db.begin().await?;
     let eid = if input.kind == "company" {
         "company".into()
     } else if input.id.is_empty() {
@@ -354,7 +363,7 @@ pub async fn save_catalog(
         input.id.clone()
     };
     let previous = one(
-        &txn,
+        txn,
         "SELECT * FROM sales_catalog WHERE id=?",
         vec![eid.clone().into()],
     )
@@ -374,12 +383,12 @@ pub async fn save_catalog(
                 .is_some_and(|v| v["department_id"] == department_id)
         });
         if !unchanged {
-            entry(&txn, department_id, "department").await?;
+            entry(txn, department_id, "department").await?;
         }
         data["department_id"] = json!(department_id);
     }
     let duplicate = all(
-        &txn,
+        txn,
         "SELECT * FROM sales_catalog WHERE kind=? AND id<>?",
         vec![input.kind.clone().into(), eid.clone().into()],
     )
@@ -398,10 +407,10 @@ pub async fn save_catalog(
         ));
     }
     let version = previous.as_ref().map_or(1, |r| int(r, "version") + 1);
-    execute(&txn,"INSERT INTO sales_catalog VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,active=excluded.active,version=excluded.version,data=excluded.data",vec![eid.clone().into(),input.kind.clone().into(),name.into(),(input.active as i64).into(),version.into(),data.to_string().into()]).await?;
+    execute(txn,"INSERT INTO sales_catalog VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,active=excluded.active,version=excluded.version,data=excluded.data",vec![eid.clone().into(),input.kind.clone().into(),name.into(),(input.active as i64).into(),version.into(),data.to_string().into()]).await?;
     audit(
-        &txn,
-        &actor,
+        txn,
+        actor,
         "修改销售配置",
         &eid,
         json!({"before":previous.as_ref().map(catalog_json).transpose()?,"input":input}),
@@ -409,15 +418,14 @@ pub async fn save_catalog(
     .await?;
     let result = catalog_json(
         &one(
-            &txn,
+            txn,
             "SELECT * FROM sales_catalog WHERE id=?",
             vec![eid.into()],
         )
         .await?
         .unwrap(),
     )?;
-    txn.commit().await?;
-    Ok(Json(result))
+    Ok(result)
 }
 async fn prepare(
     db: &impl ConnectionTrait,

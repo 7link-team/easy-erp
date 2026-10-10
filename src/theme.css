@@ -691,8 +691,8 @@ td small { font-size: var(--t-11); color: var(--ink-3); }
 .password input { padding-right: 48px; }
 .modal-heading { background: linear-gradient(170deg, var(--paper-1), var(--paper-0)); }
 .modal-heading h2 { font-size: var(--t-16); font-weight: var(--w-semi); }
-.notice.error { background: var(--danger-soft); color: var(--danger); border-color: var(--danger-line); }
-.notice.success { background: var(--ok-soft); color: var(--ok); border-color: var(--ok-line); }
+.notice.error { background: var(--danger-soft); color: var(--danger-ink); border-color: var(--danger-line); }
+.notice.success { background: var(--ok-soft); color: var(--ok-ink); border-color: var(--ok-line); }
 
 /* ── 基础资料 / 配置清单的行 ────────────────────────────────────── */
 .sale-revision {

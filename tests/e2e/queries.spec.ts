@@ -986,6 +986,7 @@ test("退货作废汇总按原单归属隔离，未授权角色不能访问", as
   browser,
 }) => {
   const tag = `退货权限-${randomUUID().slice(0, 8)}`;
+  const administrator = await (await page.request.get("/api/me")).json();
   const material = await item(page.request, tag, "M10");
   await movement(page.request, material.id, "receipt", "10");
   const customer = await post(page.request, "/sales/catalog", {
@@ -1057,7 +1058,7 @@ test("退货作废汇总按原单归属隔离，未授权角色不能访问", as
         ).json();
         expect(result.total).toBe(1);
         expect(result.items[0].sale_id).toBe(own.id);
-        expect(result.items[0].actor_name).toBe("管理员");
+        expect(result.items[0].actor_name).toBe(administrator.name);
         expect(
           (await context.request.get(`/api/sales/${adminSale.id}`)).status(),
         ).toBe(403);

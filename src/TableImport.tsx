@@ -20,13 +20,17 @@ interface Preview {
 export default function TableImport({
   onImported,
   onClose,
+  mode: fixedMode,
 }: {
   onImported: () => void;
   onClose?: () => void;
+  mode?: string;
 }) {
   const action = useAction();
   const [message, setMessage] = useState("");
-  const [mode, setMode] = useState("items");
+  const [selectedMode, setMode] = useState("items");
+  const mode = fixedMode ?? selectedMode;
+  const inventory = mode === "items" || mode === "opening";
   const [file, setFile] = useState<File>();
   const [preview, setPreview] = useState<Preview>();
   return (
@@ -34,7 +38,15 @@ export default function TableImport({
       {action.error && <Notice>{action.error}</Notice>}
       {message && <Notice success>{message}</Notice>}
       <p>
-        先导入物料资料，再导入第一次使用时的库存数量。已有库存记录不能重新登记初始数量，请使用清点库存。
+        {inventory
+          ? "先导入物料资料，再导入第一次使用时的库存数量。已有库存记录不能重新登记初始数量，请使用清点库存。"
+          : "按模板填写新资料，先预览检查，再确认整批导入。同名记录不会被覆盖；任何一行有误，整批都不会保存。"}
+        {!inventory &&
+          !["spec", "kind", "unit"].includes(mode) &&
+          " 状态填写启用或停用（空白默认启用），排序可填0–9999（空白默认0）。"}
+        {mode === "type" && " 是否计款必须填写是或否。"}
+        {mode === "salesperson" &&
+          " 请先维护部门，再填写已启用部门的完整名称。"}
       </p>
       <Form
         onSubmit={(e) =>
@@ -53,22 +65,25 @@ export default function TableImport({
           )
         }
       >
-        <Field label="导入内容" required>
-          {(p) => (
-            <Select
-              {...p}
-              value={mode}
-              onChange={(e) => {
-                setMode(e.target.value);
-                setPreview(undefined);
-                setMessage("");
-              }}
-            >
-              <option value="items">物料资料</option>
-              <option value="opening">首次登记的库存数量</option>
-            </Select>
-          )}
-        </Field>
+        {!fixedMode && (
+          <Field label="导入内容" required>
+            {(p) => (
+              <Select
+                {...p}
+                disabled={action.busy}
+                value={mode}
+                onChange={(e) => {
+                  setMode(e.target.value);
+                  setPreview(undefined);
+                  setMessage("");
+                }}
+              >
+                <option value="items">物料资料</option>
+                <option value="opening">首次登记的库存数量</option>
+              </Select>
+            )}
+          </Field>
+        )}
         <div className="row-actions import-templates">
           <a
             className="button small"
@@ -86,7 +101,7 @@ export default function TableImport({
         <Field
           label="选择表格文件"
           required
-          hint="支持 .xlsx、UTF-8 CSV，最大 5 MB，每次 1–100 行。不会直接覆盖已有库存。"
+          hint={`支持 .xlsx、UTF-8 CSV，最大 5 MB，每次 1–100 行。${inventory ? "不会直接覆盖已有库存。" : "请将电话等编号列设为文本，保留前导零。"}`}
         >
           {(p) => (
             <label className="file-picker" htmlFor={p.id}>
@@ -97,6 +112,7 @@ export default function TableImport({
               <Input
                 {...p}
                 type="file"
+                disabled={action.busy}
                 accept=".xlsx,.csv"
                 onChange={(e) => {
                   setFile(e.target.files?.[0]);

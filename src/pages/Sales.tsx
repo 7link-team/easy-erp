@@ -28,6 +28,7 @@ import {
   useResource,
   Empty,
 } from "../components";
+import TableImport from "../TableImport";
 import MaterialOptions, { type MaterialOption } from "./MaterialOptions";
 import { api, send, quantity, dateTime, type User, type Item } from "../api";
 import {
@@ -2412,6 +2413,7 @@ export default function Sales({
           ? "spec"
           : "account",
   );
+  const [importing, setImporting] = useState<string>();
   const visibleConfigKind = view === "customers" ? "customer" : configKind;
   const configLabels: Record<string, string> = {
     type: "单据类型",
@@ -2445,7 +2447,9 @@ export default function Sales({
       ? "customers"
       : visibleConfigKind === "account"
         ? "accounts"
-        : "catalog";
+        : ["spec", "kind", "unit"].includes(visibleConfigKind)
+          ? "options"
+          : "catalog";
   const contactFields = ["customer", "company"].includes(visibleConfigKind);
   const openConfig = () =>
     setConfig({
@@ -2539,11 +2543,30 @@ export default function Sales({
                   : "一张单开齐物料，库存与收款同步记录。"}
           </p>
         </div>
-        {view === "customers" && can(user, "customers.create") && (
-          <Button className="button primary" onClick={openConfig}>
-            <Plus size={18} aria-hidden="true" />
-            新增客户
-          </Button>
+        {configView && visibleConfigKind !== "company" && (
+          <div className="row-actions">
+            {can(user, `${configModule}.create`) && (
+              <Button onClick={() => setImporting(visibleConfigKind)}>
+                导入{configLabels[visibleConfigKind]}
+              </Button>
+            )}
+            {can(user, `${configModule}.read`) &&
+              ["csv", "xlsx"].map((format) => (
+                <a
+                  key={format}
+                  className="button"
+                  href={`/api/export/${visibleConfigKind}?format=${format}${view === "customers" ? `&q=${encodeURIComponent(customerSearch)}&customer_id=${encodeURIComponent(focusedCustomer)}` : ""}`}
+                >
+                  导出 {format === "csv" ? "CSV" : "Excel"}
+                </a>
+              ))}
+            {view === "customers" && can(user, "customers.create") && (
+              <Button className="button primary" onClick={openConfig}>
+                <Plus size={18} aria-hidden="true" />
+                新增客户
+              </Button>
+            )}
+          </div>
         )}
         {!editing &&
           !financeView &&
@@ -3310,6 +3333,21 @@ export default function Sales({
             catalogCreated(entry);
           }}
         />
+      )}
+      {importing && (
+        <Modal
+          title={`导入${configLabels[importing]}`}
+          onClose={() => setImporting(undefined)}
+        >
+          <TableImport
+            mode={importing}
+            onClose={() => setImporting(undefined)}
+            onImported={() => {
+              setLocal((n) => n + 1);
+              refresh();
+            }}
+          />
+        </Modal>
       )}
     </Tabs>
   );
