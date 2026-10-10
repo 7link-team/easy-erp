@@ -257,6 +257,9 @@ function ConfigForm({
             <TextField label="地址" value={address} onChange={setAddress} />
           </>
         )}
+        {kind === "department" && (
+          <TextField label="负责人" value={contact} onChange={setContact} />
+        )}
         {kind === "account" && (
           <Field label="账户类型">
             {(p) => (
@@ -1809,10 +1812,23 @@ function FinancePanel({
   navigationIndex?: number;
 }) {
   const [customer, setCustomer] = useState<Finance["customers"][number]>();
-  const resource = useResource<Finance>("/sales/finance", revision);
-  const [account, setAccount] = useState("");
-  const [start, setStart] = useState("");
-  const [end, setEnd] = useState("");
+  const [performancePeriod, setPerformancePeriod] = useQueryValue<string>(
+    "performance_period",
+    "all",
+  );
+  const resource = useResource<Finance>(
+    `/sales/finance?performance_period=${encodeURIComponent(performancePeriod)}`,
+    revision,
+  );
+  const [performanceDepartment, setPerformanceDepartment] =
+    useQueryValue<string>("performance_department", "");
+  const [performancePerson, setPerformancePerson] = useQueryValue<string>(
+    "performance_person",
+    "",
+  );
+  const [account, setAccount] = useQueryValue<string>("finance_account", "");
+  const [start, setStart] = useQueryValue<string>("finance_from", "");
+  const [end, setEnd] = useQueryValue<string>("finance_to", "");
   const data = resource.data;
   const focused = useRef("");
   useEffect(() => {
@@ -1827,12 +1843,73 @@ function FinancePanel({
   }, [data, section, navigationIndex]);
   if (resource.error) return <Notice>{resource.error}</Notice>;
   if (!data) return <Loading />;
+  const invalidDates = !!start && !!end && start > end;
   const entries = data.entries.filter(
     (e) =>
       (!account || e.account_id === account) &&
       (!start || e.business_date >= start) &&
       (!end || e.business_date <= end),
   );
+  const selectedId = (id: string) => id || "__unassigned__";
+  const matches = (selected: string, actual: string) =>
+    !selected || selected === selectedId(actual);
+  const departments = [
+    ...new Map(
+      data.performance_choices.map((row) => [
+        selectedId(row.department_id),
+        row.department_name || "未指定部门",
+      ]),
+    ).entries(),
+  ].sort((a, b) => a[1].localeCompare(b[1], "zh-CN"));
+  const peopleById = new Map<
+    string,
+    { name: string; departments: Set<string> }
+  >();
+  for (const row of data.performance_choices) {
+    if (!matches(performanceDepartment, row.department_id)) continue;
+    const id = selectedId(row.salesperson_id);
+    const person = peopleById.get(id) || {
+      name: row.salesperson_name || "未指定业务员",
+      departments: new Set<string>(),
+    };
+    person.departments.add(row.department_name || "未指定部门");
+    peopleById.set(id, person);
+  }
+  const people = [...peopleById.entries()]
+    .map(([id, person]) => [
+      id,
+      performanceDepartment || id === "__unassigned__"
+        ? person.name
+        : `${person.name} · ${[...person.departments].sort((a, b) => a.localeCompare(b, "zh-CN")).join(" / ")}`,
+    ])
+    .sort(
+      (a, b) => a[1].localeCompare(b[1], "zh-CN") || a[0].localeCompare(b[0]),
+    );
+  const performance = data.performance.filter(
+    (row) =>
+      matches(performanceDepartment, row.department_id) &&
+      matches(performancePerson, row.salesperson_id),
+  );
+  const performanceTotal = performance.reduce(
+    (sum, row) => ({
+      count: sum.count + row.count,
+      due: sum.due + row.due,
+      paid: sum.paid + row.paid,
+      debt: sum.debt + row.debt,
+    }),
+    { count: 0, due: 0, paid: 0, debt: 0 },
+  );
+  const accounts = data.accounts
+    .filter((a) => !account || a.id === account)
+    .map((a) => {
+      const cash = entries.filter((e) => e.account_id === a.id);
+      return {
+        ...a,
+        received: cash.reduce((sum, e) => sum + Math.max(e.amount, 0), 0),
+        refunded: cash.reduce((sum, e) => sum + Math.max(-e.amount, 0), 0),
+        net: cash.reduce((sum, e) => sum + e.amount, 0),
+      };
+    });
   const total = entries.reduce((a, e) => a + e.amount, 0);
   const download = () => {
     const rows = [
@@ -1921,30 +1998,30 @@ function FinancePanel({
         tabIndex={-1}
         aria-label="账户流水"
       >
-        <h3>账户累计汇总</h3>
-        <TableScroll>
-          <table aria-label="账户累计汇总">
-            <thead>
-              <tr>
-                <th>账户</th>
-                <th>累计收款</th>
-                <th>累计退款</th>
-                <th>净收款</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.accounts.map((a) => (
-                <tr key={a.id}>
-                  <td>{a.name}</td>
-                  <td>¥{moneyText(a.received)}</td>
-                  <td>¥{moneyText(a.refunded)}</td>
-                  <td>¥{moneyText(a.net)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </TableScroll>
-        <h3>账户收退款流水</h3>
+        <div className="filter-chips" role="group" aria-label="账户期间">
+          <Button
+            className="filter-chip"
+            aria-pressed={
+              start === data.monthly.from && end === data.monthly.to
+            }
+            onClick={() => {
+              setStart(data.monthly.from);
+              setEnd(data.monthly.to);
+            }}
+          >
+            本月
+          </Button>
+          <Button
+            className="filter-chip"
+            aria-pressed={!start && !end}
+            onClick={() => {
+              setStart("");
+              setEnd("");
+            }}
+          >
+            全部日期
+          </Button>
+        </div>
         <div className="form-grid finance-filters">
           <Field label="筛选账户">
             {(p) => (
@@ -1975,43 +2052,99 @@ function FinancePanel({
             onChange={setEnd}
           />
         </div>
-        <div className="form-actions">
-          <strong>筛选净收款：¥{moneyText(total)}</strong>
-          <Button className="button" onClick={download}>
-            导出对账 CSV
-          </Button>
-        </div>
-        <TableScroll>
-          <table>
-            <thead>
-              <tr>
-                <th>单号</th>
-                <th>日期</th>
-                <th>账户</th>
-                <th>收款 / 退款</th>
-                <th>经办人</th>
-              </tr>
-            </thead>
-            <tbody>
-              {entries.map((e) => (
-                <tr key={e.id}>
-                  <td>
-                    <Button
-                      className="text-button"
-                      onClick={() => onSelect(e.sale_id)}
-                    >
-                      {e.number}
-                    </Button>
-                  </td>
-                  <td>{e.business_date}</td>
-                  <td>{e.account_name}</td>
-                  <td>¥{moneyText(e.amount)}</td>
-                  <td>{e.actor_name}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </TableScroll>
+        {invalidDates ? (
+          <Notice>开始日期不能晚于结束日期，请调整日期后查看。</Notice>
+        ) : (
+          <>
+            <h3>账户汇总（{start || end ? "筛选期间" : "全部日期"}）</h3>
+            <TableScroll>
+              <table aria-label="账户汇总">
+                <thead>
+                  <tr>
+                    <th>账户</th>
+                    <th>收款合计</th>
+                    <th>退款合计</th>
+                    <th>净收款</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {accounts.map((a) => (
+                    <tr key={a.id}>
+                      <td>
+                        <strong>{a.name}</strong>
+                        <small>
+                          {a.account_type || "未指定类型"}
+                          {a.active === false ? " · 停用" : ""}
+                        </small>
+                      </td>
+                      <td>¥{moneyText(a.received)}</td>
+                      <td>¥{moneyText(a.refunded)}</td>
+                      <td>¥{moneyText(a.net)}</td>
+                      <td>
+                        <Button
+                          className="button small"
+                          onClick={() => {
+                            setAccount(a.id);
+                            requestAnimationFrame(() => {
+                              const heading = document.getElementById(
+                                "finance-cash-entries",
+                              );
+                              heading?.scrollIntoView({ block: "start" });
+                              heading?.focus({ preventScroll: true });
+                            });
+                          }}
+                        >
+                          查看流水
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </TableScroll>
+            <h3 id="finance-cash-entries" tabIndex={-1}>
+              账户收退款流水
+            </h3>
+            <div className="form-actions">
+              <strong>筛选净收款：¥{moneyText(total)}</strong>
+              <Button className="button" onClick={download}>
+                导出对账 CSV
+              </Button>
+            </div>
+            <TableScroll>
+              <table>
+                <thead>
+                  <tr>
+                    <th>单号</th>
+                    <th>日期</th>
+                    <th>账户</th>
+                    <th>收款 / 退款</th>
+                    <th>经办人</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {entries.map((e) => (
+                    <tr key={e.id}>
+                      <td>
+                        <Button
+                          className="text-button"
+                          onClick={() => onSelect(e.sale_id)}
+                        >
+                          {e.number}
+                        </Button>
+                      </td>
+                      <td>{e.business_date}</td>
+                      <td>{e.account_name}</td>
+                      <td>¥{moneyText(e.amount)}</td>
+                      <td>{e.actor_name}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </TableScroll>
+          </>
+        )}
       </section>
       <section
         className="finance-section"
@@ -2019,36 +2152,120 @@ function FinancePanel({
         tabIndex={-1}
         aria-label="部门业绩"
       >
-        <h3>部门与业务员业绩</h3>
+        <div className="section-title">
+          <h3>部门与业务员业绩</h3>
+          <div className="filter-chips" role="group" aria-label="业绩期间">
+            {[
+              ["month", "本月"],
+              ["quarter", "本季"],
+              ["year", "本年"],
+              ["all", "全部"],
+            ].map(([value, label]) => (
+              <Button
+                key={value}
+                className="filter-chip"
+                aria-pressed={performancePeriod === value}
+                disabled={resource.loading}
+                onClick={() => setPerformancePeriod(value)}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+        </div>
+        <p className="hint" role="status">
+          {resource.loading
+            ? "正在更新业绩…"
+            : data.period.from
+              ? `${data.period.from} 至 ${data.period.to} 开出的单据，截至当前的账款`
+              : "全部有效单据，截至当前的账款"}
+        </p>
+        <div className="form-grid finance-filters">
+          <Field label="业绩部门">
+            {(p) => (
+              <Select
+                {...p}
+                value={performanceDepartment}
+                disabled={resource.loading}
+                onChange={(e) => {
+                  setPerformanceDepartment(e.target.value);
+                  setPerformancePerson("");
+                }}
+              >
+                <option value="">全部部门</option>
+                {departments.map(([id, name]) => (
+                  <option key={id} value={id}>
+                    {name}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+          <Field label="业绩业务员">
+            {(p) => (
+              <Select
+                {...p}
+                value={performancePerson}
+                disabled={resource.loading}
+                onChange={(e) => setPerformancePerson(e.target.value)}
+              >
+                <option value="">全部业务员</option>
+                {people.map(([id, name]) => (
+                  <option key={id} value={id}>
+                    {name}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+        </div>
         <p className="muted">
           按有效计款单据统计，业绩金额扣除退货，作废单不计入。实收为净收款。
         </p>
-        <TableScroll>
-          <table aria-label="业绩归属汇总">
-            <thead>
-              <tr>
-                <th>部门</th>
-                <th>业务员</th>
-                <th>单数</th>
-                <th>业绩金额</th>
-                <th>净实收</th>
-                <th>欠款</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.performance.map((p) => (
-                <tr key={`${p.department_id}:${p.salesperson_id}`}>
-                  <td>{p.department_name || "未指定"}</td>
-                  <td>{p.salesperson_name || "未指定"}</td>
-                  <td>{p.count}</td>
-                  <td>¥{moneyText(p.due)}</td>
-                  <td>¥{moneyText(p.paid)}</td>
-                  <td>¥{moneyText(p.debt)}</td>
+        {resource.loading ? (
+          <Loading />
+        ) : (
+          <TableScroll>
+            <table aria-label="业绩归属汇总">
+              <thead>
+                <tr>
+                  <th>部门</th>
+                  <th>业务员</th>
+                  <th>单数</th>
+                  <th>业绩金额</th>
+                  <th>净实收</th>
+                  <th>欠款</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </TableScroll>
+              </thead>
+              <tbody>
+                {performance.map((p) => (
+                  <tr key={`${p.department_id}:${p.salesperson_id}`}>
+                    <td>{p.department_name || "未指定"}</td>
+                    <td>{p.salesperson_name || "未指定"}</td>
+                    <td>{p.count}</td>
+                    <td>¥{moneyText(p.due)}</td>
+                    <td>¥{moneyText(p.paid)}</td>
+                    <td>¥{moneyText(p.debt)}</td>
+                  </tr>
+                ))}
+                {!performance.length && (
+                  <tr>
+                    <td colSpan={6}>当前期间和业务员没有有效计款单据。</td>
+                  </tr>
+                )}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td colSpan={2}>筛选合计</td>
+                  <td>{performanceTotal.count}</td>
+                  <td>¥{moneyText(performanceTotal.due)}</td>
+                  <td>¥{moneyText(performanceTotal.paid)}</td>
+                  <td>¥{moneyText(performanceTotal.debt)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </TableScroll>
+        )}
       </section>
       {customer && (
         <CustomerLedger
@@ -2327,6 +2544,12 @@ export default function Sales({
   const action = useAction();
   const catalog = useResource<{ items: CatalogEntry[] }>(
     "/sales/catalog",
+    revision + local,
+  );
+  const catalogFinance = useResource<Finance>(
+    view === "catalog" && can(user, "finance.read")
+      ? "/sales/finance"
+      : undefined,
     revision + local,
   );
   const options = useResource<{ items: MaterialOption[] }>(
@@ -3005,6 +3228,7 @@ export default function Sales({
                   user={user}
                   field={visibleConfigKind as "spec" | "kind" | "unit"}
                   resource={options}
+                  finance={catalogFinance}
                   refresh={() => {
                     setLocal((n) => n + 1);
                     refresh();
@@ -3059,6 +3283,23 @@ export default function Sales({
                       )}
                     </>
                   )}
+                  {view === "catalog" &&
+                    can(user, "finance.read") &&
+                    ["account", "department", "salesperson"].includes(
+                      visibleConfigKind,
+                    ) && (
+                      <>
+                        {catalogFinance.error && (
+                          <Notice>{catalogFinance.error}</Notice>
+                        )}
+                        <p className="dictionary-feedback">
+                          本月截至{catalogFinance.data?.monthly.to || "今日"}；
+                          {visibleConfigKind === "account"
+                            ? "按收退款业务日期统计实际净收。"
+                            : "按单据业务日期统计当前应收，扣退货、排除作废；与实际现金流分别记录。"}
+                        </p>
+                      </>
+                    )}
                   {configOrder.error && <Notice>{configOrder.error}</Notice>}
                   <p className="dictionary-feedback" role="status">
                     {configOrder.message}
@@ -3084,6 +3325,9 @@ export default function Sales({
                             <th scope="col">名称</th>
                             {visibleConfigKind === "account" && (
                               <th scope="col">类型</th>
+                            )}
+                            {visibleConfigKind === "department" && (
+                              <th scope="col">负责人</th>
                             )}
                             {visibleConfigKind === "type" && (
                               <th scope="col">要不要收款</th>
@@ -3114,6 +3358,17 @@ export default function Sales({
                                 业务员
                               </th>
                             )}
+                            {view === "catalog" &&
+                              can(user, "finance.read") &&
+                              ["account", "department", "salesperson"].includes(
+                                visibleConfigKind,
+                              ) && (
+                                <th scope="col" className="numeric">
+                                  {visibleConfigKind === "account"
+                                    ? "本月实际净收"
+                                    : "本月业绩"}
+                                </th>
+                              )}
                             {showCustomerFinance && (
                               <>
                                 <th scope="col" className="numeric">
@@ -3164,6 +3419,11 @@ export default function Sales({
                               {c.kind === "account" && (
                                 <td data-label="类型">
                                   {c.data.account_type || "未指定"}
+                                </td>
+                              )}
+                              {c.kind === "department" && (
+                                <td data-label="负责人">
+                                  {c.data.contact || "—"}
                                 </td>
                               )}
                               {c.kind === "type" && (
@@ -3234,6 +3494,28 @@ export default function Sales({
                                   {c.member_count?.toLocaleString() ?? "—"}
                                 </td>
                               )}
+                              {view === "catalog" &&
+                                can(user, "finance.read") &&
+                                [
+                                  "account",
+                                  "department",
+                                  "salesperson",
+                                ].includes(c.kind) && (
+                                  <td
+                                    className="numeric"
+                                    data-label={
+                                      c.kind === "account"
+                                        ? "本月实际净收"
+                                        : "本月业绩"
+                                    }
+                                  >
+                                    {catalogFinance.loading
+                                      ? "统计中…"
+                                      : catalogFinance.error
+                                        ? "未加载"
+                                        : `¥${moneyText(catalogFinance.data?.monthly[c.kind === "account" ? "accounts" : c.kind === "department" ? "departments" : "salespeople"][c.id] ?? 0)}`}
+                                  </td>
+                                )}
                               {showCustomerFinance &&
                                 (
                                   [

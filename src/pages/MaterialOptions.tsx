@@ -14,6 +14,7 @@ import {
 } from "../components";
 import { useDictionaryOrder } from "../DictionaryOrder";
 import { send, can, dateTime, type User } from "../api";
+import { moneyText, type Finance } from "../sales";
 export interface MaterialOption {
   id: string;
   field: string;
@@ -36,6 +37,7 @@ export default function MaterialOptions({
   user,
   field,
   resource,
+  finance,
   refresh,
 }: {
   user: User;
@@ -45,6 +47,7 @@ export default function MaterialOptions({
     loading: boolean;
     error: string;
   };
+  finance: { data?: Finance; loading: boolean; error: string };
   refresh: () => void;
 }) {
   const [editing, setEditing] = useState<MaterialOption | "new">();
@@ -55,6 +58,12 @@ export default function MaterialOptions({
   const action = useAction();
   const confirm = useConfirm();
   const rows = resource.data?.items.filter((o) => o.field === field) || [];
+  const showAmounts = field === "kind" && can(user, "finance.read");
+  const historical = Object.entries(
+    finance.data?.monthly.categories || {},
+  ).filter(
+    ([name]) => !rows.some((row) => row.name.trim().toLowerCase() === name),
+  );
   const order = useDictionaryOrder(
     rows,
     field,
@@ -71,6 +80,12 @@ export default function MaterialOptions({
         </p>
       </div>
       {resource.error && <Notice>{resource.error}</Notice>}
+      {showAmounts && finance.error && <Notice>{finance.error}</Notice>}
+      {showAmounts && (
+        <p className="dictionary-feedback">
+          本月销售出库应收：按单据日期与当时分类，扣除折扣、抹零、退货，排除作废。普通出库未记录售价，不计入金额。
+        </p>
+      )}
       {order.error && <Notice>{order.error}</Notice>}
       <p className="dictionary-feedback" role="status">
         {order.message}
@@ -105,6 +120,11 @@ export default function MaterialOptions({
                 >
                   最近使用
                 </th>
+                {showAmounts && (
+                  <th scope="col" className="numeric">
+                    本月出库额
+                  </th>
+                )}
                 <th scope="col">来源</th>
                 <th scope="col">说明</th>
                 <th scope="col" className="ledger-actions">
@@ -135,6 +155,15 @@ export default function MaterialOptions({
                   >
                     {o.last_used_at ? dateTime(o.last_used_at) : "—"}
                   </td>
+                  {showAmounts && (
+                    <td className="numeric" data-label="本月出库额">
+                      {finance.loading
+                        ? "统计中…"
+                        : finance.error
+                          ? "未加载"
+                          : `¥${moneyText(finance.data?.monthly.categories[o.name.trim().toLowerCase()] ?? 0)}`}
+                    </td>
+                  )}
                   <td data-label="来源">{sourceLabels[o.source] || "未知"}</td>
                   <td data-label="说明" className="ledger-note">
                     {o.note || "—"}
@@ -209,6 +238,23 @@ export default function MaterialOptions({
             </tbody>
           </table>
         </TableScroll>
+      )}
+      {showAmounts && finance.data && !finance.loading && !finance.error && (
+        <div className="dictionary-feedback">
+          <p>
+            统计日期：{finance.data.monthly.from} 至 {finance.data.monthly.to}
+            。旧单未记录分类：¥{moneyText(finance.data.monthly.unclassified)}
+            ；按原单保留，不归入当前分类。
+          </p>
+          {historical.map(([name, amount]) => (
+            <p key={name}>
+              历史分类“
+              {finance.data?.monthly.category_names[name] || name || "未指定"}
+              ”：¥{moneyText(amount)}
+              （当前候选清单中已无此名称）
+            </p>
+          ))}
+        </div>
       )}
       {can(user, "options.create") && (
         <div className="ledger-footer">

@@ -1302,7 +1302,8 @@ button { transition: background-color var(--dur-1) var(--ease), border-color var
 
 /* Explicit document actions and prototype navigation sections. */
 .sidebar-about { display: flex; gap: 6px; align-items: center; margin-top: 6px; min-height: 36px; }
-.finance-section { scroll-margin-top: 76px; }
+.finance-section, #finance-cash-entries { scroll-margin-top: 76px; }
+.finance-section > .section-title { flex-wrap: wrap; }
 .document-row-actions .row-actions { flex-wrap: wrap; justify-content: flex-end; }
 @media (min-width: 761px) {
   .sale-list-table .sale-list-type { min-width: 100px; }

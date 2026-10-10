@@ -1028,7 +1028,7 @@ test("账户筛选对账与 CSV 退款保持数值", async ({ request, page }) =
   ).toBeVisible();
   await expect(
     page
-      .getByRole("table", { name: "账户累计汇总" })
+      .getByRole("table", { name: "账户汇总" })
       .getByRole("row")
       .filter({ hasText: account.name }),
   ).toContainText("¥30.00");
@@ -1136,7 +1136,7 @@ test("账户筛选对账与 CSV 退款保持数值", async ({ request, page }) =
     .scrollIntoViewIfNeeded();
   await expect(
     page
-      .getByRole("table", { name: "账户累计汇总" })
+      .getByRole("table", { name: "账户汇总" })
       .getByRole("row")
       .filter({ hasText: account.name }),
   ).toContainText("¥40.00");

@@ -34,6 +34,7 @@ export interface SaleInput {
   lines: { item_id: string; quantity: string; price: string }[];
 }
 export interface SaleLine {
+  kind?: string;
   item_id: string;
   name: string;
   code: string;
@@ -107,6 +108,23 @@ export interface Sale {
   }[];
 }
 export interface Finance {
+  performance_choices: {
+    department_id: string;
+    department_name: string;
+    salesperson_id: string;
+    salesperson_name: string;
+  }[];
+  period: { value: string; from: string | null; to: string | null };
+  monthly: {
+    from: string;
+    to: string;
+    accounts: Record<string, number>;
+    departments: Record<string, number>;
+    salespeople: Record<string, number>;
+    categories: Record<string, number>;
+    category_names: Record<string, string>;
+    unclassified: number;
+  };
   performance: {
     department_id: string;
     department_name: string;
@@ -128,6 +146,8 @@ export interface Finance {
     debt: number;
   }[];
   accounts: {
+    active?: boolean;
+    account_type?: string;
     id: string;
     name: string;
     received: number;

@@ -71,7 +71,7 @@ fn expected(mode: &str) -> Result<Vec<String>> {
         "customer" => &["客户名称", "联系人", "电话", "地址", "状态", "排序", "备注"],
         "type" => &["单据类型", "是否计款", "状态", "排序", "备注"],
         "account" => &["收款账户", "账户类型", "状态", "排序", "备注"],
-        "department" => &["部门名称", "状态", "排序", "备注"],
+        "department" => &["部门名称", "负责人", "状态", "排序", "备注"],
         "salesperson" => &["业务员姓名", "部门名称", "电话", "状态", "排序", "备注"],
         "spec" => &["规格值", "状态", "排序", "说明"],
         "kind" => &["物料分类", "状态", "排序", "说明"],
@@ -111,7 +111,7 @@ async fn import_reference(
 ) -> Result<Option<String>> {
     if row.len() != expected(mode)?.len()
         && !(reference_module(mode) == Some("options") && row.len() == 1)
-        && !(mode == "account" && row.len() == 4)
+        && !(["account", "department"].contains(&mode) && row.len() == 4)
     {
         return Err(ApiError::bad("列数与模板不一致。"));
     }
@@ -157,7 +157,7 @@ async fn import_reference(
     let status_index = match mode {
         "customer" => 4,
         "type" => 2,
-        "account" if row.len() == 5 => 2,
+        "account" | "department" if row.len() == 5 => 2,
         "salesperson" => 3,
         _ => 1,
     };
@@ -175,6 +175,9 @@ async fn import_reference(
     };
     let mut data = json!({"sort":sort, "note":row[status_index + 2]});
     match mode {
+        "department" if row.len() == 5 => {
+            data["contact"] = json!(row[1]);
+        }
         "account" if row.len() == 5 => {
             data["account_type"] = json!(row[1]);
         }
@@ -258,6 +261,7 @@ async fn export_reference(
             let mut row = vec![text(&r,"name")];
             match mode {
                 "account" => row.push(value("account_type")),
+                "department" => row.push(value("contact")),
                 "customer" => row.extend([value("contact"),value("phone"),value("address")]),
                 "type" => row.push(if data["billable"].as_bool().unwrap_or(false) {"是"} else {"否"}.into()),
                 "salesperson" => row.extend([text(&r,"department_name"),value("phone")]),
@@ -701,7 +705,9 @@ pub async fn preview(
             }
         }
     }
-    if mode == "account" && table.headers == ["收款账户", "状态", "排序", "备注"] {
+    if (mode == "account" && table.headers == ["收款账户", "状态", "排序", "备注"])
+        || (mode == "department" && table.headers == ["部门名称", "状态", "排序", "备注"])
+    {
         table.headers = expected.clone();
         for row in &mut table.rows {
             if row.len() == 4 {

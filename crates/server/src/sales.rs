@@ -13,6 +13,7 @@ use axum::{
     http::{HeaderMap, header},
     response::{IntoResponse, Response},
 };
+use chrono::{Datelike, Local};
 use sea_orm::{ConnectionTrait, TransactionTrait};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -25,6 +26,8 @@ pub struct SaleLine {
     pub code: String,
     pub spec: String,
     pub unit: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
     pub quantity: i64,
     pub price: i64,
     pub amount: i64,
@@ -375,6 +378,11 @@ pub(crate) async fn save_catalog_record(
     } else if !input.id.is_empty() {
         return Err(ApiError::missing());
     }
+    if input.kind == "department" && input.data.get("contact").is_none() {
+        if let Some(old) = &previous {
+            data["contact"] = parsed(&text(old, "data"))?["contact"].clone();
+        }
+    }
     if input.kind == "account" {
         let old_data = previous
             .as_ref()
@@ -531,6 +539,7 @@ async fn prepare(
             code: previous.map_or(material.code, |l| l.code.clone()),
             spec: previous.map_or(text(&row, "spec"), |l| l.spec.clone()),
             unit: previous.map_or(material.unit, |l| l.unit.clone()),
+            kind: previous.map_or(Some(text(&row, "kind")), |l| l.kind.clone()),
             quantity,
             price,
             amount,
@@ -1476,16 +1485,46 @@ pub async fn command(
     Ok(Json(result))
 }
 
+#[derive(Deserialize)]
+pub struct FinanceFilter {
+    q: Option<String>,
+    performance_period: Option<String>,
+}
+
 pub async fn finance(
     State(s): State<AppState>,
     headers: HeaderMap,
-    Query(filter): Query<Filter>,
+    Query(filter): Query<FinanceFilter>,
 ) -> Result<Json<Value>> {
     let actor = current(&s, &headers).await?;
     let txn = s.db.begin().await?;
     actor.require("finance.read")?;
+    let today = Local::now().date_naive();
+    let month = today.with_day(1).unwrap();
+    let period = filter.performance_period.as_deref().unwrap_or("all");
+    let from = match period {
+        "all" => None,
+        "month" => Some(month),
+        "quarter" => Some(month.with_month((today.month0() / 3) * 3 + 1).unwrap()),
+        "year" => Some(month.with_month(1).unwrap()),
+        _ => {
+            return Err(ApiError::bad(
+                "业绩期间无效，请选择本月、本季、本年或全部。",
+            ));
+        }
+    }
+    .map(|day| day.to_string());
+    let today = today.to_string();
+    let month = month.to_string();
+    let mut monthly_departments = HashMap::<String, i64>::new();
+    let mut monthly_salespeople = HashMap::<String, i64>::new();
+    let mut monthly_categories = HashMap::<String, i64>::new();
+    let mut category_names = HashMap::<String, String>::new();
+    let mut unclassified = 0i64;
+    let mut monthly_accounts = HashMap::<String, i64>::new();
     let mut customers: HashMap<String, Value> = HashMap::new();
     let mut performance: HashMap<(String, String), Value> = HashMap::new();
+    let mut performance_choices: HashMap<(String, String), Value> = HashMap::new();
     let mut total = 0;
     let mut net_paid = 0;
     for row in all(&txn, "SELECT data FROM sales WHERE status='posted'", vec![]).await? {
@@ -1493,6 +1532,35 @@ pub async fn finance(
             .map_err(|_| ApiError::bad("读取单据失败。"))?;
         let (amount, received) = balances(&txn, &sale).await?;
         if sale.billable {
+            performance_choices.entry((sale.department_id.clone(),sale.salesperson_id.clone())).or_insert_with(||json!({"department_id":sale.department_id,"department_name":sale.department_name,"salesperson_id":sale.salesperson_id,"salesperson_name":sale.salesperson_name}));
+        }
+        if sale.billable && sale.business_date >= month && sale.business_date <= today {
+            *monthly_departments
+                .entry(sale.department_id.clone())
+                .or_default() += amount;
+            *monthly_salespeople
+                .entry(sale.salesperson_id.clone())
+                .or_default() += amount;
+            let returns = returned(&txn, &sale.id).await?;
+            for line in &sale.lines {
+                let net = line.allocated - returns.get(&line.item_id).map_or(0, |r| r.credit);
+                if let Some(kind) = &line.kind {
+                    category_names
+                        .entry(crate::options::key(kind))
+                        .or_insert_with(|| kind.clone());
+                    *monthly_categories
+                        .entry(crate::options::key(kind))
+                        .or_default() += net;
+                } else {
+                    unclassified += net;
+                }
+            }
+        }
+        if sale.billable
+            && from
+                .as_ref()
+                .is_none_or(|start| sale.business_date >= *start && sale.business_date <= today)
+        {
             let p = performance.entry((sale.department_id.clone(), sale.salesperson_id.clone())).or_insert(
                 json!({"department_id":sale.department_id,"department_name":sale.department_name,"salesperson_id":sale.salesperson_id,"salesperson_name":sale.salesperson_name,"count":0,"due":0,"paid":0,"debt":0})
             );
@@ -1510,13 +1578,56 @@ pub async fn finance(
         c["paid"] = json!(c["paid"].as_i64().unwrap() + received);
         c["debt"] = json!(c["due"].as_i64().unwrap() - c["paid"].as_i64().unwrap());
     }
+    // Include people without sales so they can be selected and shown as zero.
+    let catalog_rows = all(
+        &txn,
+        "SELECT id,kind,name,data FROM sales_catalog WHERE kind IN ('department','salesperson')",
+        vec![],
+    )
+    .await?;
+    let names: HashMap<_, _> = catalog_rows
+        .iter()
+        .map(|r| (text(r, "id"), text(r, "name")))
+        .collect();
+    for row in &catalog_rows {
+        if text(row, "kind") == "salesperson" {
+            let id = text(row, "id");
+            let data = parsed(&text(row, "data"))?;
+            let department = data["department_id"].as_str().unwrap_or("").to_string();
+            performance_choices.entry((department.clone(),id.clone())).or_insert_with(||json!({"department_id":department,"department_name":"","salesperson_id":id,"salesperson_name":""}));
+        }
+    }
+    for value in performance_choices.values_mut() {
+        for (id_key, name_key) in [
+            ("department_id", "department_name"),
+            ("salesperson_id", "salesperson_name"),
+        ] {
+            if let Some(name) = names.get(value[id_key].as_str().unwrap_or("")) {
+                value[name_key] = json!(name);
+            }
+        }
+    }
     let q = clean(filter.q.as_deref().unwrap_or(""), "搜索", 100, false)?;
-    let cash_rows=all(&txn,"SELECT c.*,s.data AS sale_data FROM sales_cash c JOIN sales s ON s.id=c.sale_id WHERE (?='' OR c.account_id=?) ORDER BY c.created_at DESC,c.id",vec![q.clone().into(),q.into()]).await?;
+    let cash_rows=all(&txn,"SELECT c.*,s.data AS sale_data FROM sales_cash c JOIN sales s ON s.id=c.sale_id WHERE (?='' OR c.account_id=?) ORDER BY c.created_at DESC,c.id",vec![q.clone().into(),q.clone().into()]).await?;
     let mut accounts: HashMap<String, Value> = HashMap::new();
+    for row in all(
+        &txn,
+        "SELECT id,name,active,data FROM sales_catalog WHERE kind='account' AND (?='' OR id=?)",
+        vec![q.clone().into(), q.into()],
+    )
+    .await?
+    {
+        let data = parsed(&text(&row, "data"))?;
+        accounts.insert(text(&row,"id"),json!({"id":text(&row,"id"),"name":text(&row,"name"),"active":int(&row,"active")==1,"account_type":data["account_type"].as_str().unwrap_or(""),"received":0,"refunded":0,"net":0}));
+    }
     let mut entries = vec![];
     for row in cash_rows {
         let amount = int(&row, "amount");
         let aid = text(&row, "account_id");
+        let cash_date = text(&row, "business_date");
+        if cash_date >= month && cash_date <= today {
+            *monthly_accounts.entry(aid.clone()).or_default() += amount;
+        }
         let a = accounts.entry(aid.clone()).or_insert(
             json!({"id":aid,"name":text(&row,"account_name"),"received":0,"refunded":0,"net":0}),
         );
@@ -1529,7 +1640,7 @@ pub async fn finance(
         entries.push(json!({"id":text(&row,"id"),"sale_id":text(&row,"sale_id"),"number":parsed(&text(&row,"sale_data"))?["number"],"account_id":text(&row,"account_id"),"account_name":text(&row,"account_name"),"amount":amount,"actor_name":text(&row,"actor_name"),"business_date":text(&row,"business_date"),"note":text(&row,"note"),"reversal_of":text(&row,"reversal_of")}));
     }
     Ok(Json(
-        json!({"due":total,"paid":net_paid,"debt":total-net_paid,"performance":performance.into_values().collect::<Vec<_>>(),"customers":customers.into_values().collect::<Vec<_>>(),"accounts":accounts.into_values().collect::<Vec<_>>(),"entries":entries}),
+        json!({"period":{"value":period,"from":from,"to":if period=="all" {None} else {Some(&today)}},"monthly":{"from":month,"to":today,"accounts":monthly_accounts,"departments":monthly_departments,"salespeople":monthly_salespeople,"categories":monthly_categories,"category_names":category_names,"unclassified":unclassified},"due":total,"paid":net_paid,"debt":total-net_paid,"performance_choices":performance_choices.into_values().collect::<Vec<_>>(),"performance":performance.into_values().collect::<Vec<_>>(),"customers":customers.into_values().collect::<Vec<_>>(),"accounts":accounts.into_values().collect::<Vec<_>>(),"entries":entries}),
     ))
 }
 
