@@ -2,7 +2,7 @@
 ## Goal / Objective
 用户 active goal：“全部做到位啊”。以 docs/客户需求/20261009.md 原始业务需求 + 会话确认事项为准，补齐功能并按 design-system/v2/prototype.html 做完整视觉对齐。用户已授权全部提交推送；不合并、不发 Release。
 ## Phase / Execution
-DELIVERY 本批（开单结算/欠款打印/红色必填/关联统计/字典维护）已验收，准备提交推送。Direct，未使用 subagent。第一批已提交并推送 2211f46（基于 c6ebd7c）。整体原型对齐 goal 尚未完成。
+DELIVERED 本批（开单结算/欠款打印/红色必填/关联统计/字典维护）已验收并提交推送 d3fd9c0。Direct，未使用 subagent。第一批已提交并推送 2211f46（基于 c6ebd7c）。整体原型对齐 goal 尚未完成。
 ## Verified first batch
 - 共享 ItemPicker/document.css；开单与收发逐行添加、更换、删除，预选物料直接显示，标题/最终操作固定。入库允许零库存，出库/销售禁选，物料列表零库存出库快捷按钮也禁用。
 - 超库存即时提示/拦截确认但可存草稿；修订可开量考虑原单。
@@ -49,4 +49,4 @@ Vite http://127.0.0.1:5173 → backend 4280，数据 /tmp/erp-live，PID **73441
 - Self-review PASS: 范围/复用现有事务与cash/不新增schema/旧请求指纹兼容/旧账号权限不扩大/历史关联去重/无测试产物 staging。
 - 本批用户要求 acceptance PASS；全站原型对齐尚未宣称完成；实体打印机、手机相机硬件未测，浏览器 PDF/图片上传已测。
 ## Next Action
-提交推送本批已验证代码。后续继续“Next implementation boundary”的库存/单据查询与原型差异核对；成本和目标扩展保持暂停，不将本批完成标为整体 goal complete。
+本批业务代码已推送 d3fd9c0，远端核对一致。后续继续“Next implementation boundary”的库存/单据查询与原型差异核对；成本和目标扩展保持暂停，不将本批完成标为整体 goal complete。
