@@ -243,6 +243,10 @@ async fn main() -> anyhow::Result<()> {
             get(sales::catalog).post(sales::save_catalog),
         )
         .route("/api/sales/commands", post(sales::command))
+        .route(
+            "/api/sales/catalog/{id}",
+            axum::routing::delete(sales::remove_catalog),
+        )
         .route("/api/sales/finance", get(sales::finance))
         .route("/api/sales/{id}", get(sales::get))
         .route("/api/sales/{id}/revisions/{version}", get(sales::revision))

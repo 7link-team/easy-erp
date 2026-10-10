@@ -1510,9 +1510,15 @@ test("物料行可更换和删除，零库存禁选且保留其他行", async ({
   await page.goto("/#/inventory");
   await page.getByLabel("搜索物料", { exact: true }).fill(emptyName);
   const emptyRow = page.getByRole("row").filter({ hasText: emptyName });
-  await expect(emptyRow.getByRole("button", { name: "出库", exact: true })).toBeDisabled();
-  await expect(emptyRow.getByRole("button", { name: "开单出库", exact: true })).toBeDisabled();
-  await expect(emptyRow.getByRole("button", { name: "入库", exact: true })).toBeEnabled();
+  await expect(
+    emptyRow.getByRole("button", { name: "出库", exact: true }),
+  ).toBeDisabled();
+  await expect(
+    emptyRow.getByRole("button", { name: "开单出库", exact: true }),
+  ).toBeDisabled();
+  await expect(
+    emptyRow.getByRole("button", { name: "入库", exact: true }),
+  ).toBeEnabled();
   await page.goto("/#/sales");
   await page.getByRole("button", { name: "新建单据", exact: true }).click();
   await expect(
@@ -1657,4 +1663,293 @@ test("更正流水无记录时说明原因，有收退款时可选择并排除�
   sale = await (await page.request.get(`/api/sales/${sale.id}`)).json();
   expect(sale.paid).toBe(4500);
   expect(await itemBalance(page.request, item.name)).toBe(90000);
+});
+
+test("开单结算：抹零后部分收款、草稿保留、移动端欠款提示与全额收款", async ({
+  page,
+}, testInfo) => {
+  const { item, customer } = await fixture(page.request, "100");
+  await page.goto("/#/sales");
+  await page.getByRole("button", { name: "新建单据", exact: true }).click();
+  await chooseSelect(
+    page.getByRole("combobox", { name: "客户 必填", exact: true }),
+    customer.id,
+  );
+  await page.getByRole("button", { name: "添加一行", exact: true }).click();
+  await page.getByLabel("开单查找物料").fill(item.name);
+  await page
+    .getByRole("button", { name: `选择${item.name}`, exact: true })
+    .click();
+  await page.getByLabel(`${item.name} 单价`).fill("10050");
+  await page.getByLabel("抹零金额").fill("50");
+  const settlement = page.getByRole("combobox", {
+    name: "结算方式 必填",
+    exact: true,
+  });
+  await expect(
+    page.getByText("剩余欠款：¥10,000.00", { exact: true }),
+  ).toBeVisible();
+  await chooseSelect(settlement, "partial");
+  await page.getByLabel("本次收款 必填", { exact: true }).fill("10001");
+  await expect(
+    page.getByLabel("本次收款 必填", { exact: true }),
+  ).toHaveAttribute("aria-invalid", "true");
+  await page.getByLabel("本次收款 必填", { exact: true }).fill("5000");
+  await chooseSelect(
+    page.getByRole("combobox", { name: "本次收款账户 必填", exact: true }),
+    "cash",
+  );
+  await expect(
+    page.getByText("剩余欠款：¥5,000.00", { exact: true }),
+  ).toBeVisible();
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.locator(".sale-settlement").scrollIntoViewIfNeeded();
+  await expect(
+    page.locator(".sale-editor > form > .form-footer"),
+  ).toBeInViewport({ ratio: 1 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("settlement-mobile.png") });
+  await page.getByRole("button", { name: "保存草稿", exact: true }).click();
+  await expect(page.locator(".sale-detail")).toContainText("草稿");
+  expect(await itemBalance(page.request, item.name)).toBe(100000);
+  await page.getByRole("button", { name: /编辑草稿/ }).click();
+  await expect(settlement).toHaveAttribute("data-value", "partial");
+  await expect(page.getByLabel("本次收款 必填", { exact: true })).toHaveValue(
+    "5000",
+  );
+  await expect(
+    page.getByRole("combobox", { name: "本次收款账户 必填", exact: true }),
+  ).toHaveAttribute("data-value", "cash");
+  await chooseSelect(settlement, "full");
+  await expect(
+    page.getByText("本次收款：¥10,000.00", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("剩余欠款：¥0.00", { exact: true }),
+  ).toBeVisible();
+  await chooseSelect(settlement, "partial");
+  const responsePromise = page.waitForResponse(
+    (r) =>
+      r.url().endsWith("/api/sales/commands") &&
+      r.request().method() === "POST",
+  );
+  await page
+    .getByRole("button", { name: "确认开单并扣库存", exact: true })
+    .click();
+  const sale = await (await responsePromise).json();
+  await expect(page.locator(".sale-detail")).toContainText("部分收款");
+  expect([sale.subtotal, sale.total, sale.paid, sale.debt]).toEqual([
+    1005000, 1000000, 500000, 500000,
+  ]);
+  expect(sale.payments).toHaveLength(1);
+  expect(sale.payments[0].account_id).toBe("cash");
+  expect(sale.initial_payment).toBeUndefined();
+  const finance = await (await page.request.get("/api/sales/finance")).json();
+  expect(
+    finance.customers.find((c: { id: string }) => c.id === customer.id).debt,
+  ).toBe(500000);
+  expect(
+    finance.entries.filter((e: { sale_id: string }) => e.sale_id === sale.id),
+  ).toHaveLength(1);
+  expect(await itemBalance(page.request, item.name)).toBe(99000);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.getByRole("button", { name: "打印预览", exact: true }).click();
+  const sheet = page.locator(".sales-print-sheet");
+  await expect(sheet.locator(".print-debt-confirmation")).toContainText(
+    "剩余欠款 ¥5,000.00",
+  );
+  await expect(sheet.locator(".print-signatures")).toContainText(
+    "客户签收及欠款确认",
+  );
+  await page.emulateMedia({ media: "print" });
+  await expect(sheet.locator(".print-debt-confirmation")).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => getComputedStyle(document.body, "::after").display,
+    ),
+  ).toBe("none");
+  await page.screenshot({
+    path: testInfo.outputPath("debt-print.png"),
+    fullPage: true,
+  });
+  if (testInfo.project.name === "chromium")
+    await page.pdf({
+      path: testInfo.outputPath("debt-print.pdf"),
+      format: "A4",
+    });
+  await page.emulateMedia({ media: "screen" });
+  await page.getByRole("button", { name: "关闭预览", exact: true }).click();
+  const png = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC",
+    "base64",
+  );
+  await page.getByLabel("上传凭证照片", { exact: false }).setInputFiles({
+    name: "客户签字.png",
+    mimeType: "image/png",
+    buffer: png,
+  });
+  await expect(page.getByRole("img", { name: /签字凭证，上传人/ })).toHaveCount(
+    1,
+  );
+  const attached = await (
+    await page.request.get(`/api/sales/${sale.id}`)
+  ).json();
+  expect(attached.attachments).toHaveLength(1);
+  expect(attached.debt).toBe(500000);
+});
+
+test("开单收款事务：草稿不记账、确认幂等、失败回滚及修订不重复收款", async ({
+  request,
+}) => {
+  const { item, input } = await fixture(request, "10");
+  const initial_payment = { account_id: "cash", amount: "500" };
+  const draft = await command(request, {
+    action: "save",
+    input: { ...input, initial_payment },
+  });
+  expect([draft.due, draft.paid, draft.debt]).toEqual([0, 0, 0]);
+  expect(draft.payments).toHaveLength(0);
+  expect(draft.initial_payment).toEqual(initial_payment);
+  expect(await itemBalance(request, item.name)).toBe(10000);
+  for (const [payment, overrides] of [
+    [{ account_id: "cash", amount: "1000.01" }, {}],
+    [{ account_id: "missing", amount: "500" }, {}],
+    [{ account_id: "cash", amount: "-1" }, {}],
+    [{ account_id: "cash", amount: "0.001" }, {}],
+    [
+      initial_payment,
+      {
+        type_id: "sample",
+        lines: [{ item_id: item.id, quantity: "10", price: "" }],
+      },
+    ],
+    [
+      initial_payment,
+      { lines: [{ item_id: item.id, quantity: "11", price: "100" }] },
+    ],
+  ]) {
+    const response = await request.post("/api/sales/commands", {
+      headers,
+      data: {
+        request_id: randomUUID(),
+        action: "confirm",
+        sale_id: draft.id,
+        version: draft.version,
+        input: { ...input, ...overrides, initial_payment: payment },
+      },
+    });
+    expect(response.ok()).toBe(false);
+    const unchanged = await (
+      await request.get(`/api/sales/${draft.id}`)
+    ).json();
+    expect(unchanged.status).toBe("draft");
+    expect(unchanged.version).toBe(draft.version);
+    expect(unchanged.payments).toHaveLength(0);
+    expect(await itemBalance(request, item.name)).toBe(10000);
+  }
+  const payload = {
+    request_id: randomUUID(),
+    action: "confirm",
+    sale_id: draft.id,
+    version: draft.version,
+    input: {
+      ...input,
+      initial_payment: { ...initial_payment, amount: "1000" },
+    },
+  };
+  const confirmed = await post(request, "/sales/commands", payload);
+  expect([confirmed.paid, confirmed.debt]).toEqual([100000, 0]);
+  const duplicate = await post(request, "/sales/commands", payload);
+  expect(duplicate).toEqual(confirmed);
+  const revised = await command(request, {
+    action: "revise",
+    sale_id: confirmed.id,
+    version: confirmed.version,
+    input: { ...input, note: "修改备注" },
+  });
+  expect(revised.payments).toHaveLength(1);
+  expect(revised.paid).toBe(100000);
+  expect(await itemBalance(request, item.name)).toBe(0);
+});
+
+test("开单收款权限：无收款权限可全部欠款，直接 API 收款被拒且库存不变", async ({
+  request,
+  browser,
+}) => {
+  const { item, input } = await fixture(request);
+  const role = await post(request, "/roles", {
+    name: `仅开单-${randomUUID().slice(0, 8)}`,
+    permissions: [
+      "sales.read",
+      "sales.create",
+      "sales.confirm",
+      "items.read",
+      "customers.read",
+      "catalog.read",
+    ],
+  });
+  const username = `debt_${randomUUID().slice(0, 8)}`;
+  await post(request, "/users", {
+    username,
+    name: username,
+    password: "Role-test-2026",
+    role: role.id,
+  });
+  const context = await browser.newContext({
+    baseURL: "http://127.0.0.1:4289",
+  });
+  try {
+    await post(context.request, "/login", {
+      username,
+      password: "Role-test-2026",
+    });
+    const denied = await context.request.post("/api/sales/commands", {
+      headers,
+      data: {
+        request_id: randomUUID(),
+        action: "confirm",
+        input: {
+          ...input,
+          initial_payment: { account_id: "cash", amount: "1" },
+        },
+      },
+    });
+    expect(denied.status()).toBe(403);
+    expect(
+      (
+        await context.request.delete(
+          `/api/sales/catalog/${input.customer_id}?version=1`,
+          { headers },
+        )
+      ).status(),
+    ).toBe(403);
+    expect(await itemBalance(request, item.name)).toBe(100000);
+    const sale = await command(context.request, { action: "confirm", input });
+    expect([sale.paid, sale.debt]).toEqual([0, 100000]);
+    expect(sale.payments).toHaveLength(0);
+    const page = await context.newPage();
+    await page.goto("/#/sales");
+    await page.getByRole("button", { name: "新建单据", exact: true }).click();
+    await expect(
+      page.getByText(
+        "当前账号没有收款权限，可先开单记欠款，再由有权限的人员登记收款。",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    await page
+      .getByRole("combobox", { name: "结算方式 必填", exact: true })
+      .click();
+    await expect(
+      page.getByRole("option", { name: "部分收款", exact: true }),
+    ).toBeDisabled();
+    await expect(
+      page.getByRole("option", { name: "全额收款", exact: true }),
+    ).toBeDisabled();
+  } finally {
+    await context.close();
+  }
 });

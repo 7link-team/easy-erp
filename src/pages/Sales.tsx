@@ -171,6 +171,7 @@ function ConfigForm({
   const [billable, setBillable] = useState(entry?.data.billable ?? true);
   const [active, setActive] = useState(entry?.active ?? true);
   const [sort, setSort] = useState(String(entry?.data.sort ?? 0));
+  const [note, setNote] = useState(entry?.data.note || "");
   const action = useAction();
   const title = {
     customer: "客户",
@@ -199,6 +200,7 @@ function ConfigForm({
                   billable,
                   sort: Number(sort),
                   department_id: department,
+                  note,
                 },
               });
               onDone(saved);
@@ -257,18 +259,19 @@ function ConfigForm({
               />
               计款（产生应收与欠款）
             </label>
-            <TextField
-              label="排列顺序"
-              value={sort}
-              onChange={setSort}
-              decimal
-              hint="0–9999，数字较小的排在前面"
-            />
             <p className="muted">
               所有类型确认后都会扣库存。名称仅用于区分单据。
             </p>
           </>
         )}
+        <TextField label="说明" value={note} onChange={setNote} />
+        <TextField
+          label="排列顺序"
+          value={sort}
+          onChange={setSort}
+          decimal
+          hint="0–9999，数字较小的排在前面"
+        />
         {kind !== "company" && (
           <label className="checkbox">
             <Checkbox
@@ -333,6 +336,20 @@ function SaleEditor({
         : []),
   };
   const [input, setInput] = useState(initial);
+  const [settlement, setSettlement] = useState(
+    sale?.initial_payment
+      ? Math.round(Number(sale.initial_payment.amount) * 100) === sale.total
+        ? "full"
+        : "partial"
+      : "unpaid",
+  );
+  const [receiptAmount, setReceiptAmount] = useState(
+    sale?.initial_payment?.amount || "",
+  );
+  const [receiptAccount, setReceiptAccount] = useState(
+    sale?.initial_payment?.account_id || "",
+  );
+  const settlementFields = useRef<HTMLDivElement>(null);
   const [pendingLine, setPendingLine] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerItemId, setPickerItemId] = useState<string>();
@@ -407,6 +424,22 @@ function SaleEditor({
       : (typ?.data.billable ?? input.type_billable ?? false);
   const amounts = preview(input, billable);
   const posted = sale?.status === "posted";
+  const collecting = billable && !posted && settlement !== "unpaid";
+  const receipt = collecting
+    ? settlement === "full"
+      ? amounts?.total
+      : /^\d+(\.\d{1,2}0*)?$/.test(receiptAmount.trim()) &&
+          receiptAmount.trim().length <= 24
+        ? Math.round(Number(receiptAmount) * 100)
+        : undefined
+    : 0;
+  const receiptError = collecting
+    ? receipt === undefined || !Number.isSafeInteger(receipt) || receipt <= 0
+      ? "请输入大于 0 的收款金额，最多 2 位小数。"
+      : amounts && receipt > amounts.total
+        ? "本次收款不能超过应收金额。"
+        : undefined
+    : undefined;
   const options = (kind: CatalogEntry["kind"], selected: string) =>
     catalog.filter((c) => c.kind === kind && (c.active || c.id === selected));
   const stockError = (line: SaleInput["lines"][number]) => {
@@ -426,6 +459,16 @@ function SaleEditor({
   };
   async function save(actionName: string) {
     if (pendingLine) throw new Error("请先选择新增行的物料，或移除空行。");
+    if (collecting && (receiptError || !receiptAccount)) {
+      settlementFields.current
+        ?.querySelector<HTMLElement>(
+          receiptError
+            ? '.form-grid input:not([type="hidden"])'
+            : '.form-grid [role="combobox"]',
+        )
+        ?.focus();
+      throw new Error(receiptError || "请选择本次收款账户。");
+    }
     if (actionName !== "save") {
       const invalid = input.lines.find((line) => stockError(line));
       if (invalid) {
@@ -443,7 +486,12 @@ function SaleEditor({
       sale_id: sale?.id || "",
       version: sale?.version || 0,
       action: actionName,
-      input,
+      input: {
+        ...input,
+        initial_payment: collecting
+          ? { account_id: receiptAccount, amount: decimalText(receipt!, 2) }
+          : null,
+      },
       reason,
       account_id: account,
       business_date: refundDate,
@@ -871,7 +919,7 @@ function SaleEditor({
                     />
                   </>
                 ) : (
-                  <p className="muted">优惠和收款由管理员处理。</p>
+                  <p className="muted">当前账号没有优惠权限。</p>
                 )}
               </div>
               <div className="sale-amounts">
@@ -888,6 +936,103 @@ function SaleEditor({
                   应收：¥{amounts ? moneyText(amounts.total) : "—"}
                 </strong>
               </div>
+              {!posted && (
+                <div className="sale-settlement" ref={settlementFields}>
+                  <Field label="结算方式" required>
+                    {(p) => (
+                      <Select
+                        {...p}
+                        value={settlement}
+                        onChange={(e) => {
+                          setChanged(true);
+                          setSettlement(e.target.value);
+                        }}
+                      >
+                        <option value="unpaid">全部欠款（暂不收款）</option>
+                        <option
+                          value="partial"
+                          disabled={!can(user, "sales.pay")}
+                        >
+                          部分收款
+                        </option>
+                        <option value="full" disabled={!can(user, "sales.pay")}>
+                          全额收款
+                        </option>
+                      </Select>
+                    )}
+                  </Field>
+                  {!can(user, "sales.pay") && (
+                    <p className="muted">
+                      当前账号没有收款权限，可先开单记欠款，再由有权限的人员登记收款。
+                    </p>
+                  )}
+                  {collecting && (
+                    <div className="form-grid">
+                      {settlement === "partial" && (
+                        <TextField
+                          label="本次收款"
+                          value={receiptAmount}
+                          decimal
+                          required
+                          hint="元，最多 2 位小数"
+                          error={receiptAmount ? receiptError : undefined}
+                          onChange={(value) => {
+                            setChanged(true);
+                            setReceiptAmount(value);
+                          }}
+                        />
+                      )}
+                      <Field label="本次收款账户" required>
+                        {(p) => (
+                          <CatalogSelect
+                            {...p}
+                            user={user}
+                            kind="account"
+                            catalog={catalog}
+                            onCreated={onCatalogCreated}
+                            canCreate={can(user, "accounts.create")}
+                            value={receiptAccount}
+                            onChange={(e) => {
+                              setChanged(true);
+                              setReceiptAccount(e.target.value);
+                            }}
+                          >
+                            <option value="">请选择收款账户</option>
+                            {options("account", receiptAccount).map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.name}
+                              </option>
+                            ))}
+                          </CatalogSelect>
+                        )}
+                      </Field>
+                    </div>
+                  )}
+                  <div
+                    className="sale-amounts"
+                    aria-live="polite"
+                    aria-atomic="true"
+                  >
+                    <span>
+                      本次收款：¥
+                      {receipt !== undefined && !receiptError
+                        ? moneyText(receipt)
+                        : "—"}
+                    </span>
+                    <strong>
+                      剩余欠款：¥
+                      {amounts && receipt !== undefined && !receiptError
+                        ? moneyText(amounts.total - receipt)
+                        : "—"}
+                    </strong>
+                  </div>
+                  <p className="muted">
+                    {collecting
+                      ? "确认开单时登记实际收款，收款日期与业务日期一致；保存草稿仅保留填写内容。"
+                      : "确认开单后，应收金额记入客户欠款，可在单据详情或收款页补收。"}
+                  </p>
+                </div>
+              )}
             </section>
           )}
           <section
@@ -1351,6 +1496,11 @@ function Detail({
         </>
       )}
       <h3>签字及凭证照片</h3>
+      {sale.status === "posted" && sale.debt > 0 && (
+        <p className="muted">
+          打印单据已列明剩余欠款。请客户核对并签字后，拍照上传到本单留存，最多两张。
+        </p>
+      )}
       <div className="sale-attachments">
         {sale.attachments.map((a) => (
           <div key={a.id}>
@@ -1973,7 +2123,13 @@ export default function Sales({
     company: "公司信息",
     customer: "客户",
   };
-  const configRows = entries.filter((c) => c.kind === visibleConfigKind);
+  const configRows = entries
+    .filter((c) => c.kind === visibleConfigKind)
+    .sort(
+      (a, b) =>
+        (a.data.sort ?? 0) - (b.data.sort ?? 0) ||
+        (a.name < b.name ? -1 : a.name > b.name ? 1 : 0),
+    );
   const configModule =
     visibleConfigKind === "customer"
       ? "customers"
@@ -1985,6 +2141,54 @@ export default function Sales({
     setConfig({
       kind: visibleConfigKind as CatalogEntry["kind"],
       entry: visibleConfigKind === "company" ? configRows[0] : undefined,
+    });
+  const showCatalogUsage = can(user, "sales.all") || can(user, "finance.read");
+  const updateCatalog = (entry: CatalogEntry, patch: Partial<CatalogEntry>) =>
+    void action.run(async () => {
+      const billableChange = patch.data?.billable !== undefined;
+      if (
+        !(await confirm({
+          title: billableChange
+            ? `修改“${entry.name}”的计款规则？`
+            : `${patch.active ? "启用" : "停用"}“${entry.name}”？`,
+          description: billableChange
+            ? "仅影响后续新开单据，历史单据的应收与欠款不变。"
+            : patch.active
+              ? "启用后可以在新单据中选择。"
+              : "停用后不再用于新单据，已有单据和历史记录保留。",
+          confirmLabel: billableChange
+            ? "确认修改"
+            : patch.active
+              ? "确认启用"
+              : "确认停用",
+        }))
+      )
+        return;
+      catalogCreated(
+        await send<CatalogEntry>("/sales/catalog", { ...entry, ...patch }),
+      );
+    });
+  const deleteCatalog = (entry: CatalogEntry) =>
+    void action.run(async () => {
+      if (
+        !(await confirm({
+          title: `删除“${entry.name}”？`,
+          description: "仅能删除没有单据或业务员关联的资料。此操作会留下记录。",
+          confirmLabel: "删除资料",
+        }))
+      )
+        return;
+      await send(
+        `/sales/catalog/${entry.id}?version=${entry.version}`,
+        {},
+        "DELETE",
+      );
+      setSavedEntries((current) => {
+        const next = { ...current };
+        delete next[entry.id];
+        return next;
+      });
+      setLocal((n) => n + 1);
     });
   return (
     <Tabs
@@ -2284,6 +2488,18 @@ export default function Sales({
                               </>
                             )}
                             <th scope="col">状态</th>
+                            {showCatalogUsage &&
+                              visibleConfigKind !== "company" && (
+                                <th scope="col" className="numeric">
+                                  关联单据
+                                </th>
+                              )}
+                            {visibleConfigKind === "department" && (
+                              <th scope="col" className="numeric">
+                                业务员
+                              </th>
+                            )}
+                            <th scope="col">说明</th>
                             <th scope="col" className="ledger-actions">
                               操作
                             </th>
@@ -2298,7 +2514,26 @@ export default function Sales({
                               </td>
                               {c.kind === "type" && (
                                 <td data-label="要不要收款">
-                                  {c.data.billable ? "计款" : "不计款"}
+                                  <Button
+                                    className="dictionary-switch"
+                                    role="switch"
+                                    aria-label={`${c.name}计款`}
+                                    aria-checked={!!c.data.billable}
+                                    disabled={
+                                      !can(user, "catalog.update") ||
+                                      action.busy
+                                    }
+                                    onClick={() =>
+                                      updateCatalog(c, {
+                                        data: {
+                                          ...c.data,
+                                          billable: !c.data.billable,
+                                        },
+                                      })
+                                    }
+                                  >
+                                    <span aria-hidden="true" />
+                                  </Button>
                                 </td>
                               )}
                               {c.kind === "salesperson" && (
@@ -2328,20 +2563,65 @@ export default function Sales({
                                   {c.active ? "启用" : "停用"}
                                 </span>
                               </td>
+                              {showCatalogUsage && c.kind !== "company" && (
+                                <td className="numeric" data-label="关联单据">
+                                  {c.usage_count?.toLocaleString() ?? "统计中…"}
+                                </td>
+                              )}
+                              {c.kind === "department" && (
+                                <td className="numeric" data-label="业务员">
+                                  {c.member_count?.toLocaleString() ?? "—"}
+                                </td>
+                              )}
+                              <td className="ledger-note" data-label="说明">
+                                {c.data.note || "—"}
+                              </td>
                               <td className="ledger-actions">
-                                {can(user, `${configModule}.update`) ? (
-                                  <Button
-                                    className="button ledger-edit"
-                                    onClick={() =>
-                                      setConfig({ kind: c.kind, entry: c })
-                                    }
-                                  >
-                                    <Pencil size={14} aria-hidden="true" />
-                                    修改
-                                  </Button>
-                                ) : (
-                                  <span className="muted">只读</span>
-                                )}
+                                <div className="row-actions">
+                                  {can(user, `${configModule}.update`) ? (
+                                    <>
+                                      <Button
+                                        className="button ledger-edit"
+                                        onClick={() =>
+                                          setConfig({ kind: c.kind, entry: c })
+                                        }
+                                      >
+                                        <Pencil size={14} aria-hidden="true" />
+                                        修改
+                                      </Button>
+                                      {c.kind !== "company" && (
+                                        <Button
+                                          className="button ledger-edit"
+                                          disabled={action.busy}
+                                          onClick={() =>
+                                            updateCatalog(c, {
+                                              active: !c.active,
+                                            })
+                                          }
+                                        >
+                                          {c.active ? "停用" : "启用"}
+                                        </Button>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <span className="muted">只读</span>
+                                  )}
+                                  {can(user, `${configModule}.delete`) &&
+                                    c.kind !== "company" && (
+                                      <Button
+                                        className="button danger-outline"
+                                        disabled={action.busy || !c.can_delete}
+                                        title={
+                                          !c.can_delete
+                                            ? "已有单据或业务员关联，只能停用"
+                                            : undefined
+                                        }
+                                        onClick={() => deleteCatalog(c)}
+                                      >
+                                        删除
+                                      </Button>
+                                    )}
+                                </div>
                               </td>
                             </tr>
                           ))}

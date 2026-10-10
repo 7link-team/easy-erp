@@ -45,9 +45,11 @@ pub const PERMISSIONS: &[(&str, &str, &str)] = &[
     ("customers.read", "客户", "查看"),
     ("customers.create", "客户", "新增"),
     ("customers.update", "客户", "修改/停用"),
+    ("customers.delete", "客户", "删除未使用资料"),
     ("catalog.read", "业务基础资料", "查看"),
     ("catalog.create", "业务基础资料", "新增"),
     ("catalog.update", "业务基础资料", "修改/停用"),
+    ("catalog.delete", "业务基础资料", "删除未使用资料"),
     ("options.read", "物料字典", "查看"),
     ("options.create", "物料字典", "新增"),
     ("options.update", "物料字典", "修改"),
@@ -55,6 +57,7 @@ pub const PERMISSIONS: &[(&str, &str, &str)] = &[
     ("accounts.read", "资金账户", "查看"),
     ("accounts.create", "资金账户", "新增"),
     ("accounts.update", "资金账户", "修改/停用"),
+    ("accounts.delete", "资金账户", "删除未使用资料"),
     ("finance.read", "收款报表", "查看全部欠款/流水/业绩"),
 ];
 pub fn dependencies(permission: &str) -> Vec<String> {

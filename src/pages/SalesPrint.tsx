@@ -143,9 +143,19 @@ export default function SalesPrint({
         )}
         <p className="print-note">备注：{sale.note || "—"}</p>
         <div className="print-signatures">
+          {sale.status === "posted" && sale.billable && sale.debt > 0 && (
+            <p className="print-debt-confirmation">
+              本单当前应收 ¥{moneyText(sale.due)}，已收 ¥{moneyText(sale.paid)}
+              ，<strong>剩余欠款 ¥{moneyText(sale.debt)}</strong>。
+              请客户核对货物及上述金额后签字确认。
+            </p>
+          )}
           <p>发货经办人：________________</p>
           <p>
-            客户签收：________________
+            {sale.status === "posted" && sale.billable && sale.debt > 0
+              ? "客户签收及欠款确认"
+              : "客户签收"}
+            ：________________
             <br />
             签收日期：________________
           </p>

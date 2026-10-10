@@ -122,8 +122,14 @@ export function Field({
     <div className="field">
       <div className="field-label">
         <label htmlFor={id}>
-          {label} <span>{required ? "必填" : "选填"}</span>
+          {label}{" "}
+          {required ? <span className="sr-only">必填</span> : <span>选填</span>}
         </label>
+        {required && (
+          <span className="field-required" aria-hidden="true">
+            *
+          </span>
+        )}
       </div>
       {children({
         id,

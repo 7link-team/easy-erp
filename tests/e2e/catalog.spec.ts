@@ -330,3 +330,221 @@ test("失败开单不留下新类型，备份恢复包含物料候选", async ({
     ),
   ).toBe(true);
 });
+
+test("字典行内计款和启停、排序及删除保护保留历史单据", async ({ page }) => {
+  await login(page);
+  const suffix = randomUUID().slice(0, 8);
+  async function save(data: object) {
+    const response = await page.request.post("/api/sales/catalog", {
+      headers,
+      data,
+    });
+    expect(response.ok(), await response.text()).toBeTruthy();
+    return response.json();
+  }
+  const customer = await save({
+    kind: "customer",
+    name: `字典保护客户-${suffix}`,
+  });
+  const first = await save({
+    kind: "type",
+    name: `排序甲-${suffix}`,
+    data: { billable: true, sort: 8000, note: "应收不追溯" },
+  });
+  const second = await save({
+    kind: "type",
+    name: `排序乙-${suffix}`,
+    data: { billable: false, sort: 7000 },
+  });
+  const itemResponse = await page.request.post("/api/items", {
+    headers,
+    data: { name: `字典保护物料-${suffix}`, kind: "成品", unit: "个" },
+  });
+  expect(itemResponse.ok()).toBeTruthy();
+  const item = await itemResponse.json();
+  expect(
+    (
+      await page.request.post("/api/movements", {
+        headers,
+        data: {
+          request_id: randomUUID(),
+          kind: "receipt",
+          lines: [{ item_id: item.id, quantity: "10" }],
+        },
+      })
+    ).ok(),
+  ).toBeTruthy();
+  const saleResponse = await page.request.post("/api/sales/commands", {
+    headers,
+    data: {
+      request_id: randomUUID(),
+      action: "confirm",
+      input: {
+        type_id: first.id,
+        customer_id: customer.id,
+        business_date: "2026-10-10",
+        lines: [{ item_id: item.id, quantity: "2", price: "12.5" }],
+      },
+    },
+  });
+  expect(saleResponse.ok(), await saleResponse.text()).toBeTruthy();
+  const sale = await saleResponse.json();
+  await page.goto("/#/catalog");
+  const table = page.getByRole("table", { name: "单据类型列表" });
+  const row = table.getByRole("row").filter({ hasText: first.name });
+  const other = table.getByRole("row").filter({ hasText: second.name });
+  await expect(row).toContainText("应收不追溯");
+  const names = await table.locator("tbody .ledger-name").allTextContents();
+  expect(names.indexOf(second.name)).toBeLessThan(names.indexOf(first.name));
+  await expect(
+    row.getByRole("button", { name: "删除", exact: true }),
+  ).toBeDisabled();
+  expect(
+    (
+      await page.request.delete(`/api/sales/catalog/${first.id}?version=1`, {
+        headers,
+      })
+    ).status(),
+  ).toBe(409);
+  await row.getByRole("switch", { name: `${first.name}计款` }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "确认修改", exact: true })
+    .click();
+  await expect(row.getByRole("switch")).toHaveAttribute(
+    "aria-checked",
+    "false",
+  );
+  let historical = await (
+    await page.request.get(`/api/sales/${sale.id}`)
+  ).json();
+  expect(historical.billable).toBe(true);
+  expect(historical.due).toBe(2500);
+  await row.getByRole("button", { name: "停用", exact: true }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "确认停用", exact: true })
+    .click();
+  await expect(
+    row.getByRole("button", { name: "启用", exact: true }),
+  ).toBeVisible();
+  historical = await (await page.request.get(`/api/sales/${sale.id}`)).json();
+  expect(historical.due).toBe(2500);
+  const stale = await page.request.post("/api/sales/catalog", {
+    headers,
+    data: { ...first, active: true },
+  });
+  expect(stale.status()).toBe(409);
+  await other.getByRole("button", { name: "删除", exact: true }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "删除资料", exact: true })
+    .click();
+  await expect(other).toHaveCount(0);
+  const invalid = await page.request.post("/api/sales/catalog", {
+    headers,
+    data: { kind: "department", name: "非法顺序", data: { sort: 1.5 } },
+  });
+  expect(invalid.status()).toBe(400);
+  const department = await save({
+    kind: "department",
+    name: `被关联部门-${suffix}`,
+  });
+  await save({
+    kind: "salesperson",
+    name: `关联业务员-${suffix}`,
+    data: { department_id: department.id },
+  });
+  expect(
+    (
+      await page.request.delete(
+        `/api/sales/catalog/${department.id}?version=1`,
+        { headers },
+      )
+    ).status(),
+  ).toBe(409);
+});
+
+test("客户关联单据统计去重且保留历史客户引用，空客户显示零", async ({
+  page,
+}) => {
+  await login(page);
+  const suffix = randomUUID().slice(0, 8);
+  const post = async (path: string, data: object) => {
+    const response = await page.request.post(`/api${path}`, { headers, data });
+    expect(response.ok(), await response.text()).toBeTruthy();
+    return response.json();
+  };
+  const first = await post("/sales/catalog", {
+    kind: "customer",
+    name: `关联甲-${suffix}`,
+  });
+  const next = await post("/sales/catalog", {
+    kind: "customer",
+    name: `关联乙-${suffix}`,
+  });
+  const empty = await post("/sales/catalog", {
+    kind: "customer",
+    name: `无单客户-${suffix}`,
+  });
+  const item = await post("/items", {
+    name: `关联物料-${suffix}`,
+    kind: "成品",
+    unit: "个",
+  });
+  const input = {
+    type_id: "sale",
+    customer_id: first.id,
+    business_date: "2026-10-10",
+    lines: [{ item_id: item.id, quantity: "1", price: "25" }],
+  };
+  let sale = await post("/sales/commands", {
+    action: "save",
+    request_id: randomUUID(),
+    input,
+  });
+  sale = await post("/sales/commands", {
+    action: "save",
+    request_id: randomUUID(),
+    sale_id: sale.id,
+    version: sale.version,
+    input: { ...input, customer_id: next.id },
+  });
+  const catalog = (await (await page.request.get("/api/sales/catalog")).json())
+    .items;
+  for (const customer of [first, next]) {
+    expect(
+      catalog.find((c: { id: string }) => c.id === customer.id).usage_count,
+    ).toBe(1);
+    expect(
+      (
+        await page.request.delete(
+          `/api/sales/catalog/${customer.id}?version=1`,
+          { headers },
+        )
+      ).status(),
+    ).toBe(409);
+  }
+  await page.goto("/#/customers");
+  for (const [customer, count] of [
+    [first, "1"],
+    [next, "1"],
+    [empty, "0"],
+  ] as const) {
+    const row = page.getByRole("row").filter({ hasText: customer.name });
+    await expect(row.locator('[data-label="关联单据"]')).toHaveText(count);
+  }
+  await page.getByRole("button", { name: "新增客户", exact: true }).click();
+  const label = page
+    .getByRole("dialog")
+    .locator("label")
+    .filter({ hasText: "客户名称" });
+  await expect(label.locator("..").locator(".field-required")).toHaveText("*");
+  await expect(label.locator("..").locator(".field-required")).toHaveAttribute(
+    "aria-hidden",
+    "true",
+  );
+  await expect(
+    page.getByRole("dialog").getByLabel("客户名称 必填", { exact: true }),
+  ).toHaveAttribute("required", "");
+});

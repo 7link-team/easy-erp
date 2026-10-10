@@ -30,6 +30,17 @@
   margin: 20px 0;
   font-variant-numeric: tabular-nums;
 }
+.sale-settlement {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+.sale-settlement > .sale-amounts {
+  margin: 16px 0 8px;
+}
+.sale-settlement > .muted {
+  margin-bottom: 0;
+}
 .sale-detail-lines > div {
   display: flex;
   flex-wrap: wrap;
@@ -210,6 +221,13 @@
   gap: 24px;
   margin: 24px 0;
 }
+.print-debt-confirmation {
+  grid-column: 1 / -1;
+  border: 1px solid #999;
+  padding: 12px;
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
 .sales-print-sheet footer {
   font-size: 12px;
   color: #444;
@@ -265,6 +283,9 @@
   margin: 12mm;
 }
 @media print {
+  body:has(.sales-print-overlay)::after {
+    display: none !important;
+  }
   body:has(.sales-print-overlay) > *:not(.sales-print-overlay) {
     display: none !important;
   }

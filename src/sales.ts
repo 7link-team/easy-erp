@@ -5,6 +5,9 @@ export interface CatalogEntry {
   name: string;
   active: boolean;
   version: number;
+  can_delete?: boolean;
+  usage_count?: number | null;
+  member_count?: number;
   data: {
     department_id?: string;
     phone?: string;
@@ -12,9 +15,11 @@ export interface CatalogEntry {
     address?: string;
     billable?: boolean;
     sort?: number;
+    note?: string;
   };
 }
 export interface SaleInput {
+  initial_payment?: { account_id: string; amount: string } | null;
   customer_id: string;
   department_id?: string;
   salesperson_id?: string;
@@ -49,6 +54,7 @@ export interface CashEntry {
   reversal_of: string;
 }
 export interface Sale {
+  initial_payment?: SaleInput["initial_payment"];
   id: string;
   number: string;
   actor_id: string;

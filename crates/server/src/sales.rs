@@ -60,6 +60,13 @@ pub struct Sale {
     pub discount: i64,
     pub rounding: i64,
     pub total: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub initial_payment: Option<InitialPayment>,
+}
+#[derive(Clone, Serialize, Deserialize)]
+pub struct InitialPayment {
+    pub account_id: String,
+    pub amount: String,
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct InputLine {
@@ -88,6 +95,8 @@ pub struct SaleInput {
     pub discount_rate: String,
     #[serde(default = "zero")]
     pub rounding: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub initial_payment: Option<InitialPayment>,
 }
 fn full_rate() -> String {
     "100".into()
@@ -159,23 +168,73 @@ async fn entry(db: &impl ConnectionTrait, eid: &str, kind: &str) -> Result<Value
     .ok_or_else(|| ApiError::bad("所选客户、类型、账户、部门或业务员不存在或已停用。"))?;
     catalog_json(&row)
 }
+// Include historical snapshots when deciding whether a catalog entry can be deleted.
+// Counting distinct sale IDs avoids double-counting revisions of the same document.
+async fn catalog_references(db: &impl ConnectionTrait) -> Result<HashMap<String, i64>> {
+    let mut sources = Vec::new();
+    for (table, sale_id, prefix) in [
+        ("sales", "id", "$."),
+        ("sales_revisions", "sale_id", "$.before."),
+        ("sales_revisions", "sale_id", "$.after."),
+    ] {
+        for field in [
+            "type_id",
+            "customer_id",
+            "department_id",
+            "salesperson_id",
+            "initial_payment.account_id",
+        ] {
+            sources.push(format!(
+                "SELECT {sale_id} AS sale_id,json_extract(data,'{prefix}{field}') AS ref FROM {table}"
+            ));
+        }
+    }
+    sources.push("SELECT sale_id,account_id AS ref FROM sales_cash".into());
+    let rows = all(db, &format!("SELECT ref,COUNT(DISTINCT sale_id) AS total FROM ({}) WHERE ref IS NOT NULL AND ref<>'' GROUP BY ref", sources.join(" UNION ALL ")), vec![]).await?;
+    Ok(rows
+        .iter()
+        .map(|r| (text(r, "ref"), int(r, "total")))
+        .collect())
+}
+
 pub async fn catalog(State(s): State<AppState>, headers: HeaderMap) -> Result<Json<Value>> {
     let actor = current(&s, &headers).await?;
     let rows = all(
         &s.db,
-        "SELECT * FROM sales_catalog ORDER BY kind,name",
+        "SELECT * FROM sales_catalog ORDER BY kind,COALESCE(json_extract(data,'$.sort'),0),name",
         vec![],
     )
     .await?;
+    let references = catalog_references(&s.db).await?;
     let mut items = vec![];
-    for r in rows {
+    for r in &rows {
         let permission = match text(&r, "kind").as_str() {
             "account" => "accounts.read",
             "customer" => "customers.read",
             _ => "catalog.read",
         };
         if actor.can(permission) {
-            items.push(catalog_json(&r)?);
+            let mut value = catalog_json(r)?;
+            let used = references.get(&text(r, "id")).copied().unwrap_or(0);
+            let members = rows
+                .iter()
+                .filter(|member| {
+                    text(member, "kind") == "salesperson"
+                        && parsed(&text(member, "data"))
+                            .ok()
+                            .is_some_and(|data| data["department_id"] == text(r, "id"))
+                })
+                .count();
+            value["can_delete"] = json!(text(r, "kind") != "company" && used == 0 && members == 0);
+            value["usage_count"] = if actor.can("sales.all") || actor.can("finance.read") {
+                json!(used)
+            } else {
+                Value::Null
+            };
+            if text(r, "kind") == "department" {
+                value["member_count"] = json!(members);
+            }
+            items.push(value);
         }
     }
     Ok(Json(json!({"items":items})))
@@ -233,7 +292,7 @@ pub async fn save_catalog(
     }
     let name = clean(&input.name, "名称", 100, true)?;
     let mut data = json!({});
-    for key in ["phone", "contact", "address"] {
+    for key in ["phone", "contact", "address", "note"] {
         data[key] = json!(clean(
             input.data[key].as_str().unwrap_or(""),
             key,
@@ -241,13 +300,20 @@ pub async fn save_catalog(
             false
         )?);
     }
+    let sort = match input.data.get("sort") {
+        None => 0,
+        Some(value) => value
+            .as_i64()
+            .filter(|value| (0..=9999).contains(value))
+            .ok_or_else(|| ApiError::bad("排列顺序请填写 0–9999 的整数。"))?,
+    };
+    data["sort"] = json!(sort);
     if input.kind == "type" {
         data["billable"] = json!(
             input.data["billable"]
                 .as_bool()
                 .ok_or_else(|| ApiError::bad("请选择是否计款。"))?
         );
-        data["sort"] = json!(input.data["sort"].as_i64().unwrap_or(0).clamp(0, 9999));
     }
     let txn = s.db.begin().await?;
     let eid = if input.kind == "company" {
@@ -424,6 +490,17 @@ async fn prepare(
         return Err(ApiError::bad("抹零金额不能超过折后金额。"));
     }
     let total = discounted - rounding;
+    if let Some(payment) = &input.initial_payment {
+        if old.is_some_and(|s| s.status == "posted") {
+            return Err(ApiError::bad("已确认单据请使用收款操作。"));
+        }
+        actor.require("sales.pay")?;
+        let amount = money::decimal(&payment.amount, 2)?;
+        if !billable || amount == 0 || amount > total {
+            return Err(ApiError::bad("本次收款必须大于 0 且不能超过应收金额。"));
+        }
+        entry(db, &payment.account_id, "account").await?;
+    }
     // Cumulative allocation distributes cent remainders deterministically and never
     // allocates a negative amount to a zero-price line.
     let mut cumulative = 0i64;
@@ -467,6 +544,7 @@ async fn prepare(
         discount: subtotal - discounted,
         rounding,
         total,
+        initial_payment: input.initial_payment.clone(),
     })
 }
 #[derive(Clone, Serialize, Deserialize)]
@@ -520,6 +598,68 @@ async fn paid(db: &impl ConnectionTrait, sid: &str) -> Result<i64> {
         "amount",
     ))
 }
+#[derive(Deserialize)]
+pub struct CatalogVersion {
+    version: i64,
+}
+pub async fn remove_catalog(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Path(eid): Path<String>,
+    Query(input): Query<CatalogVersion>,
+) -> Result<Json<Value>> {
+    let _guard = s.writes.lock().await;
+    let actor = current(&s, &headers).await?;
+    let txn = s.db.begin().await?;
+    let row = one(
+        &txn,
+        "SELECT * FROM sales_catalog WHERE id=?",
+        vec![eid.clone().into()],
+    )
+    .await?
+    .ok_or_else(ApiError::missing)?;
+    let kind = text(&row, "kind");
+    let module = match kind.as_str() {
+        "customer" => "customers",
+        "account" => "accounts",
+        _ => "catalog",
+    };
+    actor.require(&format!("{module}.delete"))?;
+    if kind == "company" {
+        return Err(ApiError::bad("公司信息只能修改，不能删除。"));
+    }
+    if int(&row, "version") != input.version {
+        return Err(ApiError::conflict("资料已修改，请刷新后重试。"));
+    }
+    let used = catalog_references(&txn)
+        .await?
+        .get(&eid)
+        .copied()
+        .unwrap_or(0);
+    let members = one(&txn, "SELECT id FROM sales_catalog WHERE kind='salesperson' AND json_extract(data,'$.department_id')=? LIMIT 1", vec![eid.clone().into()]).await?.is_some();
+    if used > 0 || members {
+        return Err(ApiError::conflict(
+            "资料已有单据或业务员关联，请改为停用；历史记录会继续保留。",
+        ));
+    }
+    execute(
+        &txn,
+        "DELETE FROM sales_catalog WHERE id=?",
+        vec![eid.clone().into()],
+    )
+    .await?;
+    audit(
+        &txn,
+        &actor,
+        "删除未使用基础资料",
+        &eid,
+        catalog_json(&row)?,
+    )
+    .await?;
+    txn.commit().await?;
+    Ok(Json(json!({"ok":true})))
+}
+
 fn due(sale: &Sale, returns: &HashMap<String, Returned>) -> i64 {
     if sale.status == "posted" {
         sale.total - returns.values().map(|r| r.credit).sum::<i64>()
@@ -881,6 +1021,19 @@ pub async fn command(
                     &format!("{}：{}", sale.type_name, reason),
                 )
                 .await?;
+                if let Some(payment) = sale.initial_payment.take() {
+                    cash(
+                        &txn,
+                        &actor,
+                        &sale.id,
+                        &payment.account_id,
+                        money::decimal(&payment.amount, 2)?,
+                        &sale.business_date,
+                        "开单收款",
+                        "",
+                    )
+                    .await?;
+                }
                 let over = paid(&txn, &sale.id).await? - due(&sale, &returns);
                 if over > 0 {
                     actor.require("sales.refund")?;
