@@ -57,6 +57,7 @@ export default function Records({
   const [search, setSearch] = useQueryValue<string>(`${mode}_q`, "");
   const [query, setQuery] = useState(search);
   const [kind, setKind] = useQueryValue<string>(`${mode}_kind`, "");
+  const [itemId, setItemId] = useQueryValue<string>(`${mode}_item`, "");
   const [auditKind, setAuditKind] = useQueryValue<string>(`${mode}_action`, "");
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -67,9 +68,13 @@ export default function Records({
   const [detail, setDetail] = useState<Document>();
   const [reason, setReason] = useState("");
   const action = useAction();
-  const docs = useResource<{ items: Document[]; total: number }>(
+  const docs = useResource<{
+    items: Document[];
+    total: number;
+    selected_item?: { name: string; code: string; spec: string } | null;
+  }>(
     can(user, "records.read") && tab === "documents"
-      ? `/documents?page=${page}&q=${encodeURIComponent(query)}&kind=${encodeURIComponent(kind)}`
+      ? `/documents?page=${page}&q=${encodeURIComponent(query)}&kind=${encodeURIComponent(kind)}&item_id=${encodeURIComponent(itemId)}`
       : undefined,
     revision,
   );
@@ -114,7 +119,7 @@ export default function Records({
           {user.role === "admin" && (
             <a
               className="button"
-              href={`/api/export/${tab}?format=csv&q=${encodeURIComponent(query)}&kind=${encodeURIComponent(tab === "documents" ? kind : auditKind)}`}
+              href={`/api/export/${tab}?format=csv&q=${encodeURIComponent(query)}&kind=${encodeURIComponent(tab === "documents" ? kind : auditKind)}${tab === "documents" && itemId ? `&item_id=${encodeURIComponent(itemId)}` : ""}`}
             >
               导出 CSV
             </a>
@@ -133,6 +138,31 @@ export default function Records({
         className="panel ledger-sheet records-sheet"
         hidden={!can(user, "records.read")}
       >
+        {tab === "documents" && itemId && (
+          <div className="search-location" role="status">
+            <span>
+              <strong>
+                物料明细
+                {!docs.loading && !docs.error && docs.data?.selected_item
+                  ? `：${docs.data.selected_item.name} · ${docs.data.selected_item.spec || docs.data.selected_item.code}`
+                  : ""}
+              </strong>
+              <small>仅显示该物料的库存变化；打开单据可查看完整明细。</small>
+              {!can(user, "records.all") && (
+                <small>仅显示自己登记的库存变化。</small>
+              )}
+            </span>
+            <Button
+              className="text-button"
+              onClick={() => {
+                setItemId("");
+                setPage(1);
+              }}
+            >
+              清除物料筛选
+            </Button>
+          </div>
+        )}
         <div className="filters">
           <label className="search">
             <Search size={18} aria-hidden="true" />
@@ -198,11 +228,11 @@ export default function Records({
           <Notice>{tab === "documents" ? docs.error : audit.error}</Notice>
         )}
         {tab === "documents" ? (
-          docs.loading ? (
+          docs.error ? null : docs.loading ? (
             <Loading />
           ) : !docs.data?.items.length ? (
             <Empty>
-              {query || kind
+              {query || kind || itemId
                 ? "没有符合筛选条件的出入库记录。"
                 : "还没有出入库记录。"}
             </Empty>
@@ -224,53 +254,56 @@ export default function Records({
                 </thead>
                 <tbody>
                   {docs.data.items.flatMap((doc) =>
-                    doc.lines.map((line, index) => (
-                      <tr key={`${doc.id}-${index}`}>
-                        <td data-label="时间">{dateTime(doc.created_at)}</td>
-                        <td data-label="动作">
-                          <span
-                            className={`badge ${line.delta < 0 ? "amber" : "green"}`}
-                          >
-                            {movementLabels[doc.kind] ?? doc.kind}
-                          </span>
-                        </td>
-                        <td data-label="物料 / 单据">
-                          <Button
-                            className="record-link"
-                            aria-label={`${movementLabels[doc.kind] ?? doc.kind} ${line.name} ${doc.number}`}
-                            onClick={() => {
-                              setDetail(doc);
-                              setReason("");
-                              action.setError("");
-                            }}
-                          >
-                            <strong>{line.name}</strong>
-                            <small>{doc.number}</small>
-                          </Button>
-                        </td>
-                        <td data-label="增减 / 剩余库存" className="numeric">
-                          <strong>
-                            {line.delta >= 0 ? "+" : "−"}
-                            {quantity(
-                              Math.abs(line.delta),
-                              line.precision,
-                            )}{" "}
-                            {line.unit}
-                          </strong>
-                          <small>
-                            结存 {quantity(line.balance_after, line.precision)}{" "}
-                            {line.unit}
-                          </small>
-                        </td>
-                        <td data-label="操作人">{doc.actor_name}</td>
-                        <td data-label="说明">
-                          {doc.note || doc.person || "—"}
-                        </td>
-                        <td data-label="状态">
-                          {doc.status === "voided" ? "已作废" : "已完成"}
-                        </td>
-                      </tr>
-                    )),
+                    doc.lines
+                      .filter((line) => !itemId || line.item_id === itemId)
+                      .map((line, index) => (
+                        <tr key={`${doc.id}-${index}`}>
+                          <td data-label="时间">{dateTime(doc.created_at)}</td>
+                          <td data-label="动作">
+                            <span
+                              className={`badge ${line.delta < 0 ? "amber" : "green"}`}
+                            >
+                              {movementLabels[doc.kind] ?? doc.kind}
+                            </span>
+                          </td>
+                          <td data-label="物料 / 单据">
+                            <Button
+                              className="record-link"
+                              aria-label={`${movementLabels[doc.kind] ?? doc.kind} ${line.name} ${doc.number}`}
+                              onClick={() => {
+                                setDetail(doc);
+                                setReason("");
+                                action.setError("");
+                              }}
+                            >
+                              <strong>{line.name}</strong>
+                              <small>{doc.number}</small>
+                            </Button>
+                          </td>
+                          <td data-label="增减 / 剩余库存" className="numeric">
+                            <strong>
+                              {line.delta >= 0 ? "+" : "−"}
+                              {quantity(
+                                Math.abs(line.delta),
+                                line.precision,
+                              )}{" "}
+                              {line.unit}
+                            </strong>
+                            <small>
+                              结存{" "}
+                              {quantity(line.balance_after, line.precision)}{" "}
+                              {line.unit}
+                            </small>
+                          </td>
+                          <td data-label="操作人">{doc.actor_name}</td>
+                          <td data-label="说明">
+                            {doc.note || doc.person || "—"}
+                          </td>
+                          <td data-label="状态">
+                            {doc.status === "voided" ? "已作废" : "已完成"}
+                          </td>
+                        </tr>
+                      )),
                   )}
                 </tbody>
               </table>

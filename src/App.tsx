@@ -814,6 +814,7 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
             {page === "inventory" && can(user, "items.read") && (
               <Inventory
                 key={`inventory-${navigationIndex}`}
+                navigate={navigate}
                 user={user}
                 revision={revision}
                 refresh={refresh}
@@ -907,6 +908,7 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
               )}
             {page === "movement" && allowedPage && (
               <Records
+                key={`movement-${navigationIndex}`}
                 user={user}
                 revision={revision}
                 refresh={refresh}
@@ -915,7 +917,12 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
               />
             )}
             {page === "records" && can(user, "records.read") && (
-              <Records user={user} revision={revision} refresh={refresh} />
+              <Records
+                key={`records-${navigationIndex}`}
+                user={user}
+                revision={revision}
+                refresh={refresh}
+              />
             )}
             {page === "stocktakes" && can(user, "stocktake.read") && (
               <Stocktakes user={user} revision={revision} refresh={refresh} />

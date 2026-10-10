@@ -497,7 +497,16 @@ pub async fn export(
             }
         }
         "documents" => {
-            let (clause, values) = inventory::document_filter(&options.filter, &actor)?;
+            let (mut clause, mut values) = inventory::document_filter(&options.filter, &actor)?;
+            if let Some(item_id) = options
+                .filter
+                .item_id
+                .as_deref()
+                .filter(|id| !id.is_empty())
+            {
+                clause.push_str(" AND l.item_id=?");
+                values.push(clean(item_id, "物料", 100, true)?.into());
+            }
             let rows=all(&txn,&format!("SELECT d.number,d.kind,d.actor_name,d.person,d.status,d.note,d.created_at,l.item_code,l.item_name,l.unit,l.precision,l.delta,l.balance_after FROM documents d JOIN document_lines l ON d.id=l.document_id WHERE {clause} ORDER BY d.created_at DESC,d.id,l.id LIMIT 50001"),values).await?;
             if rows.len() > 50_000 {
                 return Err(ApiError::bad(

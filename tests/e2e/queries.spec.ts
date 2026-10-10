@@ -1237,3 +1237,301 @@ test("筛选取消读取响应正文或收到无效JSON时不污染列表，后�
   await expect(table).toContainText(sale.number);
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
+
+test("物料明细按ID定位同名及改名历史，列表与导出只含本物料，原单保留全部行", async ({
+  page,
+}, testInfo) => {
+  const tag = `物料明细-${randomUUID().slice(0, 8)}`;
+  const first = await item(page.request, tag, "M10");
+  const second = await item(page.request, tag, "M20");
+  const other = await item(page.request, `${tag}-配件`, "M30");
+  const receipt = await post(page.request, "/movements", {
+    request_id: randomUUID(),
+    kind: "receipt",
+    note: tag,
+    lines: [
+      { item_id: first.id, quantity: "10" },
+      { item_id: second.id, quantity: "20" },
+      { item_id: other.id, quantity: "30" },
+    ],
+  });
+  const separate = await movement(page.request, second.id, "issue", "1", tag);
+  const current = (
+    await (await page.request.get(`/api/items?ids=${first.id}`)).json()
+  ).items[0];
+  const renamed = `${tag}-改名`;
+  const update = await page.request.put(`/api/items/${first.id}`, {
+    headers,
+    data: { ...current, name: renamed, minimum: null },
+  });
+  expect(update.ok(), await update.text()).toBeTruthy();
+  const issued = await movement(page.request, first.id, "issue", "3", tag);
+  const endpoint = `/api/documents?item_id=${first.id}`;
+  const records = await (await page.request.get(endpoint)).json();
+  expect(records.total).toBe(2);
+  expect(records.items.map((doc: { id: string }) => doc.id)).toEqual([
+    issued.id,
+    receipt.id,
+  ]);
+  expect(records.selected_item.name).toBe(renamed);
+  expect(
+    records.items.find((doc: { id: string }) => doc.id === receipt.id).lines,
+  ).toHaveLength(3);
+  expect(
+    (await (await page.request.get(`${endpoint}&kind=out`)).json()).total,
+  ).toBe(1);
+  expect(
+    (await (await page.request.get(`${endpoint}&q=not-found`)).json()).total,
+  ).toBe(0);
+  expect(
+    (
+      await page.request.get(`/api/documents?item_id=${"x".repeat(101)}`)
+    ).status(),
+  ).toBe(400);
+
+  // Existing record filters must not hide the selected material's history.
+  await page.goto(
+    `/?inventory_q=${encodeURIComponent(tag)}&movement_kind=adjustment&movement_q=missing&movement_page=3#/inventory`,
+  );
+  const row = page
+    .getByRole("table", { name: "物料库存" })
+    .getByRole("row")
+    .filter({ hasText: renamed });
+  const link = row.getByRole("link", { name: "明细", exact: true });
+  const href = (await link.getAttribute("href"))!;
+  expect(href).toContain(`movement_item=${first.id}`);
+  expect(href).not.toContain("movement_kind");
+  await link.click();
+  const table = page.getByRole("table", { name: "出入库记录列表" });
+  await expect(table.locator("tbody tr")).toHaveCount(2);
+  await expect(page.locator(".search-location")).toContainText(
+    `${renamed} · M10`,
+  );
+  await expect(table).not.toContainText(`${tag}-配件`);
+  await expect(table).not.toContainText(separate.number);
+  await expect(table).toContainText("结存 7 个");
+  await page.getByRole("button", { name: new RegExp(receipt.number) }).click();
+  await expect(page.getByRole("dialog").locator(".receipt-line")).toHaveCount(
+    3,
+  );
+  await expect(page.getByRole("dialog")).toContainText(`${tag}-配件`);
+  await page.getByRole("button", { name: "关闭", exact: true }).click();
+  const exported = await page.request.get(
+    (await page.getByRole("link", { name: "导出 CSV" }).getAttribute("href"))!,
+  );
+  expect(exported.ok()).toBeTruthy();
+  const csv = await exported.text();
+  expect(csv.trim().split("\n")).toHaveLength(3);
+  expect(csv).toContain(issued.number);
+  expect(csv).toContain(receipt.number);
+  expect(
+    csv
+      .trim()
+      .split("\n")
+      .slice(1)
+      .every((line) => line.includes(current.code)),
+  ).toBe(true);
+  expect(csv).not.toContain(`${tag}-配件`);
+  await page.reload();
+  await expect(table.locator("tbody tr")).toHaveCount(2);
+  await page.goBack();
+  await expect(page.getByLabel("搜索物料", { exact: true })).toHaveValue(tag);
+  await expect(link).toBeVisible();
+  await page.goForward();
+  await expect(table.locator("tbody tr")).toHaveCount(2);
+  const newTab = await page.context().newPage();
+  await newTab.goto(href);
+  await expect(
+    newTab.getByRole("table", { name: "出入库记录列表" }).locator("tbody tr"),
+  ).toHaveCount(2);
+  await newTab.close();
+  await page.setViewportSize({ width: 320, height: 640 });
+  await expect(
+    page.getByRole("button", { name: "清除物料筛选" }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: testInfo.outputPath("material-history-mobile.png"),
+  });
+  await page.route("**/api/documents?**", async (route) => {
+    if (new URL(route.request().url()).searchParams.get("kind") === "out")
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "明细暂不可用，请稍后重试。" }),
+      });
+    else await route.continue();
+  });
+  const kinds = page.getByRole("group", { name: "记录类型" });
+  await kinds.getByRole("button", { name: "出库", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("明细暂不可用");
+  await expect(table).toHaveCount(0);
+  await kinds.getByRole("button", { name: "全部", exact: true }).click();
+  await expect(table.locator("tbody tr")).toHaveCount(2);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.getByRole("button", { name: "清除物料筛选" }).click();
+  await expect(page.locator(".search-location")).toHaveCount(0);
+  await page.getByLabel("搜索记录").fill(tag);
+  await expect(table.locator("tbody tr")).toHaveCount(5);
+  await expect(page).not.toHaveURL(/movement_item=/);
+  await page.goto(`/?movement_item=${randomUUID()}#/movement`);
+  await expect(
+    page.getByText("没有符合筛选条件的出入库记录。", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "清除物料筛选" }),
+  ).toBeVisible();
+});
+
+test("物料明细沿用本人记录权限，无物料权限不暴露现名，无记录权限无入口", async ({
+  page,
+  browser,
+}) => {
+  const tag = `明细权限-${randomUUID().slice(0, 8)}`;
+  const material = await item(page.request, tag, "M8");
+  const adminDoc = await movement(page.request, material.id, "receipt", "10");
+  for (const permissions of [
+    ["records.read", "movement.in", "items.read"],
+    ["items.read"],
+  ]) {
+    const allowed = permissions.includes("records.read");
+    const role = await post(page.request, "/roles", {
+      name: `${tag}-${allowed}`,
+      permissions,
+    });
+    const username = `hist_${randomUUID().slice(0, 8)}`;
+    await post(page.request, "/users", {
+      username,
+      name: username,
+      password: "History-test-2026",
+      role: role.id,
+    });
+    const context = await browser.newContext({
+      baseURL: "http://127.0.0.1:4289",
+    });
+    try {
+      await post(context.request, "/login", {
+        username,
+        password: "History-test-2026",
+      });
+      const ownPage = await context.newPage();
+      const endpoint = `/api/documents?item_id=${material.id}`;
+      if (allowed) {
+        const empty = await (await context.request.get(endpoint)).json();
+        expect(empty.items).toEqual([]);
+        expect(empty.selected_item.name).toBe(tag);
+        const own = await movement(
+          context.request,
+          material.id,
+          "receipt",
+          "1",
+        );
+        await post(page.request, "/roles", {
+          id: role.id,
+          version: 1,
+          name: `${tag}-${allowed}`,
+          permissions: ["records.read"],
+        });
+        await post(context.request, "/login", {
+          username,
+          password: "History-test-2026",
+        });
+        const result = await (await context.request.get(endpoint)).json();
+        expect(result.total).toBe(1);
+        expect(result.items[0].id).toBe(own.id);
+        expect(result.selected_item).toBeNull();
+        await ownPage.goto(`/?movement_item=${material.id}#/movement`);
+        await expect(
+          ownPage
+            .getByRole("table", { name: "出入库记录列表" })
+            .locator("tbody tr"),
+        ).toHaveCount(1);
+        await expect(ownPage.getByRole("table")).not.toContainText(
+          adminDoc.number,
+        );
+        await expect(ownPage.locator(".search-location")).not.toContainText(
+          tag,
+        );
+        await expect(
+          ownPage.getByText("仅显示自己登记的库存变化。", { exact: true }),
+        ).toBeVisible();
+      } else {
+        expect((await context.request.get(endpoint)).status()).toBe(403);
+        await ownPage.goto(
+          `/?inventory_q=${encodeURIComponent(tag)}#/inventory`,
+        );
+        await expect(
+          ownPage.getByRole("table", { name: "物料库存" }).locator("tbody tr"),
+        ).toHaveCount(1);
+        await expect(
+          ownPage.getByRole("link", { name: "明细", exact: true }),
+        ).toHaveCount(0);
+        await ownPage.goto(`/?movement_item=${material.id}#/movement`);
+        await expect(
+          ownPage.getByRole("table", { name: "出入库记录列表" }),
+        ).toHaveCount(0);
+      }
+      expect(
+        (
+          await context.request.get(
+            `/api/export/documents?format=csv&item_id=${material.id}`,
+          )
+        ).status(),
+      ).toBe(403);
+    } finally {
+      await context.close();
+    }
+  }
+});
+
+test("物料明细按单据分页，停用物料仍能核对且无记录物料可清除筛选", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  const tag = `明细分页-${randomUUID().slice(0, 8)}`;
+  const material = await item(page.request, tag, "M8");
+  const empty = await item(page.request, `${tag}-空`, "M8");
+  for (let index = 0; index < 51; index++)
+    await movement(page.request, material.id, "receipt", "1");
+  await page.goto(`/?movement_item=${material.id}#/movement`);
+  const table = page.getByRole("table", { name: "出入库记录列表" });
+  await expect(table.locator("tbody tr")).toHaveCount(50);
+  await page.getByRole("button", { name: "下一页", exact: true }).click();
+  await expect(table.locator("tbody tr")).toHaveCount(1);
+  await expect(
+    page.getByText("共 51 笔 · 第 2 页", { exact: true }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(table.locator("tbody tr")).toHaveCount(1);
+  const csv = await page.request.get(
+    (await page.getByRole("link", { name: "导出 CSV" }).getAttribute("href"))!,
+  );
+  expect((await csv.text()).trim().split("\n")).toHaveLength(52);
+  await page.getByRole("button", { name: "清除物料筛选" }).click();
+  await expect(page).not.toHaveURL(/movement_page=/);
+  await movement(page.request, material.id, "issue", "51");
+  expect(
+    (await page.request.delete(`/api/items/${material.id}`, { headers })).ok(),
+  ).toBeTruthy();
+  await page.goto(
+    `/?inventory_status=archived&inventory_q=${encodeURIComponent(tag)}#/inventory`,
+  );
+  await page
+    .getByRole("row")
+    .filter({ hasText: tag })
+    .getByRole("link", { name: "明细", exact: true })
+    .click();
+  await expect(page.locator(".search-location")).toContainText(tag);
+  await expect(
+    page.getByText("共 52 笔 · 第 1 页", { exact: true }),
+  ).toBeVisible();
+  await page.goto(`/?movement_item=${empty.id}#/movement`);
+  await expect(page.locator(".search-location")).toContainText(`${tag}-空`);
+  await expect(
+    page.getByText("没有符合筛选条件的出入库记录。", { exact: true }),
+  ).toBeVisible();
+});

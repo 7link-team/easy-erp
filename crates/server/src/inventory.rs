@@ -58,6 +58,7 @@ pub struct Filter {
     pub kind: Option<String>,
     pub low: Option<bool>,
     pub ids: Option<String>,
+    pub item_id: Option<String>,
     pub status: Option<String>,
     pub sort: Option<String>,
 }
@@ -645,6 +646,11 @@ pub(crate) fn document_filter(
     let mut clause = "(?=1 OR d.actor_id=?) AND (?='' OR instr(d.number,?)>0 OR instr(d.actor_name,?)>0 OR instr(d.person,?)>0 OR instr(d.note,?)>0 OR EXISTS(SELECT 1 FROM document_lines l WHERE l.document_id=d.id AND (instr(l.item_name,?)>0 OR instr(l.item_code,?)>0)))".to_string();
     let mut values = vec![actor.can("records.all").into(), actor.id.clone().into()];
     values.extend((0..7).map(|_| q.clone().into()));
+    if let Some(item_id) = filter.item_id.as_deref().filter(|id| !id.is_empty()) {
+        let item_id = clean(item_id, "物料", 100, true)?;
+        clause.push_str(" AND EXISTS(SELECT 1 FROM document_lines material WHERE material.document_id=d.id AND material.item_id=?)");
+        values.push(item_id.into());
+    }
     clause.push_str(match filter.kind.as_deref().unwrap_or("") {
         "" => "",
         "in" => " AND d.kind IN ('receipt','finished','return_in','opening')",
@@ -684,7 +690,20 @@ pub async fn documents(
     for row in rows {
         docs.push(document(&s.db, row).await?);
     }
-    Ok(Json(json!({"items":docs,"total":int(&count,"total")})))
+    let selected_item = if actor.can("items.read") {
+        if let Some(id) = filter.item_id.as_deref().filter(|id| !id.is_empty()) {
+            one(&s.db, "SELECT name,code,spec FROM items WHERE id=?", vec![id.trim().into()])
+                .await?
+                .map(|row| json!({"name":text(&row,"name"),"code":text(&row,"code"),"spec":text(&row,"spec")}))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    Ok(Json(
+        json!({"items":docs,"total":int(&count,"total"),"selected_item":selected_item}),
+    ))
 }
 pub async fn document(db: &impl ConnectionTrait, row: sea_orm::QueryResult) -> Result<JsonValue> {
     let did = text(&row, "id");

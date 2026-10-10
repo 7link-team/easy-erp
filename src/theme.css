@@ -1359,6 +1359,14 @@ button { transition: background-color var(--dur-1) var(--ease), border-color var
 .global-search-result[aria-disabled="true"] { opacity: .65; }
 .search-location { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 8px 16px; background: var(--brand-soft); color: var(--ink-2); font-size: var(--t-12); }
 .search-location .text-button { min-height: 36px; }
+.search-location > span { min-width: 0; overflow-wrap: anywhere; }
+.search-location strong, .search-location small { display: block; }
+.search-location small { color: inherit; }
+@media (min-width: 768px) {
+  .inventory-table td:nth-child(2) { min-width: 6em; }
+  .inventory-table .row-actions { gap: 6px; }
+  .inventory-table .row-actions .button.small { padding-inline: 8px; }
+}
 @media (max-width: 1279px) {
   .global-search-trigger > span, .global-search-trigger kbd { display: none; }
   .global-search-trigger { width: 36px; min-width: 36px; justify-content: center; padding: 6px; }

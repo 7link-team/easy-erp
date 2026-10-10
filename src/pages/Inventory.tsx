@@ -1,5 +1,5 @@
 import TableImport from "../TableImport";
-import { useQueryValue } from "../navigation";
+import { pageAddress, useQueryValue, type Navigate } from "../navigation";
 import { can } from "../api";
 import { Disclosure } from "../ui";
 import { Form, Input, Select, ComboBox, Button, useConfirm } from "../ui";
@@ -193,12 +193,14 @@ export default function Inventory({
   refresh,
   move,
   openSale,
+  navigate,
 }: {
   user: User;
   revision: number;
   refresh: () => void;
   move: (direction: "in" | "out", item?: Item) => void;
   openSale: (item: Item) => void;
+  navigate: Navigate;
 }) {
   const choices = useResource<{
     items: { field: string; name: string; active: boolean }[];
@@ -416,6 +418,35 @@ export default function Inventory({
                     </td>
                     <td role="cell">
                       <div className="row-actions">
+                        {can(user, "records.read") && (
+                          <a
+                            className="button small"
+                            href={pageAddress("movement", {
+                              movement_item: item.id,
+                              movement_q: "",
+                              movement_kind: "",
+                              movement_page: "",
+                            })}
+                            onClick={(event) => {
+                              if (
+                                event.metaKey ||
+                                event.ctrlKey ||
+                                event.shiftKey ||
+                                event.altKey
+                              )
+                                return;
+                              event.preventDefault();
+                              void navigate("movement", undefined, {
+                                movement_item: item.id,
+                                movement_q: "",
+                                movement_kind: "",
+                                movement_page: "",
+                              });
+                            }}
+                          >
+                            明细
+                          </a>
+                        )}
                         {item.active && can(user, "movement.in") && (
                           <Button
                             className="button small"
