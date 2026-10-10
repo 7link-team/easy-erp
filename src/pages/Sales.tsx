@@ -2014,6 +2014,175 @@ function FinancePanel({
   );
 }
 
+interface Adjustment {
+  sale_id: string;
+  version: number;
+  number: string;
+  customer_name: string;
+  action: "return" | "void";
+  reason: string;
+  actor_name: string;
+  created_at: number;
+  due_change: number;
+  refund: number;
+}
+
+function AdjustmentsLedger({
+  user,
+  revision,
+  onSelect,
+}: {
+  user: User;
+  revision: number;
+  onSelect: (id: string) => void;
+}) {
+  const [search, setSearch] = useQueryValue<string>("returns_q", "");
+  const [query, setQuery] = useState(search);
+  const [action, setAction] = useQueryValue<string>("returns_action", "");
+  const [page, setPage] = useQueryValue<number>("returns_page", 1);
+  useEffect(() => {
+    const timer = setTimeout(() => setQuery(search), 200);
+    return () => clearTimeout(timer);
+  }, [search]);
+  const resource = useResource<{ items: Adjustment[]; total: number }>(
+    `/sales/adjustments?q=${encodeURIComponent(query)}&action=${encodeURIComponent(action)}&page=${page}`,
+    revision,
+  );
+  const loading = resource.loading || query !== search;
+  return (
+    <section className="panel ledger-sheet adjustments-sheet">
+      <div className="filters">
+        <label className="search">
+          <Search size={18} aria-hidden="true" />
+          <Input
+            name="returns-search"
+            type="search"
+            aria-label="搜索退货与作废"
+            placeholder="原单号、客户或原因…"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+          />
+        </label>
+      </div>
+      <div
+        className="filter-chips"
+        role="group"
+        aria-label="退货与作废动作筛选"
+      >
+        {[
+          ["", "全部"],
+          ["return", "退货"],
+          ["void", "作废"],
+        ].map(([value, label]) => (
+          <Button
+            key={value}
+            className="filter-chip"
+            aria-pressed={action === value}
+            onClick={() => {
+              setAction(value);
+              setPage(1);
+            }}
+          >
+            {label}
+          </Button>
+        ))}
+      </div>
+      <p className="hint">
+        金额按操作当时记录；退货抵减欠款时可能没有实际退款。
+        {!can(user, "sales.all") && "当前仅显示本人开单的退货与作废。"}
+      </p>
+      {resource.error && <Notice>{resource.error}</Notice>}
+      {loading ? (
+        <Loading />
+      ) : resource.data?.items.length ? (
+        <TableScroll>
+          <table className="adjustments-table" aria-label="退货与作废记录">
+            <thead>
+              <tr>
+                <th scope="col">关联原单 / 版本</th>
+                <th scope="col">客户 / 原因</th>
+                <th scope="col">动作</th>
+                <th scope="col" className="numeric">
+                  应收变化
+                </th>
+                <th scope="col" className="numeric">
+                  实际退款
+                </th>
+                <th scope="col">经办人 / 记录时间</th>
+              </tr>
+            </thead>
+            <tbody>
+              {resource.data.items.map((record) => (
+                <tr key={`${record.sale_id}-${record.version}`}>
+                  <td data-label="关联原单" className="adjustment-number">
+                    <Button
+                      className="text-button"
+                      onClick={() => onSelect(record.sale_id)}
+                    >
+                      {record.number}
+                    </Button>
+                    <small>第 {record.version} 版</small>
+                  </td>
+                  <td data-label="客户 / 原因" className="adjustment-reason">
+                    <strong>{record.customer_name}</strong>
+                    <small>{record.reason}</small>
+                  </td>
+                  <td data-label="动作">
+                    <span
+                      className={`badge ${record.action === "return" ? "amber" : ""}`}
+                    >
+                      {record.action === "return" ? "退货" : "作废"}
+                    </span>
+                  </td>
+                  <td data-label="应收变化" className="numeric">
+                    {record.due_change < 0 ? "−" : ""}¥
+                    {moneyText(Math.abs(record.due_change))}
+                  </td>
+                  <td data-label="实际退款" className="numeric">
+                    ¥{moneyText(record.refund)}
+                  </td>
+                  <td data-label="经办人 / 记录时间">
+                    <strong>{record.actor_name}</strong>
+                    <small>{dateTime(record.created_at)}</small>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </TableScroll>
+      ) : (
+        resource.data && (
+          <Empty>
+            {query || action
+              ? "没有符合筛选条件的退货或作废记录。"
+              : "暂无退货或作废记录；可在原单详情办理。"}
+          </Empty>
+        )
+      )}
+      <div className="form-actions">
+        <Button
+          disabled={page === 1 || loading}
+          onClick={() => setPage((n) => n - 1)}
+        >
+          上一页
+        </Button>
+        <span>
+          共 {resource.data?.total ?? 0} 条 · 第 {page} 页
+        </span>
+        <Button
+          disabled={loading || page * 50 >= (resource.data?.total ?? 0)}
+          onClick={() => setPage((n) => n + 1)}
+        >
+          下一页
+        </Button>
+      </div>
+    </section>
+  );
+}
+
 export default function Sales({
   user,
   revision,
@@ -2022,7 +2191,7 @@ export default function Sales({
   view = "sales",
   initialItem,
 }: {
-  view?: "sales" | "finance" | "customers" | "catalog";
+  view?: "sales" | "finance" | "customers" | "catalog" | "returns";
   initialItem?: Item;
   user: User;
   revision: number;
@@ -2039,9 +2208,16 @@ export default function Sales({
     return () => media.removeEventListener("change", update);
   }, []);
   const financeView = view === "finance";
+  const returnsView = view === "returns";
   const configView = view === "customers" || view === "catalog";
   const [tab, setTab] = useState(
-    configView ? "config" : financeView ? "finance" : "list",
+    configView
+      ? "config"
+      : financeView
+        ? "finance"
+        : returnsView
+          ? "returns"
+          : "list",
   );
   const [search, setSearch] = useQueryValue<string>("sales_q", "");
   const [query, setQuery] = useState(search);
@@ -2085,7 +2261,7 @@ export default function Sales({
     total: number;
     counts: Record<string, number>;
   }>(
-    can(user, "sales.read")
+    view === "sales" && can(user, "sales.read")
       ? `/sales?q=${encodeURIComponent(query)}&status=${encodeURIComponent(listStatus)}&from=${encodeURIComponent(listFrom)}&to=${encodeURIComponent(listTo)}&page=${page}`
       : undefined,
     revision + local,
@@ -2117,7 +2293,15 @@ export default function Sales({
   const select = (id: string) =>
     action.run(async () => {
       setSelected(await api<Sale>(`/sales/${id}`));
-      setTab(configView ? "config" : financeView ? "finance" : "list");
+      setTab(
+        configView
+          ? "config"
+          : financeView
+            ? "finance"
+            : returnsView
+              ? "returns"
+              : "list",
+      );
     });
   useEffect(() => {
     const id = new URLSearchParams(location.search).get("sale_print");
@@ -2260,7 +2444,9 @@ export default function Sales({
                 : "基础资料"
               : financeView
                 ? "收款"
-                : "开单"}
+                : returnsView
+                  ? "退货与作废"
+                  : "开单"}
           </h1>
           <p>
             {configView
@@ -2269,7 +2455,9 @@ export default function Sales({
                 : "全站常用选项在这里统一维护；修改候选不重写历史单据。"
               : financeView
                 ? "核对客户欠款、收款账户流水与部门业务员业绩。"
-                : "一张单开齐物料，库存与收款同步记录。"}
+                : returnsView
+                  ? "查看退货与作废记录，点击原单核对明细。"
+                  : "一张单开齐物料，库存与收款同步记录。"}
           </p>
         </div>
         {view === "customers" && can(user, "customers.create") && (
@@ -2280,6 +2468,7 @@ export default function Sales({
         )}
         {!editing &&
           !financeView &&
+          !returnsView &&
           !configView &&
           (can(user, "sales.create") || user.role === "admin") && (
             <div className="row-actions">
@@ -2309,7 +2498,7 @@ export default function Sales({
       </div>
       <TabsList
         aria-label="开单栏目"
-        hidden={editing || financeView || configView}
+        hidden={editing || financeView || configView || returnsView}
       >
         <Tab value="list">单据列表</Tab>
         {can(user, "finance.read") && <Tab value="finance">收款与欠款</Tab>}
@@ -2344,7 +2533,9 @@ export default function Sales({
                 ? "返回客户对账"
                 : financeView
                   ? "返回收款"
-                  : "返回列表"
+                  : returnsView
+                    ? "返回退货与作废"
+                    : "返回列表"
             }
             sale={selected}
             user={user}
@@ -2352,6 +2543,12 @@ export default function Sales({
             onEdit={() => setEditing(true)}
             onChange={changed}
             onClose={() => setSelected(undefined)}
+          />
+        ) : returnsView ? (
+          <AdjustmentsLedger
+            user={user}
+            revision={revision + local}
+            onSelect={(id) => void select(id)}
           />
         ) : tab === "list" ? (
           <section className="panel ledger-sheet sale-list-sheet">

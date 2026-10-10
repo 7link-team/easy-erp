@@ -18,6 +18,7 @@ import {
   PackageSearch,
   ClipboardList,
   ReceiptText,
+  Undo2,
   Wallet,
   ContactRound,
   ListChecks,
@@ -563,6 +564,7 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
     );
   /* 手机底栏只放 5 个最高频入口，其余走「更多」。清单只在这里定义一次。 */
   const secondary = [
+    "returns",
     "customers",
     "records",
     "stocktakes",
@@ -577,7 +579,10 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
       ? [{ id: "inventory", label: "物料", icon: PackageSearch }]
       : []),
     ...(can(user, "sales.read")
-      ? [{ id: "sales", label: "开单", icon: ReceiptText }]
+      ? [
+          { id: "sales", label: "开单", icon: ReceiptText },
+          { id: "returns", label: "退货与作废", icon: Undo2 },
+        ]
       : []),
     ...(can(user, "customers.read")
       ? [{ id: "customers", label: "客户", icon: ContactRound }]
@@ -626,7 +631,11 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
         <nav aria-label="主要导航">
           {[
             { label: "概览", domain: "overview", ids: ["home"] },
-            { label: "销售", domain: "sales", ids: ["sales", "customers"] },
+            {
+              label: "销售",
+              domain: "sales",
+              ids: ["sales", "customers", "returns"],
+            },
             {
               label: "库存",
               domain: "stock",
@@ -790,19 +799,28 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
                 }}
               />
             )}
-            {["sales", "finance", "customers", "catalog"].includes(page) &&
+            {["sales", "finance", "customers", "catalog", "returns"].includes(
+              page,
+            ) &&
               {
                 sales: can(user, "sales.read"),
+                returns: can(user, "sales.read"),
                 finance: can(user, "finance.read"),
                 customers: can(user, "customers.read"),
                 catalog: ["catalog.read", "options.read", "accounts.read"].some(
                   (p) => can(user, p),
                 ),
-              }[page as "sales" | "finance" | "customers" | "catalog"] && (
+              }[
+                page as
+                  "sales" | "finance" | "customers" | "catalog" | "returns"
+              ] && (
                 <Sales
                   key={`${page}-${initialItem?.id || ""}`}
                   initialItem={page === "sales" ? initialItem : undefined}
-                  view={page as "sales" | "finance" | "customers" | "catalog"}
+                  view={
+                    page as
+                      "sales" | "finance" | "customers" | "catalog" | "returns"
+                  }
                   user={user}
                   revision={revision}
                   refresh={refresh}

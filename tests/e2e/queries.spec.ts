@@ -775,3 +775,416 @@ test("物料搜索等待期间不允许操作旧结果，搜索完成后可修�
   await expect(page.getByRole("dialog")).toBeVisible();
   await expect(page.getByLabel("规格 选填", { exact: true })).toHaveValue("M6");
 });
+
+test("退货作废汇总保留历史应收和实际退款，原单往返保留筛选", async ({
+  page,
+}, testInfo) => {
+  const tag = `退货汇总-${randomUUID().slice(0, 8)}`;
+  const material = await item(page.request, tag, "M10");
+  await movement(page.request, material.id, "receipt", "10");
+  const customer = await post(page.request, "/sales/catalog", {
+    kind: "customer",
+    name: tag,
+  });
+  let sale = await post(page.request, "/sales/commands", {
+    request_id: randomUUID(),
+    action: "confirm",
+    input: {
+      customer_id: customer.id,
+      type_id: "sale",
+      business_date: "2026-10-10",
+      lines: [{ item_id: material.id, quantity: "4", price: "50" }],
+      initial_payment: { account_id: "cash", amount: "50" },
+    },
+  });
+  const command = async (action: string, extra: object) => {
+    sale = await post(page.request, "/sales/commands", {
+      request_id: randomUUID(),
+      sale_id: sale.id,
+      version: sale.version,
+      action,
+      business_date: "2026-10-10",
+      reason: `客户${action}`,
+      ...extra,
+    });
+  };
+  await command("return", {
+    lines: [{ item_id: material.id, quantity: "1" }],
+    reason: "先抵减欠款",
+  });
+  await command("pay", { account_id: "cash", amount: "100" });
+  await command("return", {
+    lines: [{ item_id: material.id, quantity: "1" }],
+    account_id: "cash",
+    reason: "已付清后再退货",
+  });
+  await command("void", { account_id: "cash", reason: "取消剩余部分" });
+  await post(page.request, "/sales/catalog", {
+    ...customer,
+    name: `${tag}-改名`,
+  });
+  const path = `/api/sales/adjustments?q=${encodeURIComponent(tag)}`;
+  const result = await (await page.request.get(path)).json();
+  expect(result.total).toBe(3);
+  expect(
+    result.items.map(
+      (r: { version: number; due_change: number; refund: number }) => [
+        r.version,
+        r.due_change,
+        r.refund,
+      ],
+    ),
+  ).toEqual([
+    [5, -10000, 10000],
+    [4, -5000, 5000],
+    [2, -5000, 0],
+  ]);
+  for (const record of result.items) {
+    expect(record.customer_name).toBe(tag);
+    expect(record).not.toHaveProperty("before");
+    expect(record).not.toHaveProperty("after");
+    expect(record).not.toHaveProperty("command");
+  }
+  expect(
+    (await (await page.request.get(`${path}&action=void`)).json()).total,
+  ).toBe(1);
+  expect((await page.request.get(`${path}&action=pay`)).status()).toBe(400);
+  expect(
+    (
+      await (
+        await page.request.get("/api/sales/adjustments?q=先抵减欠款")
+      ).json()
+    ).items.some((r: { sale_id: string }) => r.sale_id === sale.id),
+  ).toBeTruthy();
+  await page.goto("/#/home");
+  await page
+    .getByRole("navigation", { name: "主要导航" })
+    .getByRole("button", { name: "退货与作废", exact: true })
+    .click();
+  await page.getByLabel("搜索退货与作废", { exact: true }).fill(tag);
+  const table = page.getByRole("table", { name: "退货与作废记录" });
+  await expect(table.locator("tbody tr")).toHaveCount(3);
+  const debtReturn = table.getByRole("row").filter({ hasText: "先抵减欠款" });
+  await expect(debtReturn.locator('[data-label="应收变化"]')).toHaveText(
+    "−¥50.00",
+  );
+  await expect(debtReturn.locator('[data-label="实际退款"]')).toHaveText(
+    "¥0.00",
+  );
+  for (const width of [1280, 390, 320]) {
+    await page.setViewportSize({ width, height: 800 });
+    const box = await debtReturn
+      .locator('[data-label="实际退款"]')
+      .boundingBox();
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(width);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBeTruthy();
+    await page.screenshot({
+      path: `tmp/returns-${testInfo.project.name}-${width}.png`,
+    });
+  }
+  await page
+    .getByRole("group", { name: "退货与作废动作筛选" })
+    .getByRole("button", { name: "退货", exact: true })
+    .click();
+  await expect(table.locator("tbody tr")).toHaveCount(2);
+  await debtReturn
+    .getByRole("button", { name: sale.number, exact: true })
+    .click();
+  await expect(
+    page.getByText("已作废", { exact: false }).first(),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "返回退货与作废", exact: true })
+    .click();
+  await expect(page.getByLabel("搜索退货与作废", { exact: true })).toHaveValue(
+    tag,
+  );
+  await expect(table.locator("tbody tr")).toHaveCount(2);
+  await page.reload();
+  await expect(table.locator("tbody tr")).toHaveCount(2);
+  await expect(
+    page
+      .getByRole("group", { name: "退货与作废动作筛选" })
+      .getByRole("button", { name: "退货", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+});
+
+test("退货作废汇总分页不会遗漏相同秒内多次退货，非计款退货金额为零", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  const tag = `退货分页-${randomUUID().slice(0, 8)}`;
+  const material = await item(page.request, tag, "M10");
+  await movement(page.request, material.id, "receipt", "60");
+  const customer = await post(page.request, "/sales/catalog", {
+    kind: "customer",
+    name: tag,
+  });
+  const type = await post(page.request, "/sales/catalog", {
+    kind: "type",
+    name: tag,
+    data: { billable: false },
+  });
+  let sale = await post(page.request, "/sales/commands", {
+    request_id: randomUUID(),
+    action: "confirm",
+    input: {
+      customer_id: customer.id,
+      type_id: type.id,
+      business_date: "2026-10-10",
+      lines: [{ item_id: material.id, quantity: "51", price: "0" }],
+    },
+  });
+  for (let i = 0; i < 51; i++) {
+    sale = await post(page.request, "/sales/commands", {
+      request_id: randomUUID(),
+      action: "return",
+      sale_id: sale.id,
+      version: sale.version,
+      lines: [{ item_id: material.id, quantity: "1" }],
+      reason: `分批退货${i + 1}`,
+      business_date: "2026-10-10",
+    });
+  }
+  const url = `/api/sales/adjustments?q=${encodeURIComponent(tag)}`;
+  const first = await (await page.request.get(url)).json();
+  const last = await (await page.request.get(`${url}&page=2`)).json();
+  expect(first.total).toBe(51);
+  expect(first.items).toHaveLength(50);
+  expect(last.items).toHaveLength(1);
+  const records = [...first.items, ...last.items];
+  expect(new Set(records.map((r) => r.version)).size).toBe(51);
+  expect(records.map((r) => r.version)).toEqual(
+    Array.from({ length: 51 }, (_, i) => 52 - i),
+  );
+  for (const record of records) {
+    expect(record.due_change).toBe(0);
+    expect(record.refund).toBe(0);
+  }
+  await page.goto(`/?returns_q=${encodeURIComponent(tag)}#/returns`);
+  const next = page.getByRole("button", { name: "下一页", exact: true });
+  await expect(
+    page.getByRole("table", { name: "退货与作废记录" }).locator("tbody tr"),
+  ).toHaveCount(50);
+  await next.click();
+  await expect(
+    page.getByRole("table", { name: "退货与作废记录" }).locator("tbody tr"),
+  ).toHaveCount(1);
+  await expect(next).toBeDisabled();
+  await expect(
+    page.getByText("共 51 条 · 第 2 页", { exact: true }),
+  ).toBeVisible();
+});
+
+test("退货作废汇总按原单归属隔离，未授权角色不能访问", async ({
+  page,
+  browser,
+}) => {
+  const tag = `退货权限-${randomUUID().slice(0, 8)}`;
+  const material = await item(page.request, tag, "M10");
+  await movement(page.request, material.id, "receipt", "10");
+  const customer = await post(page.request, "/sales/catalog", {
+    kind: "customer",
+    name: tag,
+  });
+  const input = {
+    customer_id: customer.id,
+    type_id: "sale",
+    business_date: "2026-10-10",
+    lines: [{ item_id: material.id, quantity: "1", price: "10" }],
+  };
+  const adminSale = await post(page.request, "/sales/commands", {
+    request_id: randomUUID(),
+    action: "confirm",
+    input,
+  });
+  await post(page.request, "/sales/commands", {
+    request_id: randomUUID(),
+    action: "void",
+    sale_id: adminSale.id,
+    version: adminSale.version,
+    reason: "管理员单据",
+  });
+  for (const allowed of [true, false]) {
+    const role = await post(page.request, "/roles", {
+      name: `${tag}-${allowed}`,
+      permissions: allowed
+        ? [
+            "sales.read",
+            "sales.create",
+            "sales.confirm",
+            "items.read",
+            "customers.read",
+            "catalog.read",
+          ]
+        : ["customers.read"],
+    });
+    const username = `returns_${randomUUID().slice(0, 8)}`;
+    await post(page.request, "/users", {
+      username,
+      name: username,
+      password: "Returns-test-2026",
+      role: role.id,
+    });
+    const context = await browser.newContext({
+      baseURL: "http://127.0.0.1:4289",
+    });
+    try {
+      await post(context.request, "/login", {
+        username,
+        password: "Returns-test-2026",
+      });
+      if (allowed) {
+        const own = await post(context.request, "/sales/commands", {
+          request_id: randomUUID(),
+          action: "confirm",
+          input,
+        });
+        await post(page.request, "/sales/commands", {
+          request_id: randomUUID(),
+          action: "void",
+          sale_id: own.id,
+          version: own.version,
+          reason: "管理员代作废本人单据",
+        });
+        const result = await (
+          await context.request.get("/api/sales/adjustments")
+        ).json();
+        expect(result.total).toBe(1);
+        expect(result.items[0].sale_id).toBe(own.id);
+        expect(result.items[0].actor_name).toBe("管理员");
+        expect(
+          (await context.request.get(`/api/sales/${adminSale.id}`)).status(),
+        ).toBe(403);
+        const ownPage = await context.newPage();
+        await ownPage.goto("/#/returns");
+        await expect(
+          ownPage.getByText(/当前仅显示本人开单的退货与作废/),
+        ).toBeVisible();
+        await expect(
+          ownPage
+            .getByRole("table", { name: "退货与作废记录" })
+            .locator("tbody tr"),
+        ).toHaveCount(1);
+        await expect(
+          ownPage.getByRole("button", { name: own.number, exact: true }),
+        ).toBeVisible();
+      } else {
+        expect(
+          (await context.request.get("/api/sales/adjustments")).status(),
+        ).toBe(403);
+        const other = await context.newPage();
+        await other.goto("/#/returns");
+        await expect(
+          other.getByRole("table", { name: "退货与作废记录" }),
+        ).toHaveCount(0);
+        await expect(
+          other
+            .getByRole("navigation", { name: "主要导航" })
+            .getByRole("button", { name: "退货与作废", exact: true }),
+        ).toHaveCount(0);
+      }
+    } finally {
+      await context.close();
+    }
+  }
+});
+
+test("筛选取消读取响应正文或收到无效JSON时不污染列表，后续查询能恢复", async ({
+  page,
+}) => {
+  const tag = `正文取消-${randomUUID().slice(0, 8)}`;
+  const material = await item(page.request, tag, "M8");
+  await movement(page.request, material.id, "receipt", "2");
+  const customer = await post(page.request, "/sales/catalog", {
+    kind: "customer",
+    name: tag,
+  });
+  const sale = await post(page.request, "/sales/commands", {
+    request_id: randomUUID(),
+    action: "confirm",
+    input: {
+      customer_id: customer.id,
+      type_id: "sale",
+      business_date: "2026-10-10",
+      lines: [{ item_id: material.id, quantity: "1", price: "10" }],
+    },
+  });
+  await page.addInitScript(() => {
+    const original = Response.prototype.json;
+    Response.prototype.json = async function () {
+      if (new URL(this.url).searchParams.get("q") === "cancelled-body") {
+        return new Promise((_, reject) => {
+          (window as unknown as { rejectBody: () => void }).rejectBody = () =>
+            reject(new DOMException("Cancelled body", "AbortError"));
+        });
+      }
+      if (new URL(this.url).searchParams.get("q") === "late-body") {
+        const data = await original.call(this);
+        return new Promise((resolve) => {
+          (window as unknown as { resolveBody: () => void }).resolveBody = () =>
+            resolve(data);
+        });
+      }
+      return original.call(this);
+    };
+  });
+  await page.goto("/#/sales");
+  const search = page.getByLabel("搜索销售单", { exact: true });
+  const table = page.getByRole("table", { name: "销售单据列表" });
+  for (const q of ["cancelled-body", "late-body"]) {
+    await search.fill(q);
+    await page.waitForFunction(
+      (query) =>
+        typeof (window as unknown as Record<string, unknown>)[
+          query === "cancelled-body" ? "rejectBody" : "resolveBody"
+        ] === "function",
+      q,
+    );
+    const refreshed = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return url.pathname === "/api/sales" && url.searchParams.get("q") === tag;
+    });
+    await search.fill(tag);
+    await refreshed;
+    await expect(table.locator("tbody tr")).toHaveCount(1);
+    await expect(table).toContainText(sale.number);
+    await page.evaluate((query) => {
+      (window as unknown as Record<string, () => void>)[
+        query === "cancelled-body" ? "rejectBody" : "resolveBody"
+      ]();
+    }, q);
+    // Wait for the released promise and a render opportunity before checking.
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+    await expect(table).toContainText(sale.number);
+  }
+  await page.route("**/api/sales?**", async (route) => {
+    if (new URL(route.request().url()).searchParams.get("q") === "invalid-json")
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: "invalid",
+      });
+    else await route.continue();
+  });
+  await search.fill("invalid-json");
+  await expect(page.getByRole("alert")).toContainText(
+    "服务暂时无法完成操作，请稍后重试。",
+  );
+  await expect(
+    page.getByRole("button", { name: "重新打开", exact: true }),
+  ).toHaveCount(0);
+  await search.fill(tag);
+  await expect(table).toContainText(sale.number);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});

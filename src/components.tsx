@@ -213,7 +213,9 @@ export function useResource<T>(path: string | undefined, revision = 0) {
     setLoading(true);
     setError("");
     api<T>(path, { signal: controller.signal })
-      .then(setData)
+      .then((value) => {
+        if (!controller.signal.aborted) setData(value);
+      })
       .catch((e) => {
         if (!controller.signal.aborted) setError(errorText(e));
       })

@@ -900,6 +900,70 @@ pub async fn list(
         json!({"items":items,"page":page,"total":total,"counts":{"all":int(&counts,"total"),"draft":int(&counts,"draft"),"posted":int(&counts,"posted"),"voided":int(&counts,"voided")}}),
     ))
 }
+#[derive(Deserialize)]
+pub struct AdjustmentFilter {
+    pub q: Option<String>,
+    pub action: Option<String>,
+    pub page: Option<i64>,
+}
+
+/// Project only summary fields; never return unrestricted revision snapshots.
+pub async fn adjustments(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Query(filter): Query<AdjustmentFilter>,
+) -> Result<Json<Value>> {
+    let actor = current(&s, &headers).await?;
+    sales_access(&actor)?;
+    let q = clean(filter.q.as_deref().unwrap_or(""), "搜索", 100, false)?;
+    let action = filter.action.unwrap_or_default();
+    if !["", "return", "void"].contains(&action.as_str()) {
+        return Err(ApiError::bad("请选择有效的退货或作废动作。"));
+    }
+    let page = filter.page.unwrap_or(1).clamp(1, 1_000_000);
+    let txn = s.db.begin().await?;
+    let clause = "(?=1 OR s.actor_id=?) AND json_extract(r.data,'$.command.action') IN ('return','void') AND (?='' OR json_extract(r.data,'$.command.action')=?) AND (?='' OR instr(json_extract(r.data,'$.after.number'),?)>0 OR instr(json_extract(r.data,'$.after.customer.name'),?)>0 OR instr(r.reason,?)>0)";
+    let mut values: Vec<sea_orm::Value> = vec![
+        actor.can("sales.all").into(),
+        actor.id.into(),
+        action.clone().into(),
+        action.into(),
+        q.clone().into(),
+        q.clone().into(),
+        q.clone().into(),
+        q.into(),
+    ];
+    let total = int(&one(&txn, &format!("SELECT COUNT(*) AS total FROM sales_revisions r JOIN sales s ON s.id=r.sale_id WHERE {clause}"), values.clone()).await?.unwrap(), "total");
+    values.push(((page - 1) * 50).into());
+    let rows = all(&txn, &format!("SELECT r.sale_id,r.version,r.actor_name,r.reason,r.created_at,r.data FROM sales_revisions r JOIN sales s ON s.id=r.sale_id WHERE {clause} ORDER BY r.created_at DESC,r.sale_id,r.version DESC LIMIT 50 OFFSET ?"), values).await?;
+    let mut items = Vec::with_capacity(rows.len());
+    for row in rows {
+        let snapshot = parsed(&text(&row, "data"))?;
+        let before = &snapshot["before"];
+        let after = &snapshot["after"];
+        let amount = |value: &Value, field: &str| {
+            value[field]
+                .as_i64()
+                .ok_or_else(|| ApiError::bad("退货或作废的历史金额不完整。"))
+        };
+        let due_change = amount(after, "due")? - amount(before, "due")?;
+        let refund = amount(before, "paid")? - amount(after, "paid")?;
+        items.push(json!({
+            "sale_id": text(&row, "sale_id"),
+            "version": int(&row, "version"),
+            "number": after["number"],
+            "customer_name": after["customer"]["name"],
+            "action": snapshot["command"]["action"],
+            "reason": text(&row, "reason"),
+            "actor_name": text(&row, "actor_name"),
+            "created_at": int(&row, "created_at"),
+            "due_change": due_change,
+            "refund": refund,
+        }));
+    }
+    Ok(Json(json!({"items": items, "total": total})))
+}
+
 pub async fn get(
     State(s): State<AppState>,
     headers: HeaderMap,

@@ -6,6 +6,7 @@ const pages = [
   "home",
   "inventory",
   "sales",
+  "returns",
   "finance",
   "customers",
   "catalog",

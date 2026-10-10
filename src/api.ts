@@ -32,12 +32,14 @@ export async function api<T>(
       0,
     );
   }
-  const data = await response
-    .json()
-    .catch(() => ({ error: "服务暂时无法完成操作，请稍后重试。" }));
+  if (response.status === 401 && path !== "/login")
+    window.dispatchEvent(new Event("erp:unauthorized"));
+  const data = await response.json().catch((error: unknown) => {
+    if (error instanceof DOMException && error.name === "AbortError")
+      throw error;
+    throw new ApiError("服务暂时无法完成操作，请稍后重试。", response.status);
+  });
   if (!response.ok) {
-    if (response.status === 401 && path !== "/login")
-      window.dispatchEvent(new Event("erp:unauthorized"));
     throw new ApiError(data.error ?? "操作失败，请重试。", response.status);
   }
   return data as T;
