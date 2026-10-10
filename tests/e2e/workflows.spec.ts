@@ -56,7 +56,20 @@ test("物料分页前后切换与搜索重置页码", async ({ page }) => {
   await navigate(page, "清点");
   await page.getByRole("button", { name: "开始清点", exact: true }).click();
   const dialog = page.getByRole("dialog");
+  const searchedMaterials = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return (
+      url.pathname === "/api/items" &&
+      url.searchParams.get("q") === "翻页验收" &&
+      url.searchParams.get("page") === "1"
+    );
+  });
   await page.getByLabel("查找清点物料", { exact: false }).fill("翻页验收");
+  await searchedMaterials;
+  await expect(dialog.locator(".selection-list")).toHaveAttribute(
+    "aria-busy",
+    "false",
+  );
   await expect(dialog.locator(".selection-list [role=checkbox]")).toHaveCount(
     50,
   );
@@ -199,7 +212,10 @@ test("全部收发用途、数量限制、移除物料、连续登记、记录�
       .click();
     const results = page.waitForResponse((response) => {
       const url = new URL(response.url());
-      return url.pathname === "/api/items" && url.searchParams.get("q") === "收发用途验收";
+      return (
+        url.pathname === "/api/items" &&
+        url.searchParams.get("q") === "收发用途验收"
+      );
     });
     await page.getByLabel("查找要收发的物料").fill("收发用途验收");
     await results;

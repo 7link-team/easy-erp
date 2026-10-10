@@ -227,7 +227,7 @@ export default function Stocktakes({
               </div>
             </div>
             {action.error && <Notice>{action.error}</Notice>}
-            <div className="form-actions">
+            <div className="form-actions form-footer">
               <Submit busy={action.busy}>
                 开始清点 {chosen.length} 种物料
               </Submit>
@@ -285,67 +285,69 @@ export default function Stocktakes({
               </Field>
             ))}
             {action.error && <Notice>{action.error}</Notice>}
+            {editing.status === "open" && user.role === "admin" && (
+              <section className="section-divider">
+                <h3>管理员确认</h3>
+                <p className="hint">
+                  请先保存上面的清点数量，再确认。确认后按实际数量更新库存。
+                </p>
+                <Field
+                  label="差异原因"
+                  hint="实际清点数量与系统记录不一致时，请填写原因。"
+                >
+                  {(p) => (
+                    <Textarea
+                      {...p}
+                      value={reason}
+                      onChange={(e) => setReason(e.target.value)}
+                      maxLength={500}
+                    />
+                  )}
+                </Field>
+              </section>
+            )}
             {editing.status === "open" && (
-              <div className="form-actions">
+              <div className="form-actions form-footer">
                 <Submit busy={action.busy}>保存清点数量</Submit>
+                {user.role === "admin" && (
+                  <>
+                    <Button
+                      className="button"
+                      disabled={action.busy}
+                      onClick={() =>
+                        action.run(async () => {
+                          await send(`/stocktakes/${editing.id}/finish`, {
+                            confirm: false,
+                            reason,
+                          });
+                          setEditing(undefined);
+                          refresh();
+                        })
+                      }
+                    >
+                      取消清点，恢复收发
+                    </Button>
+                    <Button
+                      className="button primary"
+                      disabled={action.busy}
+                      onClick={() =>
+                        action.run(async () => {
+                          await send(`/stocktakes/${editing.id}/finish`, {
+                            confirm: true,
+                            reason,
+                          });
+                          setEditing(undefined);
+                          refresh();
+                        })
+                      }
+                    >
+                      确认并更新库存
+                    </Button>
+                  </>
+                )}
               </div>
             )}
           </Form>
-          {editing.status === "open" && user.role === "admin" && (
-            <section className="section-divider">
-              <h3>管理员确认</h3>
-              <p className="hint">
-                请先保存上面的清点数量，再确认。确认后按实际数量更新库存。
-              </p>
-              <Field
-                label="差异原因"
-                hint="实际清点数量与系统记录不一致时，请填写原因。"
-              >
-                {(p) => (
-                  <Textarea
-                    {...p}
-                    value={reason}
-                    onChange={(e) => setReason(e.target.value)}
-                    maxLength={500}
-                  />
-                )}
-              </Field>
-              <div className="form-actions">
-                <Button
-                  className="button"
-                  disabled={action.busy}
-                  onClick={() =>
-                    action.run(async () => {
-                      await send(`/stocktakes/${editing.id}/finish`, {
-                        confirm: false,
-                        reason,
-                      });
-                      setEditing(undefined);
-                      refresh();
-                    })
-                  }
-                >
-                  取消清点，恢复收发
-                </Button>
-                <Button
-                  className="button primary"
-                  disabled={action.busy}
-                  onClick={() =>
-                    action.run(async () => {
-                      await send(`/stocktakes/${editing.id}/finish`, {
-                        confirm: true,
-                        reason,
-                      });
-                      setEditing(undefined);
-                      refresh();
-                    })
-                  }
-                >
-                  确认并更新库存
-                </Button>
-              </div>
-            </section>
-          )}
         </Modal>
       )}
     </>

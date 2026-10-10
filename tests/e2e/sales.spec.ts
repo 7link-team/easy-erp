@@ -510,15 +510,17 @@ test("真实界面多品类开单、收款、打印、手机版式与离开保�
     page.getByRole("combobox", { name: "部门业务员", exact: false }),
     salesperson.id,
   );
+  await page.getByRole("button", { name: "添加一行", exact: true }).click();
   await page.getByLabel("开单查找物料").fill(item.name);
   await page
-    .getByRole("button", { name: new RegExp(`${item.name} · 库存`) })
+    .getByRole("button", { name: `选择${item.name}`, exact: true })
     .click();
   await page.getByLabel(`${item.name} 数量`, { exact: false }).fill("100");
   await page.getByLabel(`${item.name} 单价`, { exact: false }).fill("80");
+  await page.getByRole("button", { name: "添加一行", exact: true }).click();
   await page.getByLabel("开单查找物料").fill(secondName);
   await page
-    .getByRole("button", { name: new RegExp(`${secondName} · 库存`) })
+    .getByRole("button", { name: `选择${secondName}`, exact: true })
     .click();
   await page.getByLabel(`${secondName} 数量`, { exact: false }).fill("20.5");
   await page.getByLabel(`${secondName} 单价`, { exact: false }).fill("100");
@@ -1125,4 +1127,359 @@ test("账户筛选对账与 CSV 退款保持数值", async ({ request, page }) =
       .getByRole("row")
       .filter({ hasText: account.name }),
   ).toContainText("¥40.00");
+});
+
+test("开单选料反馈、固定操作区与下拉新增保留已填内容", async ({
+  page,
+}, testInfo) => {
+  const { item } = await fixture(page.request);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto("/#/sales");
+  await page.getByRole("button", { name: "新建单据", exact: true }).click();
+  const editor = page.locator(".sale-editor");
+  const fields = editor.locator(".sale-editor-fields");
+  const header = editor.locator(".section-title");
+  const footer = editor.locator(".form-footer");
+  let saleRequests = 0;
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/sales/commands")
+      saleRequests++;
+  });
+  await expect(page.getByRole("button", { name: "快速新增客户" })).toHaveCount(
+    0,
+  );
+  await page.getByRole("button", { name: "添加一行", exact: true }).click();
+  await page.getByLabel("开单查找物料").fill(item.name);
+  await page
+    .getByRole("button", { name: `选择${item.name}`, exact: true })
+    .click();
+  await expect(
+    page.getByLabel(`${item.name} 数量`, { exact: false }),
+  ).toBeFocused();
+  await expect(editor.getByRole("status")).toHaveText("已添加 1 种");
+  await page.getByLabel(`${item.name} 数量`, { exact: false }).fill("3");
+  await page.getByLabel(`${item.name} 单价`, { exact: false }).fill("15.5");
+  const headerY = (await header.boundingBox())!.y;
+  await fields.evaluate((el) => {
+    el.scrollTop = el.scrollHeight;
+  });
+  expect((await header.boundingBox())!.y).toBe(headerY);
+  await expect(footer).toBeInViewport({ ratio: 1 });
+
+  const customer = page.getByRole("combobox", {
+    name: "客户 必填",
+    exact: true,
+  });
+  await customer.click();
+  const create = page.getByRole("option", { name: "新增客户", exact: true });
+  await expect(create).toHaveCSS("border-top-width", "1px");
+  await page.screenshot({ path: testInfo.outputPath("customer-menu.png") });
+  await create.click();
+  let dialog = page.getByRole("dialog", { name: "新增客户", exact: true });
+  await dialog.getByLabel("客户名称", { exact: false }).fill("取消的客户");
+  await dialog.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(customer).toBeFocused();
+  await expect(
+    page.getByLabel(`${item.name} 数量`, { exact: false }),
+  ).toHaveValue("3");
+  await customer.click();
+  await page.keyboard.press("End");
+  await expect(
+    page.getByRole("option", { name: "新增客户", exact: true }),
+  ).toBeFocused();
+  await page.keyboard.press("Enter");
+  dialog = page.getByRole("dialog", { name: "新增客户", exact: true });
+  const customerName = `下拉客户-${randomUUID().slice(0, 8)}`;
+  await dialog.getByLabel("客户名称", { exact: false }).fill(customerName);
+  await dialog.getByRole("button", { name: "保存配置", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(customer).toContainText(customerName);
+
+  const department = page.getByRole("combobox", {
+    name: "业绩部门",
+    exact: false,
+  });
+  await department.click();
+  await page.getByRole("option", { name: "新增部门", exact: true }).click();
+  const departmentName = `下拉部门-${randomUUID().slice(0, 8)}`;
+  dialog = page.getByRole("dialog", { name: "新增部门", exact: true });
+  await dialog.getByLabel("部门名称", { exact: false }).fill(departmentName);
+  await dialog.getByRole("button", { name: "保存配置", exact: true }).click();
+  await expect(department).toContainText(departmentName);
+  const salesperson = page.getByRole("combobox", {
+    name: "部门业务员",
+    exact: false,
+  });
+  await salesperson.click();
+  await page.getByRole("option", { name: "新增业务员", exact: true }).click();
+  dialog = page.getByRole("dialog", { name: "新增业务员", exact: true });
+  await expect(
+    dialog.getByRole("combobox", { name: "所属部门", exact: false }),
+  ).toContainText(departmentName);
+  const salespersonName = `下拉业务员-${randomUUID().slice(0, 8)}`;
+  await dialog.getByLabel("业务员名称", { exact: false }).fill(salespersonName);
+  await dialog.getByRole("button", { name: "保存配置", exact: true }).click();
+  await expect(salesperson).toContainText(salespersonName);
+  expect(saleRequests).toBe(0);
+  await expect(
+    page.getByLabel(`${item.name} 单价`, { exact: false }),
+  ).toHaveValue("15.5");
+
+  await page.setViewportSize({ width: 320, height: 568 });
+  await fields.evaluate((el) => {
+    el.scrollTop = el.scrollHeight;
+  });
+  await expect(header).toBeInViewport({ ratio: 1 });
+  await expect(footer).toBeInViewport({ ratio: 1 });
+  const nav = await page
+    .getByRole("navigation", { name: "主要导航" })
+    .boundingBox();
+  const foot = (await footer.boundingBox())!;
+  expect(foot.y + foot.height).toBeLessThanOrEqual(nav!.y);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBeTruthy();
+  await page.screenshot({
+    path: testInfo.outputPath("sale-editor-mobile.png"),
+  });
+  await page
+    .getByRole("button", { name: `移除${item.name}`, exact: true })
+    .click();
+  await expect(editor.getByRole("status")).toHaveText("已添加 0 种");
+  await page.getByRole("button", { name: "添加一行", exact: true }).click();
+  await page.getByLabel("开单查找物料").fill(item.name);
+  await page
+    .getByRole("button", { name: `选择${item.name}`, exact: true })
+    .click();
+  await expect(page.locator(".sale-line")).toHaveCount(1);
+  await page.getByRole("button", { name: "添加一行", exact: true }).click();
+  await page.getByLabel("开单查找物料").fill(`无此物料-${randomUUID()}`);
+  await expect(
+    page.getByText("没有找到物料，请换个关键词。", { exact: true }),
+  ).toBeVisible();
+});
+
+test("收款中新增账户不提交父表单，取消与保存均保留金额原因", async ({
+  page,
+}) => {
+  const { input } = await fixture(page.request);
+  const sale = await command(page.request, { action: "confirm", input });
+  await page.goto("/#/sales");
+  await page
+    .locator(".sale-list-item")
+    .filter({ hasText: sale.number })
+    .click();
+  await page.getByRole("button", { name: "登记收款", exact: true }).click();
+  const operation = page.getByRole("dialog", { name: "登记收款", exact: true });
+  await operation.getByLabel("金额", { exact: false }).fill("123.45");
+  await operation
+    .getByLabel("操作原因", { exact: false })
+    .fill("保留的付款说明");
+  const account = operation.getByRole("combobox", {
+    name: "收款账户",
+    exact: false,
+  });
+  await account.click();
+  await page.getByRole("option", { name: "新增收款账户", exact: true }).click();
+  const nested = page.getByRole("dialog", {
+    name: "新增收款账户",
+    exact: true,
+  });
+  await nested.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(account).toBeFocused();
+  await account.click();
+  await page.getByRole("option", { name: "新增收款账户", exact: true }).click();
+  const name = `下拉账户-${randomUUID().slice(0, 8)}`;
+  await nested.getByLabel("收款账户名称", { exact: false }).fill(name);
+  await nested.getByRole("button", { name: "保存配置", exact: true }).click();
+  await expect(nested).toHaveCount(0);
+  await expect(account).toContainText(name);
+  await expect(operation.getByLabel("金额", { exact: false })).toHaveValue(
+    "123.45",
+  );
+  await expect(operation.getByLabel("操作原因", { exact: false })).toHaveValue(
+    "保留的付款说明",
+  );
+  const before = await (await page.request.get(`/api/sales/${sale.id}`)).json();
+  expect(before.payments).toHaveLength(0);
+  await operation
+    .getByRole("button", { name: "登记收款", exact: true })
+    .click();
+  await expect(operation).toHaveCount(0);
+  const after = await (await page.request.get(`/api/sales/${sale.id}`)).json();
+  expect(after.payments).toHaveLength(1);
+  expect(after.payments[0].amount).toBe(12345);
+  expect(after.payments[0].account_name).toBe(name);
+});
+
+test("明细底部逐行选料，十行后继续添加直接填写新增行", async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(90_000);
+  const suffix = randomUUID().slice(0, 8);
+  const names: string[] = [];
+  for (let i = 0; i < 11; i++) {
+    const name = `逐行物料-${suffix}-${i}`;
+    names.push(name);
+    const item = await post(page.request, "/items", {
+      name,
+      kind: "成品",
+      unit: "袋",
+      spec: "M10",
+    });
+    await post(page.request, "/movements", {
+      request_id: randomUUID(),
+      kind: "receipt",
+      lines: [{ item_id: item.id, quantity: "86" }],
+    });
+  }
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto("/#/sales");
+  await page.getByRole("button", { name: "新建单据", exact: true }).click();
+  for (const [index, name] of names.entries()) {
+    if (index === 10) await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole("button", { name: "添加一行", exact: true }).click();
+    await page.getByLabel("开单查找物料").fill(name);
+    await page
+      .getByRole("button", { name: `选择${name}`, exact: true })
+      .click();
+    const quantityInput = page.getByLabel(`${name} 数量`, { exact: false });
+    await expect(quantityInput).toBeFocused();
+    await expect(quantityInput).toBeInViewport({ ratio: 1 });
+    await quantityInput.fill(String(index + 1));
+    await page.getByLabel(`${name} 单价`, { exact: false }).fill("5");
+    await expect(
+      page.locator(".sale-line:not(.sale-line-pending)"),
+    ).toHaveCount(index + 1);
+  }
+  await expect(
+    page.getByLabel(`${names[0]} 数量`, { exact: false }),
+  ).toHaveValue("1");
+  await expect(
+    page.getByLabel(`${names[10]} 数量`, { exact: false }),
+  ).toHaveValue("11");
+  await page.screenshot({
+    path: testInfo.outputPath("eleven-lines-mobile.png"),
+  });
+  await page.getByRole("button", { name: "添加一行", exact: true }).click();
+  await page.getByLabel("开单查找物料").fill(names[0]);
+  await expect(
+    page.getByRole("button", { name: `已添加${names[0]}`, exact: true }),
+  ).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "移除空行", exact: true }).click();
+  await expect(page.locator(".sale-line")).toHaveCount(11);
+});
+
+test("超库存即时提示且禁止确认，草稿保留，修订按原数量计算可开上限", async ({
+  page,
+}) => {
+  const { item, customer } = await fixture(page.request, "86");
+  const filtered = await (
+    await page.request.get(`/api/items?ids=${item.id}`)
+  ).json();
+  expect(filtered.items.map((entry: { id: string }) => entry.id)).toEqual([
+    item.id,
+  ]);
+  const tooMany = await page.request.get(
+    `/api/items?ids=${Array(51).fill(item.id).join(",")}`,
+  );
+  expect(tooMany.status()).toBe(400);
+  await page.goto("/#/sales");
+  await page.getByRole("button", { name: "新建单据", exact: true }).click();
+  await chooseSelect(
+    page.getByRole("combobox", { name: "客户 必填", exact: true }),
+    customer.id,
+  );
+  await page.getByRole("button", { name: "添加一行", exact: true }).click();
+  await page.getByLabel("开单查找物料").fill(item.name);
+  await page
+    .getByRole("button", { name: `选择${item.name}`, exact: true })
+    .click();
+  const count = page.getByLabel(`${item.name} 数量`, { exact: false });
+  await count.fill("99");
+  await page.getByLabel(`${item.name} 单价`, { exact: false }).fill("1");
+  await expect(count).toHaveAttribute("aria-invalid", "true");
+  await expect(
+    page.getByText("超出库存 13 公斤，当前库存 86 公斤。", { exact: true }),
+  ).toBeVisible();
+  let submitted = 0;
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/sales/commands") submitted++;
+  });
+  await page
+    .getByRole("button", { name: "确认开单并扣库存", exact: true })
+    .click();
+  await expect(count).toBeFocused();
+  expect(submitted).toBe(0);
+  await page.getByRole("button", { name: "保存草稿", exact: true }).click();
+  await expect(page.locator(".sale-detail")).toContainText("草稿");
+  expect(await itemBalance(page.request, item.name)).toBe(86000);
+  await page.getByRole("button", { name: /编辑草稿/ }).click();
+  await expect(count).toHaveValue("99");
+  await expect(count).toHaveAttribute("aria-invalid", "true");
+  await count.fill("86");
+  await expect(count).not.toHaveAttribute("aria-invalid", "true");
+  await page
+    .getByRole("button", { name: "确认开单并扣库存", exact: true })
+    .click();
+  await expect(page.locator(".sale-detail")).toContainText("已确认");
+  expect(await itemBalance(page.request, item.name)).toBe(0);
+  await page.getByRole("button", { name: /修订单据/ }).click();
+  await expect(count).toHaveValue("86");
+  await expect(count).not.toHaveAttribute("aria-invalid", "true");
+  await count.fill("87");
+  await expect(
+    page.getByText("超出可开数量 1 公斤，本次最多可开 86 公斤。", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await count.fill("85");
+  await expect(count).not.toHaveAttribute("aria-invalid", "true");
+});
+
+test("新增业务员中再新增部门，保留姓名且只保存当前弹窗", async ({ page }) => {
+  await page.goto("/#/catalog");
+  await page.getByRole("tab", { name: "业务员", exact: true }).click();
+  await page.getByRole("button", { name: "新增 / 设置", exact: true }).click();
+  const salesperson = page.getByRole("dialog", {
+    name: "新增业务员",
+    exact: true,
+  });
+  const suffix = randomUUID().slice(0, 8);
+  await salesperson
+    .getByLabel("业务员名称", { exact: false })
+    .fill(`嵌套业务员-${suffix}`);
+  await salesperson
+    .getByRole("combobox", { name: "所属部门", exact: false })
+    .click();
+  await page.getByRole("option", { name: "新增部门", exact: true }).click();
+  const department = page.getByRole("dialog", {
+    name: "新增部门",
+    exact: true,
+  });
+  await department
+    .getByLabel("部门名称", { exact: false })
+    .fill(`嵌套部门-${suffix}`);
+  await department
+    .getByRole("button", { name: "保存配置", exact: true })
+    .click();
+  await expect(department).toHaveCount(0);
+  await expect(salesperson).toBeVisible();
+  await expect(
+    salesperson.getByLabel("业务员名称", { exact: false }),
+  ).toHaveValue(`嵌套业务员-${suffix}`);
+  await expect(
+    salesperson.getByRole("combobox", { name: "所属部门", exact: false }),
+  ).toContainText(`嵌套部门-${suffix}`);
+  await salesperson
+    .getByRole("button", { name: "保存配置", exact: true })
+    .click();
+  await expect(salesperson).toHaveCount(0);
+  await expect(
+    page.getByText(`嵌套业务员-${suffix}`, { exact: true }),
+  ).toBeVisible();
 });

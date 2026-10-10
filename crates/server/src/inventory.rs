@@ -57,6 +57,7 @@ pub struct Filter {
     pub page: Option<u64>,
     pub kind: Option<String>,
     pub low: Option<bool>,
+    pub ids: Option<String>,
 }
 pub async fn items(
     State(s): State<AppState>,
@@ -73,8 +74,8 @@ pub async fn items(
             .replace('%', "\\%")
             .replace('_', "\\_")
     );
-    let where_clause = "active=1 AND (name LIKE ? ESCAPE '\\' OR code LIKE ? ESCAPE '\\' OR barcode=?) AND (?='' OR kind=?) AND (?=0 OR (minimum>=0 AND balance<=minimum))";
-    let values: Vec<sea_orm::Value> = vec![
+    let mut where_clause = "active=1 AND (name LIKE ? ESCAPE '\\' OR code LIKE ? ESCAPE '\\' OR barcode=?) AND (?='' OR kind=?) AND (?=0 OR (minimum>=0 AND balance<=minimum))".to_string();
+    let mut values: Vec<sea_orm::Value> = vec![
         search.clone().into(),
         search.into(),
         q.into(),
@@ -82,6 +83,15 @@ pub async fn items(
         kind.into(),
         (filter.low.unwrap_or(false) as i64).into(),
     ];
+    if let Some(ids) = filter.ids {
+        let ids: Vec<&str> = ids.split(',').collect();
+        if ids.is_empty() || ids.len() > 50 || ids.iter().any(|id| id.is_empty() || id.len() > 100)
+        {
+            return Err(ApiError::bad("每次最多查询 50 个有效物料编号。"));
+        }
+        where_clause.push_str(&format!(" AND id IN ({})", vec!["?"; ids.len()].join(",")));
+        values.extend(ids.into_iter().map(|id| id.to_string().into()));
+    }
     let count = one(
         &s.db,
         &format!("SELECT COUNT(*) AS total FROM items WHERE {where_clause}"),

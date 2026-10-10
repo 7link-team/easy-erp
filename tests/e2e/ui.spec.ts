@@ -761,7 +761,36 @@ test("普通开单人的配置栏目只提供客户并能快速建档", async ({
     await dialog.getByRole("button", { name: "保存配置", exact: true }).click();
     await expect(dialog).toHaveCount(0);
     await expect(worker.getByText(name, { exact: true })).toBeVisible();
+    await worker.goto("/#/sales");
+    await worker.getByRole("button", { name: "新建单据", exact: true }).click();
+    await worker.getByRole("combobox", { name: "客户 必填", exact: true }).click();
+    await expect(worker.getByRole("option", { name: "新增客户", exact: true })).toBeVisible();
+    await worker.keyboard.press("Escape");
+    await worker.getByRole("combobox", { name: "业绩部门", exact: false }).click();
+    await expect(worker.getByRole("option", { name: "新增部门", exact: true })).toHaveCount(0);
+    await worker.keyboard.press("Escape");
   } finally {
     await context.close();
+  }
+});
+
+test("长表单弹窗标题与操作区常显，取消不保存", async ({ page }, testInfo) => {
+  await login(page);
+  await page.goto("/#/inventory");
+  for (const viewport of [{ width: 1280, height: 600 }, { width: 320, height: 568 }]) {
+    await page.setViewportSize(viewport);
+    await page.getByRole("button", { name: "添加物料", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    const heading = dialog.locator(".modal-heading");
+    const footer = dialog.locator(".form-footer");
+    const titleY = (await heading.boundingBox())!.y;
+    await expect(footer).toBeInViewport({ ratio: 1 });
+    await dialog.locator(".modal-body").evaluate(el => { el.scrollTop = el.scrollHeight; });
+    expect((await heading.boundingBox())!.y).toBe(titleY);
+    await expect(footer).toBeInViewport({ ratio: 1 });
+    await fits(page);
+    await page.screenshot({ path: testInfo.outputPath(`sticky-modal-${viewport.width}.png`) });
+    await dialog.getByRole("button", { name: "取消", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
   }
 });

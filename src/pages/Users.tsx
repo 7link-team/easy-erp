@@ -242,7 +242,7 @@ export default function Users({
               </>
             )}
             {action.error && <Notice>{action.error}</Notice>}
-            <div className="form-actions">
+            <div className="form-actions form-footer">
               <Button
                 type="button"
                 className="button"

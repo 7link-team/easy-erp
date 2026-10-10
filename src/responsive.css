@@ -190,14 +190,6 @@ tbody tr:hover {
   overscroll-behavior: contain;
   padding: 24px;
 }
-.modal-body .form-actions {
-  position: sticky;
-  bottom: -24px;
-  background: var(--paper-0);
-  border-top: 1px solid var(--border);
-  padding: 16px 0 24px;
-  margin-top: 20px;
-}
 .modal-body .more {
   margin-bottom: 20px;
 }
@@ -397,10 +389,6 @@ tbody tr:hover {
   }
   .modal-body {
     padding: 20px 16px;
-  }
-  .modal-body .form-actions {
-    bottom: -20px;
-    padding-bottom: 20px;
   }
   .entry .form-actions .button {
     width: 100%;

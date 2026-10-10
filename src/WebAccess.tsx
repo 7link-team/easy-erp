@@ -105,7 +105,7 @@ export default function WebAccess({ onClose }: { onClose: () => void }) {
           {message}
         </p>
       )}
-      <div className="form-actions">
+      <div className="form-actions form-footer">
         <Button
           className="button"
           disabled={loading}

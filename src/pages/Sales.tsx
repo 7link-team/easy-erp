@@ -1,5 +1,13 @@
-import { useEffect, useRef, useState } from "react";
-import { Plus, Search, Printer, ArrowLeft, X } from "lucide-react";
+import { useEffect, useRef, useState, type ComponentProps } from "react";
+import {
+  Plus,
+  Search,
+  Printer,
+  ArrowLeft,
+  X,
+  Check,
+  ChevronDown,
+} from "lucide-react";
 import {
   Button,
   Tabs,
@@ -41,6 +49,7 @@ import {
 } from "../sales";
 import SalesPrint from "./SalesPrint";
 import "../sales.css";
+import * as Popover from "@radix-ui/react-popover";
 
 function TextField({
   label,
@@ -50,6 +59,8 @@ function TextField({
   decimal = false,
   type = "text",
   hint,
+  error,
+  inputLabel,
 }: {
   label: string;
   value: string;
@@ -58,12 +69,15 @@ function TextField({
   decimal?: boolean;
   type?: string;
   hint?: string;
+  error?: string;
+  inputLabel?: string;
 }) {
   return (
-    <Field label={label} required={required} hint={hint}>
+    <Field label={label} required={required} hint={hint} error={error}>
       {(p) => (
         <Input
           {...p}
+          aria-label={inputLabel}
           type={type}
           inputMode={decimal ? "decimal" : undefined}
           value={value}
@@ -75,20 +89,74 @@ function TextField({
     </Field>
   );
 }
+type CreatableCatalogKind =
+  "customer" | "department" | "salesperson" | "account";
+const catalogLabels: Record<CreatableCatalogKind, string> = {
+  customer: "客户",
+  department: "部门",
+  salesperson: "业务员",
+  account: "收款账户",
+};
+function CatalogSelect({
+  kind,
+  catalog,
+  onCreated,
+  canCreate = true,
+  departmentId,
+  ...props
+}: ComponentProps<typeof Select> & {
+  kind: CreatableCatalogKind;
+  catalog: CatalogEntry[];
+  onCreated: (entry: CatalogEntry) => void;
+  canCreate?: boolean;
+  departmentId?: string;
+}) {
+  const [creating, setCreating] = useState(false);
+  return (
+    <>
+      <Select
+        {...props}
+        createLabel={`新增${catalogLabels[kind]}`}
+        onCreate={canCreate ? () => setCreating(true) : undefined}
+      />
+      {creating && (
+        <ConfigForm
+          kind={kind}
+          catalog={catalog}
+          initialDepartment={departmentId}
+          onCatalogCreated={onCreated}
+          onClose={() => setCreating(false)}
+          onDone={(entry) => {
+            onCreated(entry);
+            props.onChange?.({ target: { value: entry.id } });
+            setCreating(false);
+          }}
+        />
+      )}
+    </>
+  );
+}
+
 function ConfigForm({
   kind,
   entry,
   onDone,
   onClose,
   catalog,
+  initialDepartment,
+  onCatalogCreated,
 }: {
   catalog: CatalogEntry[];
+  initialDepartment?: string;
+  onCatalogCreated: (entry: CatalogEntry) => void;
   kind: CatalogEntry["kind"];
   entry?: CatalogEntry;
-  onDone: () => void;
+  onDone: (entry: CatalogEntry) => void;
   onClose: () => void;
 }) {
-  const [department, setDepartment] = useState(entry?.data.department_id || "");
+  const [department, setDepartment] = useState(
+    entry?.data.department_id || initialDepartment || "",
+  );
   const [name, setName] = useState(entry?.name || "");
   const [phone, setPhone] = useState(entry?.data.phone || "");
   const [contact, setContact] = useState(entry?.data.contact || "");
@@ -111,7 +179,7 @@ function ConfigForm({
         onSubmit={(e) =>
           form(e, () =>
             action.run(async () => {
-              await send("/sales/catalog", {
+              const saved = await send<CatalogEntry>("/sales/catalog", {
                 id: entry?.id || "",
                 version: entry?.version || 0,
                 kind,
@@ -126,7 +194,7 @@ function ConfigForm({
                   department_id: department,
                 },
               });
-              onDone();
+              onDone(saved);
             }),
           )
         }
@@ -140,8 +208,11 @@ function ConfigForm({
         {kind === "salesperson" && (
           <Field label="所属部门" required>
             {(p) => (
-              <Select
+              <CatalogSelect
                 {...p}
+                kind="department"
+                catalog={catalog}
+                onCreated={onCatalogCreated}
                 value={department}
                 onChange={(e) => setDepartment(e.target.value)}
               >
@@ -158,7 +229,7 @@ function ConfigForm({
                       {!c.active && "（停用）"}
                     </option>
                   ))}
-              </Select>
+              </CatalogSelect>
             )}
           </Field>
         )}
@@ -200,7 +271,10 @@ function ConfigForm({
           </label>
         )}
         {action.error && <Notice>{action.error}</Notice>}
-        <Submit busy={action.busy}>保存配置</Submit>
+        <div className="form-actions form-footer">
+          <Button onClick={onClose}>取消</Button>
+          <Submit busy={action.busy}>保存配置</Submit>
+        </div>
       </Form>
     </Modal>
   );
@@ -213,7 +287,7 @@ function SaleEditor({
   onDone,
   onClose,
   onDirtyChange,
-  onNewCustomer,
+  onCatalogCreated,
   initialItem,
 }: {
   user: User;
@@ -222,7 +296,7 @@ function SaleEditor({
   onDone: (sale: Sale) => void;
   onClose: () => void;
   onDirtyChange: (v: boolean) => void;
-  onNewCustomer: () => void;
+  onCatalogCreated: (entry: CatalogEntry) => void;
   initialItem?: Item;
 }) {
   const initial: SaleInput = {
@@ -251,6 +325,17 @@ function SaleEditor({
         : []),
   };
   const [input, setInput] = useState(initial);
+  const [pendingLine, setPendingLine] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const firstAdded = useRef<string | null>(null);
+  const lineElements = useRef<HTMLDivElement>(null);
+  const openPicker = () => {
+    firstAdded.current = null;
+    setPendingLine(true);
+    setChanged(true);
+    setSearch("");
+    setPickerOpen(true);
+  };
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
   const [itemPage, setItemPage] = useState(1);
@@ -261,6 +346,42 @@ function SaleEditor({
   const [material, setMaterial] = useState<Record<string, Item>>(
     initialItem ? { [initialItem.id]: initialItem } : {},
   );
+  const [stockLoadError, setStockLoadError] = useState("");
+  useEffect(() => {
+    if (!sale?.lines.length) return;
+    const controller = new AbortController();
+    const batches: Promise<{ items: Item[] }>[] = [];
+    for (let offset = 0; offset < sale.lines.length; offset += 50) {
+      const ids = sale.lines
+        .slice(offset, offset + 50)
+        .map((line) => line.item_id)
+        .join(",");
+      batches.push(
+        api(`/items?ids=${encodeURIComponent(ids)}`, {
+          signal: controller.signal,
+        }),
+      );
+    }
+    void Promise.all(batches)
+      .then((pages) => {
+        if (!controller.signal.aborted)
+          setMaterial((current) => ({
+            ...current,
+            ...Object.fromEntries(
+              pages
+                .flatMap((page) => page.items)
+                .map((item) => [item.id, item]),
+            ),
+          }));
+      })
+      .catch(() => {
+        if (!controller.signal.aborted)
+          setStockLoadError(
+            "未能读取全部明细的当前库存，请重新打开单据后重试。",
+          );
+      });
+    return () => controller.abort();
+  }, [sale?.id]);
   const [changed, setChanged] = useState(!!initialItem);
   const request = useRef<{ fingerprint: string; id: string } | undefined>(
     undefined,
@@ -299,7 +420,36 @@ function SaleEditor({
   const posted = sale?.status === "posted";
   const options = (kind: CatalogEntry["kind"], selected: string) =>
     catalog.filter((c) => c.kind === kind && (c.active || c.id === selected));
+  const stockError = (line: SaleInput["lines"][number]) => {
+    const item = material[line.item_id];
+    if (!item || !/^\d+(\.\d{0,3})?$/.test(line.quantity.trim()))
+      return undefined;
+    // A posted revision only deducts the increase over the original quantity.
+    const original = posted
+      ? sale.lines.find((prior) => prior.item_id === line.item_id)?.quantity ||
+        0
+      : 0;
+    const available = item.balance + original;
+    const excess = Math.round(Number(line.quantity) * 1000) - available;
+    return excess > 0
+      ? `超出${posted ? "可开数量" : "库存"} ${quantity(excess, item.precision)} ${item.unit}，${posted ? "本次最多可开" : "当前库存"} ${quantity(available, item.precision)} ${item.unit}。`
+      : undefined;
+  };
   async function save(actionName: string) {
+    if (pendingLine) throw new Error("请先选择新增行的物料，或移除空行。");
+    if (actionName !== "save") {
+      const invalid = input.lines.find((line) => stockError(line));
+      if (invalid) {
+        lineElements.current
+          ?.querySelector<HTMLInputElement>(
+            `[data-item-id="${CSS.escape(invalid.item_id)}"] input`,
+          )
+          ?.focus();
+        throw new Error(
+          "物料数量超出可用库存，请先调整标红的数量；也可保存草稿。",
+        );
+      }
+    }
     const payload = {
       sale_id: sale?.id || "",
       version: sale?.version || 0,
@@ -322,9 +472,9 @@ function SaleEditor({
   return (
     <section className="panel sale-editor">
       <div className="section-title">
-        <h2>{sale ? (posted ? "修订单据" : "编辑草稿") : "新建单据"}</h2>
+        <h1>{sale ? (posted ? "修订单据" : "编辑草稿") : "新建单据"}</h1>
         <Button className="button" onClick={onClose}>
-          <ArrowLeft size={16} />
+          <ArrowLeft size={16} aria-hidden="true" />
           返回单据
         </Button>
       </div>
@@ -333,357 +483,542 @@ function SaleEditor({
           form(e, () => action.run(() => save(posted ? "revise" : "confirm")))
         }
       >
-        <div className="form-grid">
-          <Field label="单据类型" required>
-            {(p) => (
-              <ComboBox
-                {...p}
-                required
-                maxLength={100}
-                value={input.type_name || input.type_id}
-                options={options("type", input.type_id).map((c) => ({
-                  value: c.id,
-                  label: c.name,
-                }))}
-                onValueChange={(value) => {
-                  const entry = options("type", input.type_id).find(
-                    (c) =>
-                      c.id === value ||
-                      c.name.trim().toLowerCase() ===
-                        value.trim().toLowerCase(),
-                  );
-                  change("type_id", entry?.id || "");
-                  change("type_name", entry ? "" : value);
-                  if (!entry?.data.billable) {
-                    change("discount_rate", "100");
-                    change("rounding", "0");
-                  }
-                }}
-              />
-            )}
-          </Field>
-          {input.type_name && (
-            <Field
-              label="新类型是否计款"
-              required
-              hint="计款会产生应收；不计款只记录出库。"
-            >
+        <div className="sale-editor-fields">
+          <div className="form-grid">
+            <Field label="单据类型" required>
               {(p) => (
-                <Select
+                <ComboBox
                   {...p}
                   required
-                  value={
-                    input.type_billable === undefined
-                      ? ""
-                      : String(input.type_billable)
-                  }
-                  onChange={(e) =>
-                    change("type_billable", e.target.value === "true")
-                  }
-                >
-                  <option value="">请选择</option>
-                  <option value="true">计款</option>
-                  <option value="false">不计款</option>
-                </Select>
+                  maxLength={100}
+                  value={input.type_name || input.type_id}
+                  options={options("type", input.type_id).map((c) => ({
+                    value: c.id,
+                    label: c.name,
+                  }))}
+                  onValueChange={(value) => {
+                    const entry = options("type", input.type_id).find(
+                      (c) =>
+                        c.id === value ||
+                        c.name.trim().toLowerCase() ===
+                          value.trim().toLowerCase(),
+                    );
+                    change("type_id", entry?.id || "");
+                    change("type_name", entry ? "" : value);
+                    if (!entry?.data.billable) {
+                      change("discount_rate", "100");
+                      change("rounding", "0");
+                    }
+                  }}
+                />
               )}
             </Field>
-          )}
-          <Field label="客户" required>
-            {(p) => (
-              <Select
-                {...p}
-                value={input.customer_id}
-                onChange={(e) => change("customer_id", e.target.value)}
+            {input.type_name && (
+              <Field
+                label="新类型是否计款"
+                required
+                hint="计款会产生应收；不计款只记录出库。"
               >
-                <option value="">请选择客户</option>
-                {options("customer", input.customer_id).map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                    {c.data.phone ? ` · ${c.data.phone}` : ""}
-                  </option>
-                ))}
-              </Select>
+                {(p) => (
+                  <Select
+                    {...p}
+                    required
+                    value={
+                      input.type_billable === undefined
+                        ? ""
+                        : String(input.type_billable)
+                    }
+                    onChange={(e) =>
+                      change("type_billable", e.target.value === "true")
+                    }
+                  >
+                    <option value="">请选择</option>
+                    <option value="true">计款</option>
+                    <option value="false">不计款</option>
+                  </Select>
+                )}
+              </Field>
             )}
-          </Field>
-          <Button className="button" onClick={onNewCustomer}>
-            快速新增客户
-          </Button>
-          <Field
-            label="业绩部门"
-            hint="先选部门，再选该部门业务员。与开单人分别记录。"
-          >
-            {(p) => (
-              <Select
-                {...p}
-                value={input.department_id || ""}
-                onChange={(e) => {
-                  setChanged(true);
-                  setInput((v) => ({
-                    ...v,
-                    department_id: e.target.value,
-                    salesperson_id: "",
-                  }));
-                }}
-              >
-                <option value="">未指定</option>
-                {options("department", input.department_id || "").map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </Select>
-            )}
-          </Field>
-          <Field label="部门业务员" required={!!input.department_id}>
-            {(p) => (
-              <Select
-                {...p}
-                value={input.salesperson_id || ""}
-                disabled={!input.department_id}
-                onChange={(e) => change("salesperson_id", e.target.value)}
-              >
-                <option value="">请选择业务员</option>
-                {options("salesperson", input.salesperson_id || "")
-                  .filter(
-                    (c) =>
-                      c.data.department_id === input.department_id ||
-                      (c.id === sale?.salesperson_id &&
-                        input.department_id === sale?.department_id),
-                  )
-                  .map((c) => (
+            <Field label="客户" required>
+              {(p) => (
+                <CatalogSelect
+                  {...p}
+                  kind="customer"
+                  catalog={catalog}
+                  onCreated={onCatalogCreated}
+                  value={input.customer_id}
+                  onChange={(e) => change("customer_id", e.target.value)}
+                >
+                  <option value="">请选择客户</option>
+                  {options("customer", input.customer_id).map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                      {c.data.phone ? ` · ${c.data.phone}` : ""}
+                    </option>
+                  ))}
+                </CatalogSelect>
+              )}
+            </Field>
+            <Field
+              label="业绩部门"
+              hint="先选部门，再选该部门业务员。与开单人分别记录。"
+            >
+              {(p) => (
+                <CatalogSelect
+                  {...p}
+                  kind="department"
+                  catalog={catalog}
+                  onCreated={onCatalogCreated}
+                  canCreate={user.role === "admin"}
+                  value={input.department_id || ""}
+                  onChange={(e) => {
+                    setChanged(true);
+                    setInput((v) => ({
+                      ...v,
+                      department_id: e.target.value,
+                      salesperson_id: "",
+                    }));
+                  }}
+                >
+                  <option value="">未指定</option>
+                  {options("department", input.department_id || "").map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}
                     </option>
                   ))}
-              </Select>
-            )}
-          </Field>
-          <TextField
-            label="业务日期"
-            type="date"
-            value={input.business_date}
-            onChange={(v) => change("business_date", v)}
-            required
-          />
-        </div>
-        <h3>选择物料</h3>
-        <label className="search">
-          <Search size={18} />
-          <Input
-            aria-label="开单查找物料"
-            placeholder="名称、编码或条码"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </label>
-        {items.error && <Notice>{items.error}</Notice>}
-        <div className="sale-picker">
-          {items.data?.items.map((i) => (
-            <Button
-              key={i.id}
-              className="button"
-              disabled={
-                i.counting || input.lines.some((l) => l.item_id === i.id)
-              }
-              onClick={() =>
-                change("lines", [
-                  ...input.lines,
-                  { item_id: i.id, quantity: "1", price: "" },
-                ])
-              }
-            >
-              {i.name} · 库存 {quantity(i.balance, i.precision)} {i.unit}
-              {i.counting ? " · 正在清点" : ""}
-            </Button>
-          ))}
-        </div>
-        <div className="form-actions">
-          <Button
-            className="button small"
-            disabled={itemPage === 1}
-            onClick={() => setItemPage((n) => n - 1)}
-          >
-            上一页物料
-          </Button>
-          <span>第 {itemPage} 页</span>
-          <Button
-            className="button small"
-            disabled={itemPage * 50 >= (items.data?.total ?? 0)}
-            onClick={() => setItemPage((n) => n + 1)}
-          >
-            下一页物料
-          </Button>
-        </div>
-        {!input.lines.length && (
-          <Empty>选择物料后，在下面逐行填写数量和单价。</Empty>
-        )}
-        <div className="sale-lines">
-          {input.lines.map((l, i) => {
-            const item = material[l.item_id];
-            const prior = sale?.lines.find((x) => x.item_id === l.item_id);
-            const name = item?.name || prior?.name || l.item_id;
-            return (
-              <div className="sale-line" key={l.item_id}>
-                <div className="sale-line-title">
-                  <strong>{name}</strong>
-                  <small>
-                    {item?.spec || prior?.spec} · {item?.unit || prior?.unit}
-                  </small>
-                  {item && (
-                    <small>
-                      当前库存：{quantity(item.balance, item.precision)}
-                      {item.unit}
-                    </small>
-                  )}
-                  <Button
-                    className="icon-button"
-                    aria-label={`移除${name}`}
-                    onClick={() =>
-                      change(
-                        "lines",
-                        input.lines.filter((_, j) => i !== j),
-                      )
-                    }
-                  >
-                    <X size={16} />
-                  </Button>
-                </div>
-                <TextField
-                  label={`${name} 数量`}
-                  value={l.quantity}
-                  decimal
-                  required
-                  onChange={(v) =>
-                    change(
-                      "lines",
-                      input.lines.map((x, j) =>
-                        j === i ? { ...x, quantity: v } : x,
-                      ),
-                    )
-                  }
-                  hint={
-                    item?.precision === 0
-                      ? "只能填写整数"
-                      : `最多 ${item?.precision ?? 3} 位小数`
-                  }
-                />
-                {billable && (
-                  <>
-                    <TextField
-                      label={`${name} 单价`}
-                      value={l.price}
-                      decimal
-                      required
-                      onChange={(v) =>
-                        change(
-                          "lines",
-                          input.lines.map((x, j) =>
-                            j === i ? { ...x, price: v } : x,
-                          ),
-                        )
-                      }
-                      hint="元，最多 4 位小数"
-                    />
-                    <div className="sale-line-amount">
-                      金额：
-                      {amounts ? `¥${moneyText(amounts.amounts[i])}` : "待填写"}
-                    </div>
-                  </>
-                )}
-              </div>
-            );
-          })}
-        </div>
-        {billable && (
-          <>
-            <div className="form-grid">
-              {user.role === "admin" ? (
-                <>
-                  <TextField
-                    label="折扣率 %"
-                    value={input.discount_rate}
-                    decimal
-                    onChange={(v) => change("discount_rate", v)}
-                    required
-                    hint="100 为原价，90 为九折"
-                  />
-                  <TextField
-                    label="抹零金额"
-                    value={input.rounding}
-                    decimal
-                    onChange={(v) => change("rounding", v)}
-                    required
-                    hint="元，不能超过折后金额"
-                  />
-                </>
-              ) : (
-                <p className="muted">优惠和收款由管理员处理。</p>
+                </CatalogSelect>
               )}
-            </div>
-            <div className="sale-amounts">
-              <span>
-                原金额：¥{amounts ? moneyText(amounts.subtotal) : "—"}
-              </span>
-              <span>折扣：¥{amounts ? moneyText(amounts.discount) : "—"}</span>
-              <span>抹零：¥{amounts ? moneyText(amounts.rounding) : "—"}</span>
-              <strong>应收：¥{amounts ? moneyText(amounts.total) : "—"}</strong>
-            </div>
-          </>
-        )}
-        <Field label="备注">
-          {(p) => (
-            <Textarea
-              {...p}
-              maxLength={500}
-              value={input.note}
-              onChange={(e) => change("note", e.target.value)}
-            />
-          )}
-        </Field>
-        {posted && (
-          <>
+            </Field>
+            <Field label="部门业务员" required={!!input.department_id}>
+              {(p) => (
+                <CatalogSelect
+                  {...p}
+                  kind="salesperson"
+                  catalog={catalog}
+                  onCreated={(entry) => {
+                    onCatalogCreated(entry);
+                    if (entry.kind === "salesperson")
+                      change("department_id", entry.data.department_id || "");
+                  }}
+                  canCreate={user.role === "admin"}
+                  departmentId={input.department_id}
+                  value={input.salesperson_id || ""}
+                  disabled={!input.department_id}
+                  onChange={(e) => change("salesperson_id", e.target.value)}
+                >
+                  <option value="">请选择业务员</option>
+                  {options("salesperson", input.salesperson_id || "")
+                    .filter(
+                      (c) =>
+                        c.data.department_id === input.department_id ||
+                        (c.id === sale?.salesperson_id &&
+                          input.department_id === sale?.department_id),
+                    )
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                </CatalogSelect>
+              )}
+            </Field>
             <TextField
-              label="修订原因"
-              value={reason}
-              onChange={(v) => {
-                setChanged(true);
-                setReason(v);
-              }}
+              label="业务日期"
+              type="date"
+              value={input.business_date}
+              onChange={(v) => change("business_date", v)}
               required
             />
-            {sale.paid > 0 && (
-              <>
-                <p className="muted">
-                  如果新应收低于净实收，保存时会同步登记超收差额退款。请确认实际退款后选择账户。
-                </p>
-                <Field label="差额退款账户">
-                  {(p) => (
-                    <Select
-                      {...p}
-                      value={account}
-                      onChange={(e) => setAccount(e.target.value)}
+          </div>
+          <div className="sale-picker-heading">
+            <h2>单据明细</h2>
+            <span role="status">已添加 {input.lines.length} 种</span>
+          </div>
+          {stockLoadError && <Notice>{stockLoadError}</Notice>}
+          {!input.lines.length && (
+            <Empty>点击“添加一行”，选择物料后填写数量和单价。</Empty>
+          )}
+          <div className="sale-lines" ref={lineElements}>
+            {input.lines.map((l, i) => {
+              const item = material[l.item_id];
+              const prior = sale?.lines.find((x) => x.item_id === l.item_id);
+              const name = item?.name || prior?.name || l.item_id;
+              return (
+                <div
+                  className="sale-line"
+                  key={l.item_id}
+                  data-item-id={l.item_id}
+                >
+                  <div className="sale-line-title">
+                    <strong>{name}</strong>
+                    <small>
+                      {item?.spec || prior?.spec} · {item?.unit || prior?.unit}
+                    </small>
+                    {item && (
+                      <small>
+                        当前库存：{quantity(item.balance, item.precision)}
+                        {item.unit}
+                      </small>
+                    )}
+                    <Button
+                      className="icon-button"
+                      aria-label={`移除${name}`}
+                      onClick={() =>
+                        change(
+                          "lines",
+                          input.lines.filter((_, j) => i !== j),
+                        )
+                      }
                     >
-                      <option value="">无退款时可留空</option>
-                      {options("account", account).map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </Select>
+                      <X size={16} aria-hidden="true" />
+                    </Button>
+                  </div>
+                  <TextField
+                    label="数量"
+                    inputLabel={`${name} 数量`}
+                    error={stockError(l)}
+                    value={l.quantity}
+                    decimal
+                    required
+                    onChange={(v) =>
+                      change(
+                        "lines",
+                        input.lines.map((x, j) =>
+                          j === i ? { ...x, quantity: v } : x,
+                        ),
+                      )
+                    }
+                    hint={
+                      item?.precision === 0
+                        ? "只能填写整数"
+                        : `最多 ${item?.precision ?? 3} 位小数`
+                    }
+                  />
+                  {billable && (
+                    <>
+                      <TextField
+                        label="单价"
+                        inputLabel={`${name} 单价`}
+                        value={l.price}
+                        decimal
+                        required
+                        onChange={(v) =>
+                          change(
+                            "lines",
+                            input.lines.map((x, j) =>
+                              j === i ? { ...x, price: v } : x,
+                            ),
+                          )
+                        }
+                        hint="元，最多 4 位小数"
+                      />
+                      <div className="sale-line-amount">
+                        金额：
+                        {amounts
+                          ? `¥${moneyText(amounts.amounts[i])}`
+                          : "待填写"}
+                      </div>
+                    </>
                   )}
+                </div>
+              );
+            })}
+            {pendingLine && (
+              <div className="sale-line sale-line-pending">
+                <div className="sale-line-title">
+                  <Field label="物料" required>
+                    {(p) => (
+                      <Popover.Root
+                        open={pickerOpen}
+                        onOpenChange={setPickerOpen}
+                      >
+                        <Popover.Trigger asChild>
+                          <Button
+                            id={p.id}
+                            className="button sale-material-trigger"
+                            aria-describedby={p["aria-describedby"]}
+                          >
+                            请选择物料
+                            <ChevronDown size={16} aria-hidden="true" />
+                          </Button>
+                        </Popover.Trigger>
+                        <Popover.Portal>
+                          <Popover.Content
+                            className="sale-material-menu"
+                            aria-label="选择物料"
+                            align="start"
+                            sideOffset={6}
+                            collisionPadding={12}
+                            onCloseAutoFocus={(event) => {
+                              if (firstAdded.current) {
+                                const input =
+                                  lineElements.current?.querySelector<HTMLInputElement>(
+                                    `[data-item-id="${CSS.escape(firstAdded.current)}"] input`,
+                                  );
+                                if (input) {
+                                  event.preventDefault();
+                                  input.focus();
+                                }
+                              }
+                            }}
+                          >
+                            <label className="search">
+                              <Search size={18} aria-hidden="true" />
+                              <Input
+                                aria-label="开单查找物料"
+                                name="sale-item-search"
+                                type="search"
+                                autoComplete="off"
+                                placeholder="名称、编码或条码，例如 M6…"
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                              />
+                            </label>
+                            {items.error && <Notice>{items.error}</Notice>}
+                            <div
+                              className="sale-picker"
+                              aria-busy={items.loading || search !== query}
+                            >
+                              {items.loading || search !== query ? (
+                                <Loading />
+                              ) : (
+                                items.data?.items.map((item) => {
+                                  const added = input.lines.some(
+                                    (line) => line.item_id === item.id,
+                                  );
+                                  return (
+                                    <div
+                                      className="sale-picker-row"
+                                      key={item.id}
+                                      data-added={added}
+                                    >
+                                      <div className="sale-picker-info">
+                                        <strong>{item.name}</strong>
+                                        <small>
+                                          {[item.spec, item.code]
+                                            .filter(Boolean)
+                                            .join(" · ")}
+                                        </small>
+                                      </div>
+                                      <span className="sale-picker-stock">
+                                        库存{" "}
+                                        {quantity(item.balance, item.precision)}{" "}
+                                        {item.unit}
+                                      </span>
+                                      <Button
+                                        className="button small sale-picker-add"
+                                        aria-label={`${added ? "已添加" : item.counting ? "正在清点" : "选择"}${item.name}`}
+                                        disabled={item.counting || added}
+                                        onClick={() => {
+                                          firstAdded.current = item.id;
+                                          change("lines", [
+                                            ...input.lines,
+                                            {
+                                              item_id: item.id,
+                                              quantity: "1",
+                                              price: "",
+                                            },
+                                          ]);
+                                          setPickerOpen(false);
+                                          setPendingLine(false);
+                                        }}
+                                      >
+                                        {added ? (
+                                          <Check size={16} aria-hidden="true" />
+                                        ) : (
+                                          !item.counting && (
+                                            <Plus
+                                              size={16}
+                                              aria-hidden="true"
+                                            />
+                                          )
+                                        )}
+                                        {added
+                                          ? "已添加"
+                                          : item.counting
+                                            ? "正在清点"
+                                            : "选择"}
+                                      </Button>
+                                    </div>
+                                  );
+                                })
+                              )}
+                              {!items.loading &&
+                                search === query &&
+                                !items.error &&
+                                !items.data?.items.length && (
+                                  <Empty>没有找到物料，请换个关键词。</Empty>
+                                )}
+                            </div>
+                            {(items.data?.total ?? 0) > 50 && (
+                              <div className="pagination">
+                                <span>
+                                  第 {itemPage} 页 · 共 {items.data?.total} 种
+                                </span>
+                                <div>
+                                  <Button
+                                    className="button small"
+                                    disabled={
+                                      itemPage === 1 ||
+                                      items.loading ||
+                                      search !== query
+                                    }
+                                    onClick={() => setItemPage((n) => n - 1)}
+                                  >
+                                    上一页物料
+                                  </Button>
+                                  <Button
+                                    className="button small"
+                                    disabled={
+                                      itemPage * 50 >=
+                                        (items.data?.total ?? 0) ||
+                                      items.loading ||
+                                      search !== query
+                                    }
+                                    onClick={() => setItemPage((n) => n + 1)}
+                                  >
+                                    下一页物料
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
+                          </Popover.Content>
+                        </Popover.Portal>
+                      </Popover.Root>
+                    )}
+                  </Field>
+                  <Button
+                    className="icon-button"
+                    aria-label="移除空行"
+                    onClick={() => {
+                      setPendingLine(false);
+                      setPickerOpen(false);
+                    }}
+                  >
+                    <X size={16} aria-hidden="true" />
+                  </Button>
+                </div>
+                <Field label="数量" required>
+                  {(p) => <Input {...p} disabled placeholder="先选择物料…" />}
                 </Field>
-                <TextField
-                  label="退款日期"
-                  type="date"
-                  value={refundDate}
-                  onChange={setRefundDate}
-                />
-              </>
+                {billable && (
+                  <Field label="单价" required>
+                    {(p) => <Input {...p} disabled placeholder="先选择物料…" />}
+                  </Field>
+                )}
+              </div>
             )}
-          </>
-        )}
-        {action.error && <Notice>{action.error}</Notice>}
-        <div className="form-actions">
+            {!pendingLine && (
+              <Button className="button sale-add-line" onClick={openPicker}>
+                <Plus size={16} aria-hidden="true" />
+                添加一行
+              </Button>
+            )}
+          </div>
+          {billable && (
+            <>
+              <div className="form-grid">
+                {user.role === "admin" ? (
+                  <>
+                    <TextField
+                      label="折扣率 %"
+                      value={input.discount_rate}
+                      decimal
+                      onChange={(v) => change("discount_rate", v)}
+                      required
+                      hint="100 为原价，90 为九折"
+                    />
+                    <TextField
+                      label="抹零金额"
+                      value={input.rounding}
+                      decimal
+                      onChange={(v) => change("rounding", v)}
+                      required
+                      hint="元，不能超过折后金额"
+                    />
+                  </>
+                ) : (
+                  <p className="muted">优惠和收款由管理员处理。</p>
+                )}
+              </div>
+              <div className="sale-amounts">
+                <span>
+                  原金额：¥{amounts ? moneyText(amounts.subtotal) : "—"}
+                </span>
+                <span>
+                  折扣：¥{amounts ? moneyText(amounts.discount) : "—"}
+                </span>
+                <span>
+                  抹零：¥{amounts ? moneyText(amounts.rounding) : "—"}
+                </span>
+                <strong>
+                  应收：¥{amounts ? moneyText(amounts.total) : "—"}
+                </strong>
+              </div>
+            </>
+          )}
+          <Field label="备注">
+            {(p) => (
+              <Textarea
+                {...p}
+                maxLength={500}
+                value={input.note}
+                onChange={(e) => change("note", e.target.value)}
+              />
+            )}
+          </Field>
+          {posted && (
+            <>
+              <TextField
+                label="修订原因"
+                value={reason}
+                onChange={(v) => {
+                  setChanged(true);
+                  setReason(v);
+                }}
+                required
+              />
+              {sale.paid > 0 && (
+                <>
+                  <p className="muted">
+                    如果新应收低于净实收，保存时会同步登记超收差额退款。请确认实际退款后选择账户。
+                  </p>
+                  <Field label="差额退款账户">
+                    {(p) => (
+                      <CatalogSelect
+                        {...p}
+                        kind="account"
+                        catalog={catalog}
+                        onCreated={onCatalogCreated}
+                        canCreate={user.role === "admin"}
+                        value={account}
+                        onChange={(e) => setAccount(e.target.value)}
+                      >
+                        <option value="">无退款时可留空</option>
+                        {options("account", account).map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </CatalogSelect>
+                    )}
+                  </Field>
+                  <TextField
+                    label="退款日期"
+                    type="date"
+                    value={refundDate}
+                    onChange={setRefundDate}
+                  />
+                </>
+              )}
+            </>
+          )}
+        </div>
+        <div className="form-actions form-footer">
+          {action.error && <Notice>{action.error}</Notice>}
+          <Button onClick={onClose} disabled={action.busy}>
+            取消
+          </Button>
           {!posted && (
             <Button
               className="button"
@@ -706,12 +1041,14 @@ function Operation({
   mode,
   sale,
   catalog,
+  onCatalogCreated,
   onDone,
   onClose,
 }: {
   mode: string;
   sale: Sale;
   catalog: CatalogEntry[];
+  onCatalogCreated: (entry: CatalogEntry) => void;
   onDone: (sale: Sale) => void;
   onClose: () => void;
 }) {
@@ -833,8 +1170,11 @@ function Operation({
           required={["pay", "refund"].includes(mode)}
         >
           {(p) => (
-            <Select
+            <CatalogSelect
               {...p}
+              kind="account"
+              catalog={catalog}
+              onCreated={onCatalogCreated}
               value={account}
               onChange={(e) => setAccount(e.target.value)}
             >
@@ -844,7 +1184,7 @@ function Operation({
                   {c.name}
                 </option>
               ))}
-            </Select>
+            </CatalogSelect>
           )}
         </Field>
         <TextField
@@ -869,7 +1209,10 @@ function Operation({
           系统只记录账目，请确认实际收付款。
         </p>
         {action.error && <Notice>{action.error}</Notice>}
-        <Submit busy={action.busy}>{title}</Submit>
+        <div className="form-actions form-footer">
+          <Button onClick={onClose}>取消</Button>
+          <Submit busy={action.busy}>{title}</Submit>
+        </div>
       </Form>
     </Modal>
   );
@@ -879,6 +1222,7 @@ function Detail({
   sale,
   user,
   catalog,
+  onCatalogCreated,
   onChange,
   onEdit,
   onClose,
@@ -887,6 +1231,7 @@ function Detail({
   sale: Sale;
   user: User;
   catalog: CatalogEntry[];
+  onCatalogCreated: (entry: CatalogEntry) => void;
   onChange: (sale: Sale) => void;
   onEdit: () => void;
   onClose: () => void;
@@ -1123,6 +1468,7 @@ function Detail({
       {action.error && <Notice>{action.error}</Notice>}
       {operation && (
         <Operation
+          onCatalogCreated={onCatalogCreated}
           mode={operation}
           sale={sale}
           catalog={catalog}
@@ -1567,7 +1913,19 @@ export default function Sales({
     }, 200);
     return () => clearTimeout(t);
   }, [search]);
-  const entries = catalog.data?.items || [];
+  const [savedEntries, setSavedEntries] = useState<
+    Record<string, CatalogEntry>
+  >({});
+  const entries = Object.values({
+    ...savedEntries,
+    ...Object.fromEntries(
+      (catalog.data?.items || []).map((entry) => [entry.id, entry]),
+    ),
+  });
+  const catalogCreated = (entry: CatalogEntry) => {
+    setSavedEntries((current) => ({ ...current, [entry.id]: entry }));
+    setLocal((n) => n + 1);
+  };
   const changed = (sale: Sale) => {
     setSelected(sale);
     setLocal((n) => n + 1);
@@ -1674,7 +2032,7 @@ export default function Sales({
             user={user}
             catalog={entries}
             onDirtyChange={onDirtyChange}
-            onNewCustomer={() => setConfig({ kind: "customer" })}
+            onCatalogCreated={catalogCreated}
             onClose={() => void closeEditor()}
             onDone={(s) => {
               changed(s);
@@ -1684,6 +2042,7 @@ export default function Sales({
           />
         ) : selected ? (
           <Detail
+            onCatalogCreated={catalogCreated}
             backLabel={financeView ? "返回收款" : "返回列表"}
             sale={selected}
             user={user}
@@ -1879,12 +2238,13 @@ export default function Sales({
       {config && (
         <ConfigForm
           catalog={entries}
+          onCatalogCreated={catalogCreated}
           kind={config.kind}
           entry={config.entry}
           onClose={() => setConfig(undefined)}
-          onDone={() => {
+          onDone={(entry) => {
             setConfig(undefined);
-            setLocal((n) => n + 1);
+            catalogCreated(entry);
           }}
         />
       )}

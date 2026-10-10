@@ -271,9 +271,11 @@ function Login({
             这是我的专用设备，记住登录（30 天未使用才过期）
           </label>
           {action.error && <Notice>{action.error}</Notice>}
-          <Submit busy={action.busy}>
-            {initialized ? "登录" : "设置并登录"}
-          </Submit>
+          <div className="form-actions form-footer">
+            <Submit busy={action.busy}>
+              {initialized ? "登录" : "设置并登录"}
+            </Submit>
+          </div>
         </Form>
       </section>
     </div>

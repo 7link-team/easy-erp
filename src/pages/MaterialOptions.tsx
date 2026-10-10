@@ -138,7 +138,7 @@ export default function MaterialOptions({
               )}
             </Field>
             {action.error && <Notice>{action.error}</Notice>}
-            <div className="form-actions">
+            <div className="form-actions form-footer">
               <Button onClick={() => setEditing(undefined)}>取消</Button>
               <Submit busy={action.busy}>保存选项</Submit>
             </div>

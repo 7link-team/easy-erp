@@ -101,6 +101,7 @@ export function Field({
   required,
   children,
   help,
+  error,
 }: {
   label: string;
   hint?: string;
@@ -109,11 +110,14 @@ export function Field({
     id: string;
     required?: boolean;
     "aria-describedby"?: string;
+    "aria-invalid"?: boolean;
   }) => ReactNode;
   help?: string;
+  error?: string;
 }) {
   const id = useId();
   const errors = useContext(ValidationContext);
+  const message = error || errors[id];
   return (
     <div className="field">
       <div className="field-label">
@@ -124,14 +128,20 @@ export function Field({
       {children({
         id,
         required,
+        "aria-invalid": !!message || undefined,
         "aria-describedby":
-          [hint ? `${id}-hint` : "", errors[id] ? `${id}-error` : ""]
+          [hint ? `${id}-hint` : "", message ? `${id}-error` : ""]
             .filter(Boolean)
             .join(" ") || undefined,
       })}
-      {errors[id] && (
-        <p className="field-error" id={`${id}-error`} role="alert">
-          {errors[id]}
+      {message && (
+        <p
+          className="field-error"
+          id={`${id}-error`}
+          role={error ? undefined : "alert"}
+          aria-live={error ? "polite" : undefined}
+        >
+          {message}
         </p>
       )}
       {hint && (

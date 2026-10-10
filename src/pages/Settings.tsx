@@ -113,7 +113,9 @@ export default function Settings({
               )}
             </Field>
           </div>
-          <Submit busy={action.busy}>保存设置</Submit>
+          <div className="form-actions form-footer">
+            <Submit busy={action.busy}>保存设置</Submit>
+          </div>
         </Form>
         {data?.last_success && (
           <p className="hint">
@@ -248,7 +250,9 @@ export default function Settings({
               </label>
             )}
           </Field>
-          <Submit busy={action.busy}>预览并检查文件</Submit>
+          <div className="form-actions form-footer">
+            <Submit busy={action.busy}>预览并检查文件</Submit>
+          </div>
         </Form>
         {preview && (
           <div className="section-divider">
@@ -292,7 +296,7 @@ export default function Settings({
                 预览显示前 10 行，确认将导入全部 {preview.rows.length} 行。
               </p>
             )}
-            <div className="form-actions">
+            <div className="form-actions form-footer">
               <Button
                 className="button primary"
                 disabled={action.busy || preview.errors.length > 0}
@@ -366,7 +370,7 @@ export default function Settings({
               )}
             </Field>
             {action.error && <Notice>{action.error}</Notice>}
-            <div className="form-actions">
+            <div className="form-actions form-footer">
               <Button
                 type="button"
                 className="button"

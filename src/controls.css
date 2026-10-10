@@ -502,3 +502,51 @@ a.button {
 .ui-combobox-list p {
   margin: 8px;
 }
+
+/* Final form actions only; pagination and inline tools remain in document flow. */
+.form-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: var(--z-sticky);
+  align-items: center;
+  background: var(--paper-0);
+  border-top: 1px solid var(--border);
+  padding: 12px 0;
+  margin-top: 20px;
+}
+.form-footer > .notice { flex-basis: 100%; margin: 0; max-height: 100px; overflow: auto; }
+.modal-body { scroll-padding-block: 16px 100px; }
+.modal-body .form-footer {
+  bottom: -24px;
+  margin-inline: -24px;
+  padding: 12px 24px 24px;
+}
+.ui-select-create {
+  position: sticky;
+  bottom: -5px;
+  justify-content: flex-start;
+  gap: 8px;
+  margin-top: 5px;
+  border-top: 1px solid var(--line-2);
+  border-radius: 0;
+  background: var(--paper-1);
+  color: var(--brand-ink);
+  font-weight: var(--w-semi);
+}
+.ui-select-create > svg { flex: 0 0 16px; width: 16px; height: 16px; }
+.ui-select-create[data-highlighted] { background: var(--brand-soft); }
+@media (max-width: 760px) {
+  .form-footer { bottom: calc(76px + env(safe-area-inset-bottom)); }
+  html[data-keyboard="open"] .form-footer { bottom: var(--keyboard-inset, 0px); }
+  .modal-body .form-footer,
+  html[data-keyboard="open"] .modal-body .form-footer {
+    bottom: calc(-20px - env(safe-area-inset-bottom));
+    margin-inline: -16px;
+    padding: 12px 16px calc(20px + env(safe-area-inset-bottom));
+  }
+  .modal-body .form-footer > .button { flex: 1 1 auto; }
+}
+@media print {
+  .form-footer { position: static; }
+}
+.login-card .form-footer { bottom: 0; }

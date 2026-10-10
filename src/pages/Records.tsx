@@ -248,7 +248,9 @@ export default function Records({
                     )}
                   </Field>
                   {action.error && <Notice>{action.error}</Notice>}
-                  <Submit busy={action.busy}>确认作废并调整库存</Submit>
+                  <div className="form-actions form-footer">
+                    <Submit busy={action.busy}>确认作废并调整库存</Submit>
+                  </div>
                 </Form>
               </Disclosure>
             )}

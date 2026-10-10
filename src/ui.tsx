@@ -4,6 +4,7 @@ import {
   isValidElement,
   useContext,
   useCallback,
+  useEffect,
   useRef,
   useId,
   useState,
@@ -19,7 +20,7 @@ import * as SelectPrimitive from "@radix-ui/react-select";
 import * as CheckboxPrimitive from "@radix-ui/react-checkbox";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as TabsPrimitive from "@radix-ui/react-tabs";
-import { Check, ChevronDown, X } from "lucide-react";
+import { Check, ChevronDown, Plus, X } from "lucide-react";
 
 export function Disclosure({
   title,
@@ -95,7 +96,9 @@ export function Input({
   return (
     <input
       {...props}
-      aria-invalid={!!errors[props.id ?? ""] || undefined}
+      name={props.name ?? props.id}
+      autoComplete={props.autoComplete ?? "off"}
+      aria-invalid={errors[props.id ?? ""] ? true : props["aria-invalid"]}
       className={`ui-input ${className}`}
     />
   );
@@ -109,7 +112,9 @@ export function Textarea({
   return (
     <textarea
       {...props}
-      aria-invalid={!!errors[props.id ?? ""] || undefined}
+      name={props.name ?? props.id}
+      autoComplete={props.autoComplete ?? "off"}
+      aria-invalid={errors[props.id ?? ""] ? true : props["aria-invalid"]}
       className={`ui-input ui-textarea ${className}`}
     />
   );
@@ -121,8 +126,11 @@ type SelectProps = Omit<
 > & {
   value?: string | number;
   onChange?: (event: { target: { value: string } }) => void;
+  createLabel?: string;
+  onCreate?: () => void;
 };
 const EMPTY_OPTION = "__erp_empty_option__";
+const CREATE_OPTION = "__erp_create_option__";
 export function Select({
   children,
   value,
@@ -132,10 +140,16 @@ export function Select({
   disabled,
   required,
   name,
+  createLabel,
+  onCreate,
   ...props
 }: SelectProps) {
+  const creating = useRef(false);
   const errors = useContext(ValidationContext);
   const clearError = useContext(ClearValidationContext);
+  useEffect(() => {
+    if (value) clearError(id ?? "");
+  }, [value, id, clearError]);
   const options = Children.toArray(children).filter(
     isValidElement<{
       value?: string | number;
@@ -148,8 +162,15 @@ export function Select({
       value={String(value ?? "") || EMPTY_OPTION}
       disabled={disabled}
       required={required}
-      name={name}
+      name={name ?? id}
       onValueChange={(value) => {
+        // Radix's hidden native select can emit an empty value while new options
+        // register. Our actual empty choice uses EMPTY_OPTION, so ignore that event.
+        if (value === "") return;
+        if (value === CREATE_OPTION && onCreate) {
+          creating.current = true;
+          return;
+        }
         clearError(id ?? "");
         onChange?.({ target: { value: value === EMPTY_OPTION ? "" : value } });
       }}
@@ -165,7 +186,7 @@ export function Select({
       >
         <SelectPrimitive.Value />
         <SelectPrimitive.Icon>
-          <ChevronDown size={18} />
+          <ChevronDown size={18} aria-hidden="true" />
         </SelectPrimitive.Icon>
       </SelectPrimitive.Trigger>
       <SelectPrimitive.Portal>
@@ -174,6 +195,14 @@ export function Select({
           position="popper"
           sideOffset={6}
           collisionPadding={12}
+          onCloseAutoFocus={(event) => {
+            if (creating.current) {
+              creating.current = false;
+              event.preventDefault();
+              document.getElementById(id ?? "")?.focus();
+              onCreate?.();
+            }
+          }}
         >
           <SelectPrimitive.Viewport>
             {options.map((option) => {
@@ -189,11 +218,22 @@ export function Select({
                 >
                   <SelectPrimitive.ItemText>{text}</SelectPrimitive.ItemText>
                   <SelectPrimitive.ItemIndicator>
-                    <Check size={16} />
+                    <Check size={16} aria-hidden="true" />
                   </SelectPrimitive.ItemIndicator>
                 </SelectPrimitive.Item>
               );
             })}
+            {onCreate && createLabel && (
+              <SelectPrimitive.Item
+                value={CREATE_OPTION}
+                className="ui-select-option ui-select-create"
+              >
+                <Plus size={16} aria-hidden="true" />
+                <SelectPrimitive.ItemText>
+                  {createLabel}
+                </SelectPrimitive.ItemText>
+              </SelectPrimitive.Item>
+            )}
           </SelectPrimitive.Viewport>
         </SelectPrimitive.Content>
       </SelectPrimitive.Portal>
@@ -271,11 +311,9 @@ export function Modal({
           onPointerDownOutside={(e) => e.preventDefault()}
           onCloseAutoFocus={(e) => {
             e.preventDefault();
-            if (
-              opener.current instanceof HTMLElement &&
-              opener.current.isConnected
-            )
-              opener.current.focus();
+            const target = opener.current;
+            if (target instanceof HTMLElement && target.isConnected)
+              target.focus();
           }}
         >
           <div
@@ -286,7 +324,7 @@ export function Modal({
             <Dialog.Title>{title}</Dialog.Title>
             <Dialog.Close asChild>
               <Button className="icon-button" aria-label="关闭">
-                <X size={20} />
+                <X size={20} aria-hidden="true" />
               </Button>
             </Dialog.Close>
           </div>
@@ -321,6 +359,8 @@ export function Form({
           noValidate
           onChange={(e) => clearError((e.target as HTMLElement).id)}
           onSubmit={(event) => {
+            // A child dialog rendered through a portal must not submit its parent form.
+            event.stopPropagation();
             const errors: Record<string, string> = {};
             let first: HTMLElement | undefined;
             for (const el of event.currentTarget.elements) {
@@ -404,7 +444,7 @@ export function ConfirmationProvider({ children }: { children: ReactNode }) {
       {pending && (
         <Modal title={pending.title} onClose={() => finish(false)}>
           <p>{pending.description}</p>
-          <div className="form-actions">
+          <div className="form-actions form-footer">
             <Button autoFocus onClick={() => finish(false)}>
               取消
             </Button>

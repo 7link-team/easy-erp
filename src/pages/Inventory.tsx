@@ -173,7 +173,7 @@ export function ItemForm({
           </Field>
         </Disclosure>
         {action.error && <Notice>{action.error}</Notice>}
-        <div className="form-actions">
+        <div className="form-actions form-footer">
           <Button type="button" className="button" onClick={onClose}>
             取消
           </Button>
