@@ -859,11 +859,18 @@ test("退货作废汇总保留历史应收和实际退款，原单往返保留�
   await page.goto("/#/home");
   await page
     .getByRole("navigation", { name: "主要导航" })
-    .getByRole("button", { name: "退货", exact: true })
+    .getByRole("button", { name: "单据", exact: true })
     .click();
+  const filters = page.getByRole("group", { name: "单据记录筛选" });
+  await page.getByLabel("搜索销售单").fill(tag);
+  await expect(
+    page.getByRole("table", { name: "销售单据列表" }).locator("tbody tr"),
+  ).toHaveCount(1);
+  await filters.getByRole("button", { name: "退货记录", exact: true }).click();
+  await expect(page).toHaveURL(/sales_records=return/);
   await page.getByLabel("搜索退货与作废", { exact: true }).fill(tag);
   const table = page.getByRole("table", { name: "退货与作废记录" });
-  await expect(table.locator("tbody tr")).toHaveCount(3);
+  await expect(table.locator("tbody tr")).toHaveCount(2);
   const debtReturn = table.getByRole("row").filter({ hasText: "先抵减欠款" });
   await expect(debtReturn.locator('[data-label="应收变化"]')).toHaveText(
     "−¥50.00",
@@ -887,10 +894,13 @@ test("退货作废汇总保留历史应收和实际退款，原单往返保留�
       path: `tmp/returns-${testInfo.project.name}-${width}.png`,
     });
   }
-  await page
-    .getByRole("group", { name: "退货与作废动作筛选" })
-    .getByRole("button", { name: "退货", exact: true })
-    .click();
+  await filters.getByRole("button", { name: "作废记录", exact: true }).click();
+  await expect(table.locator("tbody tr")).toHaveCount(1);
+  await expect(table).toContainText("取消剩余部分");
+  await expect(page).toHaveURL(/sales_records=void/);
+  await page.reload();
+  await expect(table.locator("tbody tr")).toHaveCount(1);
+  await filters.getByRole("button", { name: "退货记录", exact: true }).click();
   await expect(table.locator("tbody tr")).toHaveCount(2);
   await debtReturn
     .getByRole("button", { name: sale.number, exact: true })
@@ -898,9 +908,7 @@ test("退货作废汇总保留历史应收和实际退款，原单往返保留�
   await expect(
     page.getByText("已作废", { exact: false }).first(),
   ).toBeVisible();
-  await page
-    .getByRole("button", { name: "返回退货与作废", exact: true })
-    .click();
+  await page.getByRole("button", { name: "返回列表", exact: true }).click();
   await expect(page.getByLabel("搜索退货与作废", { exact: true })).toHaveValue(
     tag,
   );
@@ -909,9 +917,30 @@ test("退货作废汇总保留历史应收和实际退款，原单往返保留�
   await expect(table.locator("tbody tr")).toHaveCount(2);
   await expect(
     page
-      .getByRole("group", { name: "退货与作废动作筛选" })
-      .getByRole("button", { name: "退货", exact: true }),
+      .getByRole("group", { name: "单据记录筛选" })
+      .getByRole("button", { name: "退货记录", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
+  await filters.getByRole("button", { name: "单据", exact: true }).click();
+  await expect(page.getByLabel("搜索销售单")).toHaveValue(tag);
+  await expect(
+    page.getByRole("table", { name: "销售单据列表" }).locator("tbody tr"),
+  ).toHaveCount(1);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(
+    `/?returns_q=${encodeURIComponent(tag)}&returns_action=void#/returns`,
+  );
+  await expect(
+    page.getByRole("heading", { name: "单据", exact: true }),
+  ).toBeVisible();
+  await expect(table.locator("tbody tr")).toHaveCount(1);
+  await expect(
+    filters.getByRole("button", { name: "作废记录", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(
+    page
+      .getByRole("navigation", { name: "主要导航" })
+      .getByRole("button", { name: "单据", exact: true }),
+  ).toHaveAttribute("aria-current", "page");
 });
 
 test("退货作废汇总分页不会遗漏相同秒内多次退货，非计款退货金额为零", async ({
@@ -978,6 +1007,21 @@ test("退货作废汇总分页不会遗漏相同秒内多次退货，非计款�
   await expect(next).toBeDisabled();
   await expect(
     page.getByText("共 51 条 · 第 2 页", { exact: true }),
+  ).toBeVisible();
+  const filters = page.getByRole("group", { name: "单据记录筛选" });
+  await filters.getByRole("button", { name: "作废记录", exact: true }).click();
+  await expect(
+    page.getByText("共 0 条 · 第 1 页", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("没有符合筛选条件的作废记录。", { exact: true }),
+  ).toBeVisible();
+  await filters.getByRole("button", { name: "退货记录", exact: true }).click();
+  await expect(
+    page.getByRole("table", { name: "退货与作废记录" }).locator("tbody tr"),
+  ).toHaveCount(50);
+  await expect(
+    page.getByText("共 51 条 · 第 1 页", { exact: true }),
   ).toBeVisible();
 });
 
@@ -1063,7 +1107,11 @@ test("退货作废汇总按原单归属隔离，未授权角色不能访问", as
           (await context.request.get(`/api/sales/${adminSale.id}`)).status(),
         ).toBe(403);
         const ownPage = await context.newPage();
-        await ownPage.goto("/#/returns");
+        await ownPage.goto("/#/sales");
+        await ownPage
+          .getByRole("group", { name: "单据记录筛选" })
+          .getByRole("button", { name: "作废记录", exact: true })
+          .click();
         await expect(
           ownPage.getByText(/当前仅显示本人开单的退货与作废/),
         ).toBeVisible();
@@ -1087,7 +1135,7 @@ test("退货作废汇总按原单归属隔离，未授权角色不能访问", as
         await expect(
           other
             .getByRole("navigation", { name: "主要导航" })
-            .getByRole("button", { name: "退货", exact: true }),
+            .getByRole("button", { name: "单据", exact: true }),
         ).toHaveCount(0);
       }
     } finally {

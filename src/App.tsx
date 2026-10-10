@@ -30,7 +30,6 @@ import {
   PackageSearch,
   ClipboardList,
   ReceiptText,
-  Undo2,
   Wallet,
   Landmark,
   ChartNoAxesCombined,
@@ -566,7 +565,6 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
   /* 手机底栏只放 5 个最高频入口，其余走「更多」。清单只在这里定义一次。 */
   const secondary = [
     "sales",
-    "returns",
     "customers",
     "movement",
     "stocktakes",
@@ -587,9 +585,6 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
       : []),
     ...(can(user, "customers.read")
       ? [{ id: "customers", label: "客户", icon: ContactRound }]
-      : []),
-    ...(can(user, "sales.read")
-      ? [{ id: "returns", label: "退货", icon: Undo2 }]
       : []),
     ...(can(user, "items.read")
       ? [{ id: "inventory", label: "物料", icon: PackageSearch }]
@@ -625,7 +620,12 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
       : []),
   ];
   const financePage = ["finance", "accounts", "performance"].includes(page);
-  const activePage = page === "in" || page === "out" ? "movement" : page;
+  const activePage =
+    page === "in" || page === "out"
+      ? "movement"
+      : page === "returns"
+        ? "sales"
+        : page;
   const salesView =
     page === "invoice" ? "sales" : financePage ? "finance" : page;
   const allowedPage =
@@ -660,7 +660,7 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
             {
               label: "销售",
               domain: "sales",
-              ids: ["invoice", "sales", "customers", "returns"],
+              ids: ["invoice", "sales", "customers"],
             },
             {
               label: "库存",
@@ -739,7 +739,9 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
           </span>
           <span className="connection">
             <strong className="workspace-title">
-              {nav.find((item) => item.id === page)?.label ??
+              {nav.find(
+                (item) => item.id === (page === "returns" ? "sales" : page),
+              )?.label ??
                 (page === "updates"
                   ? "关于"
                   : page === "in"

@@ -47,6 +47,9 @@ export function pageAddress(page: Page, query?: Record<string, string>) {
   if (!query?.sale_print) params.delete("sale_print");
   if (page !== "inventory") params.delete("inventory_item");
   if (page !== "customers") params.delete("customer_focus");
+  // Search/dashboard links target documents unless a record filter is explicit.
+  if (page === "sales" && query && !query.sales_records)
+    params.delete("sales_records");
   for (const [key, value] of Object.entries(query ?? {})) {
     if (value) params.set(key, value);
     else params.delete(key);

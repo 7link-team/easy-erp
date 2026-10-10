@@ -1105,6 +1105,7 @@ button { transition: background-color var(--dur-1) var(--ease), border-color var
 
 /* Prototype ledger filters use one toolbar and compact, named state chips. */
 .filter-chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 var(--s-4) var(--s-4); border-bottom: 1px solid var(--line-1); }
+.document-record-filters { padding: 0 0 var(--s-3); border-bottom: 0; }
 .filter-chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; min-height: 36px; border: 1px solid var(--line-2); border-radius: var(--r-control); color: var(--ink-2); background: var(--paper-0); font-size: var(--t-12); }
 .filter-chip[aria-pressed="true"] { color: var(--brand-ink); background: var(--brand-soft); border-color: var(--brand); }
 .filter-chip:hover { border-color: var(--brand); }
