@@ -1,4 +1,5 @@
 import { can } from "./api";
+import { GlobalSearch } from "./GlobalSearch";
 import {
   HomeMetrics,
   TodaySales,
@@ -750,6 +751,7 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
             <span className="host">{location.host}</span>
           </span>
           <div className="topbar-actions">
+            <GlobalSearch user={user} revision={revision} navigate={navigate} />
             <SizeSwitch size={display.size} onChange={display.setSize} />
             <Button
               className="icon-button"
@@ -809,6 +811,7 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
             )}
             {page === "inventory" && can(user, "items.read") && (
               <Inventory
+                key={`inventory-${navigationIndex}`}
                 user={user}
                 revision={revision}
                 refresh={refresh}
@@ -862,7 +865,9 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
               ] && (
                 <Sales
                   key={
-                    financePage ? "finance" : `${page}-${initialItem?.id || ""}`
+                    financePage
+                      ? "finance"
+                      : `${page}-${initialItem?.id || ""}-${navigationIndex}`
                   }
                   initialItem={
                     page === "invoice" || page === "sales"

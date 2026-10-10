@@ -197,8 +197,18 @@ async fn catalog_references(db: &impl ConnectionTrait) -> Result<HashMap<String,
         .collect())
 }
 
-pub async fn catalog(State(s): State<AppState>, headers: HeaderMap) -> Result<Json<Value>> {
+#[derive(Deserialize)]
+pub struct CatalogFilter {
+    q: Option<String>,
+    kind: Option<String>,
+}
+pub async fn catalog(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Query(filter): Query<CatalogFilter>,
+) -> Result<Json<Value>> {
     let actor = current(&s, &headers).await?;
+    let q = clean(filter.q.as_deref().unwrap_or(""), "搜索", 100, false)?.to_lowercase();
     let rows = all(
         &s.db,
         "SELECT * FROM sales_catalog ORDER BY kind,COALESCE(json_extract(data,'$.sort'),0),name",
@@ -215,6 +225,22 @@ pub async fn catalog(State(s): State<AppState>, headers: HeaderMap) -> Result<Js
         };
         if actor.can(permission) {
             let mut value = catalog_json(r)?;
+            if filter
+                .kind
+                .as_ref()
+                .is_some_and(|kind| kind != &text(r, "kind"))
+                || (!q.is_empty()
+                    && ![
+                        value["name"].as_str(),
+                        value["data"]["contact"].as_str(),
+                        value["data"]["phone"].as_str(),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    .any(|v| v.to_lowercase().contains(&q)))
+            {
+                continue;
+            }
             let used = references.get(&text(r, "id")).copied().unwrap_or(0);
             let members = rows
                 .iter()
@@ -237,7 +263,11 @@ pub async fn catalog(State(s): State<AppState>, headers: HeaderMap) -> Result<Js
             items.push(value);
         }
     }
-    Ok(Json(json!({"items":items})))
+    let total = items.len();
+    if filter.q.is_some() {
+        items.truncate(50);
+    }
+    Ok(Json(json!({"items":items,"total":total})))
 }
 #[derive(Deserialize, Serialize)]
 pub struct CatalogInput {

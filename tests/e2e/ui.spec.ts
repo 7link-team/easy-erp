@@ -402,6 +402,8 @@ for (const viewport of [
   test(`所有页面、弹窗与帮助在 ${viewport.width}×${viewport.height} 下可操作`, async ({
     page,
   }) => {
+    const pageErrors: string[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error.message));
     await page.setViewportSize(viewport);
     await login(page);
     for (const name of [
@@ -592,6 +594,7 @@ for (const viewport of [
       path: `test-results/ui-${viewport.width}.png`,
       fullPage: true,
     });
+    expect(pageErrors).toEqual([]);
   });
 }
 

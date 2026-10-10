@@ -214,6 +214,10 @@ export default function Inventory({
     ]),
   );
   const [search, setSearch] = useQueryValue<string>("inventory_q", "");
+  const [focusedItem, setFocusedItem] = useQueryValue<string>(
+    "inventory_item",
+    "",
+  );
   const [debounced, setDebounced] = useState(search);
   const [kind, setKind] = useQueryValue<string>("inventory_kind", "");
   const [status, setStatus] = useQueryValue<string>(
@@ -238,7 +242,7 @@ export default function Inventory({
     total: number;
     counts: Record<string, number>;
   }>(
-    `/items?q=${encodeURIComponent(debounced)}&kind=${encodeURIComponent(kind)}&status=${encodeURIComponent(status)}&sort=${encodeURIComponent(sort)}&page=${page}`,
+    `/items?q=${encodeURIComponent(debounced)}&kind=${encodeURIComponent(kind)}&status=${encodeURIComponent(status)}&sort=${encodeURIComponent(sort)}&page=${page}${focusedItem ? `&ids=${encodeURIComponent(focusedItem)}` : ""}`,
     revision,
   );
   return (
@@ -254,7 +258,7 @@ export default function Inventory({
               <Button onClick={() => setImporting(true)}>导入物料</Button>
               <a
                 className="button"
-                href={`/api/export/items?format=csv&q=${encodeURIComponent(debounced)}&kind=${encodeURIComponent(kind)}&status=${encodeURIComponent(status)}&sort=${encodeURIComponent(sort)}`}
+                href={`/api/export/items?format=csv&q=${encodeURIComponent(debounced)}&kind=${encodeURIComponent(kind)}&status=${encodeURIComponent(status)}&sort=${encodeURIComponent(sort)}${focusedItem ? `&ids=${encodeURIComponent(focusedItem)}` : ""}`}
               >
                 导出 CSV
               </a>
@@ -283,6 +287,7 @@ export default function Inventory({
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
+                setFocusedItem("");
                 setPage(1);
               }}
             />
@@ -314,6 +319,20 @@ export default function Inventory({
             <option value="name">物料名称</option>
           </Select>
         </div>
+        {focusedItem && (
+          <div className="search-location" role="status">
+            <span>已定位到搜索选中的物料</span>
+            <Button
+              className="text-button"
+              onClick={() => {
+                setFocusedItem("");
+                setPage(1);
+              }}
+            >
+              查看全部物料
+            </Button>
+          </div>
+        )}
         <div className="filter-chips" role="group" aria-label="物料状态">
           {[
             ["active", "全部在用"],

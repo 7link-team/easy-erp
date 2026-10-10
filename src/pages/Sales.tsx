@@ -2287,6 +2287,14 @@ export default function Sales({
     "customer_ledger",
     "",
   );
+  const [customerSearch, setCustomerSearch] = useQueryValue<string>(
+    "customer_q",
+    "",
+  );
+  const [focusedCustomer, setFocusedCustomer] = useQueryValue<string>(
+    "customer_focus",
+    "",
+  );
   const showCustomerFinance = view === "customers" && can(user, "finance.read");
   const customerFinance = useResource<Finance>(
     showCustomerFinance ? "/sales/finance" : undefined,
@@ -2418,6 +2426,15 @@ export default function Sales({
   };
   const configRows = entries
     .filter((c) => c.kind === visibleConfigKind)
+    .filter(
+      (c) =>
+        view !== "customers" ||
+        (focusedCustomer
+          ? c.id === focusedCustomer
+          : [c.name, c.data.contact, c.data.phone].some((v) =>
+              v?.toLowerCase().includes(customerSearch.trim().toLowerCase()),
+            )),
+    )
     .sort(
       (a, b) =>
         (a.data.sort ?? 0) - (b.data.sort ?? 0) ||
@@ -2949,6 +2966,41 @@ export default function Sales({
                             : "停用后不再用于新单据，历史记录仍可查看。"}
                     </p>
                   </div>
+                  {view === "customers" && (
+                    <>
+                      <div className="filters">
+                        <label className="search">
+                          <Search size={18} aria-hidden="true" />
+                          <Input
+                            type="search"
+                            name="customer-search"
+                            aria-label="搜索客户"
+                            placeholder="客户名称、联系人或电话…"
+                            maxLength={100}
+                            value={customerSearch}
+                            onChange={(e) => {
+                              setCustomerSearch(e.target.value);
+                              setFocusedCustomer("");
+                            }}
+                          />
+                        </label>
+                      </div>
+                      {focusedCustomer && (
+                        <div className="search-location" role="status">
+                          <span>已定位到搜索选中的客户</span>
+                          <Button
+                            className="text-button"
+                            onClick={() => {
+                              setFocusedCustomer("");
+                              setCustomerSearch("");
+                            }}
+                          >
+                            查看全部客户
+                          </Button>
+                        </div>
+                      )}
+                    </>
+                  )}
                   {catalog.loading ? (
                     <Loading />
                   ) : !configRows.length ? (

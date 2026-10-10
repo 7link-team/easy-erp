@@ -45,6 +45,8 @@ export function pageAddress(page: Page, query?: Record<string, string>) {
   const params = new URLSearchParams(location.search);
   if (!query?.sale_open) params.delete("sale_open");
   if (!query?.sale_print) params.delete("sale_print");
+  if (page !== "inventory") params.delete("inventory_item");
+  if (page !== "customers") params.delete("customer_focus");
   for (const [key, value] of Object.entries(query ?? {})) {
     if (value) params.set(key, value);
     else params.delete(key);
@@ -161,11 +163,10 @@ export function useQueryValue<T extends string | number>(
     if (value === fallback) params.delete(key);
     else params.set(key, String(value));
     const query = params.toString();
-    history.replaceState(
-      history.state,
-      "",
-      `${location.pathname}${query ? `?${query}` : ""}${location.hash}`,
-    );
+    const next = `${location.pathname}${query ? `?${query}` : ""}${location.hash}`;
+    if (next !== `${location.pathname}${location.search}${location.hash}`) {
+      history.replaceState(history.state, "", next);
+    }
   }, [key, value, fallback]);
   useEffect(() => {
     const restore = () => setValue(read());
