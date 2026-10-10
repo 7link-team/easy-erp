@@ -2,7 +2,7 @@
 
 ## Objective / Phase
 Active goal：全部做到位啊。依据docs/客户需求/20261009.md、用户后续确认及v2原型；整体active，未标记complete。
-当前TESTING：财务批6560988及checkpoint9712276已推送。上一goal turn为progress（实现交付和实际验证）。本轮追查WebKit搜索输入为空，新增140次有事件记录的诊断均正常，并查到云端旧提交同型失败；发现当前代码云端CI仍运行，下一步跟踪已存在run，不重复启动。全目标active，优惠汇总仍待用户回复，未自行变更口径。Direct，无subagent。
+当前ACCEPTANCE：功能提交6560988的云端run38076087635整轮SUCCESS，Chromium139/WebKit139全量通过，全部适用平台构建/测试通过。当前产品/测试/构建文件与受测提交相同，后续仅文档。独立实现、验证和审阅资料同步已完成；优惠经营汇总的业务取舍仍待用户回复，整体不能宣称完成。Direct，无subagent。
 分支feat/sales-and-receivables；用户授权全部提交推送，不合并、不发Release。保留数据库、tmp和预览服务；仅显式stage。
 
 ## Delivered / Historical Evidence
@@ -78,12 +78,18 @@ FinancePanel客户欠款/全部筛选、逐列账册/账龄、账户占比及合
 - 新增只读诊断140次全部正常：预览冷页40；原失败隔离库副本399条记录、初始响应0/200/600/1000ms延迟40；记录/销售各半独立浏览器context40；启用与E2E相同截图/快照trace20。每次核对输入值、URL参数、已发出对应查询，捕获input/beforeinput/focus/popstate事件；全部有正确input事件、无popstate。不能以未复现宣称根因修复，不改产品或放宽断言。
 - 诊断脚本tmp/record-search-diagnostic.mjs；结果tmp/{record-search-diagnostic,record-search-large-diagnostic,search-cold-diagnostic,search-traced-diagnostic}.json；日志/tmp/erp-{record-search-diagnostic,record-search-large-diagnostic,search-cold-diagnostic,search-traced-diagnostic}.log。复制旧隔离库到tmp/record-search-large-data，源库及预览业务数据未改；4294诊断服务已停止。
 - 云端旧失败证据tmp/ci-239c5a2-webkit/test-results及/tmp/erp-ci-239c5a2-failed.log，下载进程已完成。原本地trace仍保留。
-- 当前功能提交6560988的run38076087635已通过Windows/Linux checks、web、Android、Windows/Linux桌面及macOS ARM桌面；最近实际查询双浏览器E2E、macOS Intel桌面及iOS模拟器仍in_progress。9712276文档checkpoint的run38076119049此前pending；只跟踪这些已有任务，后续先重新查询实际状态。PR #1仍OPEN/DRAFT，不合并、不发布。
+- 当前功能提交6560988的run38076087635已通过Windows/Linux checks、web、Android、Windows/Linux/macOS ARM桌面及iOS模拟器；云端Chromium139（8.8m）/WebKit139（13.5m）均成功，日志/tmp/erp-ci-6560988-{chromium,webkit}.log。macOS Intel桌面job114283207459也已SUCCESS，整轮run38076087635于本轮查询确认SUCCESS；完整结果/tmp/erp-ci-6560988-result.json。9712276文档run38076119049已被后续排队替代而cancelled；当前0737a92的run38076749792已开始运行，只涉及对相同产品代码的重复验证；产品受测基准仍为已完整成功的6560988。6560988..0737a92仅改状态与需求文档，产品/测试/构建文件相同。PR #1仍OPEN/DRAFT，不合并、不发布。
+
+## Final Acceptance / Decision Required
+- 实现/复用/权限/历史快照/兼容性/响应界面和需求证据矩阵均已核对；最后没有新增产品代码。构建顺序、Rust7/Node6、显示336+72、当地和云端双浏览器证据见上。云端11个实际执行jobs SUCCESS，iOS真机/Release条件跳过，不声称硬件已测或已发布。
+- PR #1标题与描述已同步当前14菜单、角色权限、原型交互、账册和全部实际验证结果，仍OPEN/DRAFT；未合并或发布。此前两次输入为空失败及140次未复现记录继续保留，完整新云端139/139通过不等于根因已修复。
+- 唯一待确认业务范围：原型“抹零/折扣让利”经营汇总是否本轮增加，以及退货后口径；单据自身优惠与退货分摊已完成。建议本轮不增加该经营指标，原始客户需求未要求它且原型未定义会计口径。
+- Blocked audit：该同一业务澄清在财务交付、140次诊断、最终云端验收三个连续goal turns均未收到答复；此前仍持续完成独立工作，本轮这些工作已完成。当前没有证据支持继续猜测业务口径或修改未复现的输入问题。完成提交推送后可将goal标记blocked等待用户决策，不能标记complete。
 
 ## Next Action
-1. 用gh run view 38076087635 --json status,conclusion,jobs核对现有云端任务；终态若失败读具体失败日志/trace，保留断言定位。文档提交不改变产品代码，核对最终head排队的run实际状态；不能因观察超时重启CI。
-2. 目前没有稳定复现，不继续机械重复140次已验证的相同条件；如云端再失败，比较新证据定位共同原因。
-3. 等用户回复原型优惠经营汇总的取舍/退货后口径；建议本轮不增加该汇总，保留现有单据优惠明细。未收到回复不实施或宣称差异关闭。
+1. 等用户明确优惠经营汇总取舍。若本轮不加，按已确认范围做最终收尾；若增加，先确认退货后统计口径，再实现/验证。不要自行采用某种会计口径。
+2. 文档提交的CI会自动继续；如有新失败，读取对应日志/trace，不因等待重启。产品代码、测试与构建配置未变，无需再次手工启动已通过的全量测试。
+3. 搜索输入为空若再次出现，沿用保留的事件诊断与本地/云端trace定位；现有证据无法证明根因，不宣称修复或机械重复相同140次检查。
 
 ## Last Checkpoint
-2026-10-11：本轮完成140次针对性诊断，得到第二份同型云端失败证据，当前云端CI经实际查询仍运行。本轮为progress并有verified wait，未满足blocked audit；已停止仅本轮4294诊断服务，保留其他预览、数据库及tmp。本轮仅更新验证记录，不修改产品或测试断言。全目标active。
+2026-10-11：run38076087635整轮SUCCESS，云端Chromium139（8.8m）/WebKit139（13.5m），所有适用端侧job通过。PR审阅资料已更新，独立工作完成。最后仅提交验收状态/需求文档，不修改产品。优惠汇总澄清达到上述blocked审计阈值，交付后等待该业务决定。
