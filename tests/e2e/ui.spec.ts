@@ -97,7 +97,7 @@ test("侧栏标题固定，工作台开单入口与其他操作统一排列", as
   expect((await brand.boundingBox())!.y).toBe(titlePosition);
   await expect(brand).toBeInViewport();
   await expect(
-    menu.getByRole("button", { name: "版本", exact: true }),
+    menu.getByRole("button", { name: "备份", exact: true }),
   ).toBeInViewport();
   const actions = page.locator(".task-grid").getByRole("button");
   await expect(actions).toHaveCount(4);
@@ -114,7 +114,9 @@ test("侧栏标题固定，工作台开单入口与其他操作统一排列", as
   expect(mobile[2]).toBeGreaterThan(mobile[0]);
   await fits(page);
   await page.getByRole("button", { name: /开单发货/ }).click();
-  await expect(page.locator("main h1")).toHaveText("开单");
+  await expect(
+    page.getByRole("heading", { name: "新建单据", exact: true }),
+  ).toBeVisible();
 });
 
 test("收发多物料局部滚动，确认按钮始终可见", async ({ page }) => {
@@ -186,38 +188,33 @@ test("收发多物料局部滚动，确认按钮始终可见", async ({ page }) 
   }
 });
 
-test("工作台统计卡片保持渐变及悬停文字对比", async ({ page }) => {
+test("工作台经营展示带与库存指标按原型分区且悬停可读", async ({ page }) => {
   await login(page);
   for (const width of [1280, 375]) {
     await page.setViewportSize({ width, height: 800 });
-    const summary = page.locator(".stock-summary");
-    // 展示带是多光源渐变：至少一层径向 + 一层线性
+    const summary = page.getByRole("region", { name: "本月经营概况" });
+    await expect(summary).toBeVisible();
     const band = await summary.evaluate(
       (el) => getComputedStyle(el).backgroundImage,
     );
     expect(band).toContain("radial-gradient");
     expect(band).toContain("linear-gradient");
-    const cards = summary.getByRole("button");
-    await expect(cards).toHaveCount(2);
+    await expect(summary.locator(".business-figure")).toHaveCSS(
+      "color",
+      "rgb(255, 255, 255)",
+    );
+    const cards = page.locator(".home-ledger").getByRole("link");
+    await expect(cards).toHaveCount(4);
     for (const card of await cards.all()) {
       await page.mouse.move(0, 0);
       await expect(card).not.toHaveClass(/(^|\s)button(\s|$)/);
       await expect(card).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-      // 深底上的次级文字：--on-band-2
-      await expect(card).toHaveCSS("color", "rgba(255, 255, 255, 0.72)");
+      const ink = await card
+        .locator(":scope > strong")
+        .evaluate((el) => getComputedStyle(el).color);
       await card.hover();
-      await expect(card).toHaveCSS(
-        "background-color",
-        "rgba(255, 255, 255, 0.06)",
-      );
-      // Low-stock warnings are intentionally amber on the dark band.
-      const warning = await card
-        .locator("strong")
-        .evaluate((el) => el.classList.contains("warning-number"));
-      await expect(card.locator("strong")).toHaveCSS(
-        "color",
-        warning ? "rgb(255, 217, 143)" : "rgb(255, 255, 255)",
-      );
+      await expect(card).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+      await expect(card.locator(":scope > strong")).toHaveCSS("color", ink);
     }
     await page.screenshot({
       path: `test-results/summary-colors-${width}.png`,
@@ -411,28 +408,47 @@ for (const viewport of [
       "工作台",
       "物料",
       "开单",
+      "单据",
       "客户",
+      "退货",
+      "出入库",
       "基础资料",
       "收款",
+      "账户",
+      "业绩",
       "记录",
       "清点",
       "人员",
       "备份",
-      "版本",
+      "关于",
     ]) {
       if (
         viewport.width <= 760 &&
-        ["客户", "基础资料", "记录", "清点", "人员", "备份", "版本"].includes(
-          name,
-        )
+        [
+          "单据",
+          "客户",
+          "退货",
+          "出入库",
+          "账户",
+          "业绩",
+          "基础资料",
+          "记录",
+          "清点",
+          "人员",
+          "备份",
+          "关于",
+        ].includes(name)
       ) {
         await page.getByRole("button", { name: "更多", exact: true }).click();
       }
-      await page
-        .getByRole("navigation")
-        .getByRole("button", { name, exact: true })
-        .click();
-      await expect(page.locator("main h1")).toBeVisible();
+      if (name === "关于")
+        await page.getByRole("button", { name, exact: true }).click();
+      else
+        await page
+          .getByRole("navigation")
+          .getByRole("button", { name, exact: true })
+          .click();
+      await expect(page.locator("main h1:visible")).toBeVisible();
       await fits(page);
       if (name === "收款") {
         await expect(
@@ -724,7 +740,10 @@ test("全站栏目选中样式一致、侧栏分区与普通页面打印", async
     expect(styles[1]).toEqual(styles[0]);
     // Dictionary navigation follows the prototype: a side list on desktop,
     // horizontal choices on mobile, not the ordinary underline tab style.
-    await expect(config).toHaveAttribute("aria-orientation", width > 760 ? "vertical" : "horizontal");
+    await expect(config).toHaveAttribute(
+      "aria-orientation",
+      width > 760 ? "vertical" : "horizontal",
+    );
     const sideBox = await page.locator(".dictionary-side").boundingBox();
     const contentBox = await page.locator(".dictionary-main").boundingBox();
     expect(sideBox).not.toBeNull();
@@ -734,10 +753,16 @@ test("全站栏目选中样式一致、侧栏分区与普通页面打印", async
       expect(contentBox!.x - sideBox!.x - sideBox!.width).toBe(16);
       expect(contentBox!.y).toBe(sideBox!.y);
     } else {
-      expect(contentBox!.y).toBeGreaterThanOrEqual(sideBox!.y + sideBox!.height);
+      expect(contentBox!.y).toBeGreaterThanOrEqual(
+        sideBox!.y + sideBox!.height,
+      );
     }
-    await expect(page.getByRole("table", { name: "单据类型列表" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "新增单据类型", exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("table", { name: "单据类型列表" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "新增单据类型", exact: true }),
+    ).toBeVisible();
     await selected.focus();
     await page.keyboard.press("End");
     await expect(
@@ -804,9 +829,7 @@ test("普通开单人的配置栏目只提供客户并能快速建档", async ({
     });
     await expect(config).toBeHidden();
     await expect(worker.locator("main h1")).toBeVisible();
-    await worker
-      .getByRole("button", { name: "新增客户", exact: true })
-      .click();
+    await worker.getByRole("button", { name: "新增客户", exact: true }).click();
     const dialog = worker.getByRole("dialog", {
       name: "新增客户",
       exact: true,

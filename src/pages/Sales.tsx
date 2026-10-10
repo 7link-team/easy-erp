@@ -1778,10 +1778,14 @@ function FinancePanel({
   user,
   revision,
   onSelect,
+  section,
+  navigationIndex = 0,
 }: {
   user: User;
   revision: number;
   onSelect: (id: string) => void;
+  section?: "debts" | "accounts" | "performance";
+  navigationIndex?: number;
 }) {
   const [customer, setCustomer] = useState<Finance["customers"][number]>();
   const resource = useResource<Finance>("/sales/finance", revision);
@@ -1789,6 +1793,17 @@ function FinancePanel({
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
   const data = resource.data;
+  const focused = useRef("");
+  useEffect(() => {
+    if (!data || !section) return;
+    const target = `${section}-${navigationIndex}`;
+    if (focused.current === target) return;
+    const element = document.getElementById(`finance-${section}`);
+    if (!element) return;
+    focused.current = target;
+    element.scrollIntoView({ block: "start" });
+    element.focus({ preventScroll: true });
+  }, [data, section, navigationIndex]);
   if (resource.error) return <Notice>{resource.error}</Notice>;
   if (!data) return <Loading />;
   const entries = data.entries.filter(
@@ -1853,7 +1868,12 @@ function FinancePanel({
           <strong>¥{moneyText(data.debt)}</strong>
         </div>
       </div>
-      <section className="finance-section" aria-label="客户欠款">
+      <section
+        className="finance-section"
+        id="finance-debts"
+        tabIndex={-1}
+        aria-label="客户欠款"
+      >
         <h3>客户对账（全部有效单据）</h3>
         <div className="sale-detail-lines">
           {data.customers.map((c) => (
@@ -1874,7 +1894,12 @@ function FinancePanel({
           ))}
         </div>
       </section>
-      <section className="finance-section" aria-label="账户流水">
+      <section
+        className="finance-section"
+        id="finance-accounts"
+        tabIndex={-1}
+        aria-label="账户流水"
+      >
         <h3>账户累计汇总</h3>
         <TableScroll>
           <table aria-label="账户累计汇总">
@@ -1967,7 +1992,12 @@ function FinancePanel({
           </table>
         </TableScroll>
       </section>
-      <section className="finance-section" aria-label="部门业绩">
+      <section
+        className="finance-section"
+        id="finance-performance"
+        tabIndex={-1}
+        aria-label="部门业绩"
+      >
         <h3>部门与业务员业绩</h3>
         <p className="muted">
           按有效计款单据统计，业绩金额扣除退货，作废单不计入。实收为净收款。
@@ -2112,6 +2142,9 @@ function AdjustmentsLedger({
                   实际退款
                 </th>
                 <th scope="col">经办人 / 记录时间</th>
+                <th scope="col" className="ledger-actions">
+                  操作
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -2147,6 +2180,14 @@ function AdjustmentsLedger({
                   <td data-label="经办人 / 记录时间">
                     <strong>{record.actor_name}</strong>
                     <small>{dateTime(record.created_at)}</small>
+                  </td>
+                  <td className="document-row-actions" data-label="操作">
+                    <Button
+                      className="button small"
+                      onClick={() => onSelect(record.sale_id)}
+                    >
+                      查看原单
+                    </Button>
                   </td>
                 </tr>
               ))}
@@ -2190,9 +2231,17 @@ export default function Sales({
   onDirtyChange,
   view = "sales",
   initialItem,
+  startNew = false,
+  onOpenList,
+  financeSection,
+  navigationIndex = 0,
 }: {
   view?: "sales" | "finance" | "customers" | "catalog" | "returns";
   initialItem?: Item;
+  startNew?: boolean;
+  onOpenList?: (id?: string) => void;
+  financeSection?: "debts" | "accounts" | "performance";
+  navigationIndex?: number;
   user: User;
   revision: number;
   refresh: () => void;
@@ -2226,7 +2275,8 @@ export default function Sales({
   const [listTo, setListTo] = useQueryValue<string>("sales_to", "");
   const [page, setPage] = useQueryValue<number>("sales_page", 1);
   const [selected, setSelected] = useState<Sale>();
-  const [editing, setEditing] = useState(!!initialItem);
+  const [openSaleId, setOpenSaleId] = useQueryValue<string>("sale_open", "");
+  const [editing, setEditing] = useState(startNew || !!initialItem);
   const [prefill, setPrefill] = useState(initialItem);
   const [config, setConfig] = useState<{
     kind: CatalogEntry["kind"];
@@ -2261,7 +2311,7 @@ export default function Sales({
     total: number;
     counts: Record<string, number>;
   }>(
-    view === "sales" && can(user, "sales.read")
+    view === "sales" && !startNew && can(user, "sales.read")
       ? `/sales?q=${encodeURIComponent(query)}&status=${encodeURIComponent(listStatus)}&from=${encodeURIComponent(listFrom)}&to=${encodeURIComponent(listTo)}&page=${page}`
       : undefined,
     revision + local,
@@ -2290,9 +2340,10 @@ export default function Sales({
     setLocal((n) => n + 1);
     refresh();
   };
-  const select = (id: string) =>
+  const select = (id: string, edit = false) =>
     action.run(async () => {
       setSelected(await api<Sale>(`/sales/${id}`));
+      setEditing(edit);
       setTab(
         configView
           ? "config"
@@ -2305,8 +2356,10 @@ export default function Sales({
     });
   useEffect(() => {
     const id = new URLSearchParams(location.search).get("sale_print");
+    if (startNew) return;
     if (id) void select(id);
-  }, []);
+    else if (view === "sales" && openSaleId) void select(openSaleId);
+  }, [openSaleId]);
   useEffect(() => {
     const id = selected?.id;
     if (!id || editing) return;
@@ -2318,6 +2371,12 @@ export default function Sales({
       .catch(() => {});
     return () => controller.abort();
   }, [revision, selected?.id, editing]);
+  useEffect(() => {
+    if (!financeSection) return;
+    setSelected(undefined);
+    setEditing(false);
+    setTab("finance");
+  }, [financeSection, navigationIndex]);
   const confirm = useConfirm();
   const closeEditor = async () => {
     if (
@@ -2331,6 +2390,7 @@ export default function Sales({
       onDirtyChange(false);
       setEditing(false);
       setPrefill(undefined);
+      if (startNew) onOpenList?.();
     }
   };
   const [configKind, setConfigKind] = useState<
@@ -2446,7 +2506,9 @@ export default function Sales({
                 ? "收款"
                 : returnsView
                   ? "退货与作废"
-                  : "开单"}
+                  : startNew
+                    ? "开单"
+                    : "单据"}
           </h1>
           <p>
             {configView
@@ -2523,6 +2585,7 @@ export default function Sales({
               changed(s);
               setPrefill(undefined);
               setEditing(false);
+              if (startNew) onOpenList?.(s.id);
             }}
           />
         ) : selected ? (
@@ -2542,7 +2605,10 @@ export default function Sales({
             catalog={entries}
             onEdit={() => setEditing(true)}
             onChange={changed}
-            onClose={() => setSelected(undefined)}
+            onClose={() => {
+              setSelected(undefined);
+              setOpenSaleId("");
+            }}
           />
         ) : returnsView ? (
           <AdjustmentsLedger
@@ -2629,7 +2695,8 @@ export default function Sales({
                 <table className="sale-list-table" aria-label="销售单据列表">
                   <thead>
                     <tr>
-                      <th scope="col">单号 / 类型</th>
+                      <th scope="col">单号</th>
+                      <th scope="col">单据类型</th>
                       <th scope="col">客户</th>
                       <th scope="col">业务日期</th>
                       <th scope="col">开单 / 业绩归属</th>
@@ -2637,6 +2704,9 @@ export default function Sales({
                       <th scope="col">收款状态</th>
                       <th scope="col" className="numeric">
                         金额 / 欠款
+                      </th>
+                      <th scope="col" className="ledger-actions">
+                        操作
                       </th>
                     </tr>
                   </thead>
@@ -2646,13 +2716,17 @@ export default function Sales({
                         <td className="sale-list-number">
                           <Button
                             className="sale-list-item"
+                            disabled={
+                              action.busy || list.loading || search !== query
+                            }
                             onClick={() => void select(s.id)}
                           >
                             <strong>{s.number}</strong>
-                            <small>
-                              {s.type_name} · {s.lines.length} 种物料
-                            </small>
+                            <small>{s.lines.length} 种物料</small>
                           </Button>
+                        </td>
+                        <td className="sale-list-type" data-label="单据类型">
+                          {s.type_name}
                         </td>
                         <td data-label="客户">
                           <strong>{s.customer.name}</strong>
@@ -2714,6 +2788,47 @@ export default function Sales({
                             "不计款"
                           )}
                         </td>
+                        <td className="document-row-actions" data-label="操作">
+                          <div className="row-actions">
+                            <Button
+                              className="button small"
+                              disabled={
+                                action.busy || list.loading || search !== query
+                              }
+                              onClick={() => void select(s.id)}
+                            >
+                              查看
+                            </Button>
+                            {s.status === "draft" &&
+                              can(user, "sales.create") && (
+                                <Button
+                                  className="button small"
+                                  disabled={
+                                    action.busy ||
+                                    list.loading ||
+                                    search !== query
+                                  }
+                                  onClick={() => void select(s.id, true)}
+                                >
+                                  编辑草稿
+                                </Button>
+                              )}
+                            {s.status === "posted" &&
+                              can(user, "sales.revise") && (
+                                <Button
+                                  className="button small"
+                                  disabled={
+                                    action.busy ||
+                                    list.loading ||
+                                    search !== query
+                                  }
+                                  onClick={() => void select(s.id, true)}
+                                >
+                                  修订
+                                </Button>
+                              )}
+                          </div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -2753,6 +2868,8 @@ export default function Sales({
           </section>
         ) : tab === "finance" && can(user, "finance.read") ? (
           <FinancePanel
+            section={financeSection}
+            navigationIndex={navigationIndex}
             user={user}
             revision={revision + local}
             onSelect={(id) => void select(id)}

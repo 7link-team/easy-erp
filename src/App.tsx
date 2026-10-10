@@ -1,4 +1,10 @@
 import { can } from "./api";
+import {
+  HomeMetrics,
+  TodaySales,
+  HomeFollowUp,
+  useOverview,
+} from "./HomeOverview";
 import { Form, Input, Button, Checkbox } from "./ui";
 import { NativeTools, UpdateProvider } from "./NativeTools";
 import { ServiceUpdate } from "./ServiceUpdate";
@@ -10,7 +16,12 @@ import {
   useState,
   type RefObject,
 } from "react";
-import { useNavigation, useVisualViewport, type Page } from "./navigation";
+import {
+  useNavigation,
+  useVisualViewport,
+  type Page,
+  type Navigate,
+} from "./navigation";
 import { browserLogin, openDesktopBrowser } from "./browserLogin";
 import {
   Boxes,
@@ -20,6 +31,10 @@ import {
   ReceiptText,
   Undo2,
   Wallet,
+  Landmark,
+  ChartNoAxesCombined,
+  ArrowLeftRight,
+  Info,
   ContactRound,
   ListChecks,
   ClipboardCheck,
@@ -291,27 +306,20 @@ function Home({
 }: {
   user: User;
   revision: number;
-  navigate: (page: Page) => void;
+  navigate: Navigate;
 }) {
   const { data, error } = useResource<{ items: Document[] }>(
     can(user, "records.read") ? "/documents" : undefined,
     revision,
   );
-  const stock = useResource<{ total: number }>(
-    can(user, "items.read") ? "/items" : undefined,
-    revision,
-  );
   const [webAccess, setWebAccess] = useState(false);
-  const low = useResource<{ total: number }>(
-    can(user, "items.read") ? "/items?low=true" : undefined,
-    revision,
-  );
+  const overview = useOverview(revision);
   return (
     <>
       <div className="page-heading">
         <div>
           <h1>{user.name}的工作台</h1>
-          <p>库存概况与常用操作</p>
+          <p>经营概况、库存与今日业务</p>
         </div>
         <div className="row-actions">
           <Button className="button" onClick={() => setWebAccess(true)}>
@@ -322,83 +330,75 @@ function Home({
               month: "long",
               day: "numeric",
               weekday: "long",
-            }).format(new Date())}
+            }).format(
+              overview.data
+                ? new Date(`${overview.data.today}T12:00:00`)
+                : new Date(),
+            )}
           </span>
         </div>
       </div>
       {webAccess && <WebAccess onClose={() => setWebAccess(false)} />}
-      {can(user, "items.read") && (
-        <div className="stock-summary">
-          <Button
-            className="summary-card"
-            onClick={() => navigate("inventory")}
-          >
-            <span>物料总数</span>
-            <strong>
-              {stock.data?.total ?? "—"}
-              <small>种</small>
-            </strong>
-            <ChevronRight size={18} />
-          </Button>
-          <Button
-            className="summary-card"
-            onClick={() => navigate("inventory")}
-          >
-            <span>库存不足</span>
-            <strong className={low.data?.total ? "warning-number" : ""}>
-              {low.data?.total ?? "—"}
-              <small>种</small>
-            </strong>
-            <ChevronRight size={18} />
-          </Button>
+      <HomeMetrics overview={overview} navigate={navigate} />
+      {(overview.data || !overview.loading) && (
+        <div className="task-grid">
+          {(can(user, "sales.create") || can(user, "sales.read")) && (
+            <Button
+              className="task-card sales-entry"
+              onClick={() =>
+                navigate(can(user, "sales.create") ? "invoice" : "sales")
+              }
+            >
+              <span className="task-icon">
+                <ReceiptText size={28} />
+              </span>
+              <strong>
+                {can(user, "sales.create") ? "开单发货" : "查看单据"}
+              </strong>
+              <span>多物料开单、登记收款</span>
+            </Button>
+          )}
+          {can(user, "movement.in") && (
+            <Button
+              className="task-card inbound"
+              onClick={() => navigate("in")}
+            >
+              <span className="task-icon">
+                <ArrowDownToLine size={28} />
+              </span>
+              <strong>我要入库</strong>
+              <span>收货、完工、退回</span>
+            </Button>
+          )}
+          {can(user, "movement.out") && (
+            <Button
+              className="task-card outbound"
+              onClick={() => navigate("out")}
+            >
+              <span className="task-icon">
+                <ArrowUpFromLine size={28} />
+              </span>
+              <strong>我要出库</strong>
+              <span>领料、发货</span>
+            </Button>
+          )}
+          {can(user, "items.read") && (
+            <Button
+              className="task-card lookup"
+              onClick={() => navigate("inventory")}
+            >
+              <span className="task-icon">
+                <PackageSearch size={28} />
+              </span>
+              <strong>查库存</strong>
+              <span>找物料、看数量</span>
+            </Button>
+          )}
         </div>
       )}
-      <div className="task-grid">
-        {can(user, "sales.read") && (
-          <Button
-            className="task-card sales-entry"
-            onClick={() => navigate("sales")}
-          >
-            <span className="task-icon">
-              <ReceiptText size={28} />
-            </span>
-            <strong>开单发货</strong>
-            <span>多物料开单、登记收款</span>
-          </Button>
-        )}
-        {can(user, "movement.in") && (
-          <Button className="task-card inbound" onClick={() => navigate("in")}>
-            <span className="task-icon">
-              <ArrowDownToLine size={28} />
-            </span>
-            <strong>我要入库</strong>
-            <span>收货、完工、退回</span>
-          </Button>
-        )}
-        {can(user, "movement.out") && (
-          <Button
-            className="task-card outbound"
-            onClick={() => navigate("out")}
-          >
-            <span className="task-icon">
-              <ArrowUpFromLine size={28} />
-            </span>
-            <strong>我要出库</strong>
-            <span>领料、发货</span>
-          </Button>
-        )}
-        {can(user, "items.read") && (
-          <Button
-            className="task-card lookup"
-            onClick={() => navigate("inventory")}
-          >
-            <span className="task-icon">
-              <PackageSearch size={28} />
-            </span>
-            <strong>查库存</strong>
-            <span>找物料、看数量</span>
-          </Button>
-        )}
+      <div className="home-business-columns">
+        <TodaySales overview={overview} user={user} navigate={navigate} />
+        <HomeFollowUp overview={overview} navigate={navigate} />
       </div>
       {can(user, "records.read") && (
         <div className="activity-feed">
@@ -462,7 +462,7 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
   const [startError, setStartError] = useState("");
   const [browserError, setBrowserError] = useState("");
   const {
-    route: { page, initialItem },
+    route: { page, initialItem, index: navigationIndex },
     navigate,
     back,
     reset,
@@ -564,37 +564,52 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
     );
   /* 手机底栏只放 5 个最高频入口，其余走「更多」。清单只在这里定义一次。 */
   const secondary = [
+    "sales",
     "returns",
     "customers",
-    "records",
+    "movement",
     "stocktakes",
+    "records",
+    "accounts",
+    "performance",
     "catalog",
     "users",
     "settings",
-    "updates",
   ];
   const nav = [
     { id: "home", label: "工作台", icon: LayoutDashboard },
-    ...(can(user, "items.read")
-      ? [{ id: "inventory", label: "物料", icon: PackageSearch }]
+    ...(can(user, "sales.create")
+      ? [{ id: "invoice", label: "开单", icon: ReceiptText }]
       : []),
     ...(can(user, "sales.read")
-      ? [
-          { id: "sales", label: "开单", icon: ReceiptText },
-          { id: "returns", label: "退货与作废", icon: Undo2 },
-        ]
+      ? [{ id: "sales", label: "单据", icon: ClipboardList }]
       : []),
     ...(can(user, "customers.read")
       ? [{ id: "customers", label: "客户", icon: ContactRound }]
       : []),
-    ...(can(user, "finance.read")
-      ? [{ id: "finance", label: "收款", icon: Wallet }]
+    ...(can(user, "sales.read")
+      ? [{ id: "returns", label: "退货", icon: Undo2 }]
+      : []),
+    ...(can(user, "items.read")
+      ? [{ id: "inventory", label: "物料", icon: PackageSearch }]
+      : []),
+    ...(["records.read", "movement.in", "movement.out"].some((p) =>
+      can(user, p),
+    )
+      ? [{ id: "movement", label: "出入库", icon: ArrowLeftRight }]
+      : []),
+    ...(can(user, "stocktake.read")
+      ? [{ id: "stocktakes", label: "清点", icon: ClipboardCheck }]
       : []),
     ...(can(user, "records.read")
       ? [{ id: "records", label: "记录", icon: ClipboardList }]
       : []),
-    ...(can(user, "stocktake.read")
-      ? [{ id: "stocktakes", label: "清点", icon: ClipboardCheck }]
+    ...(can(user, "finance.read")
+      ? [
+          { id: "finance", label: "收款", icon: Wallet },
+          { id: "accounts", label: "账户", icon: Landmark },
+          { id: "performance", label: "业绩", icon: ChartNoAxesCombined },
+        ]
       : []),
     ...(["catalog.read", "options.read", "accounts.read"].some((p) =>
       can(user, p),
@@ -607,12 +622,22 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
           { id: "settings", label: "备份", icon: Settings },
         ]
       : []),
-    { id: "updates", label: "版本", icon: RefreshCw },
   ];
+  const financePage = ["finance", "accounts", "performance"].includes(page);
+  const activePage = page === "in" || page === "out" ? "movement" : page;
+  const salesView =
+    page === "invoice" ? "sales" : financePage ? "finance" : page;
   const allowedPage =
     nav.some((entry) => entry.id === page) ||
+    page === "updates" ||
     (page === "in" && can(user, "movement.in")) ||
     (page === "out" && can(user, "movement.out"));
+  const openMenu = (target: Page) =>
+    navigate(
+      target,
+      undefined,
+      ["finance", "accounts", "performance"].includes(target) ? {} : undefined,
+    );
   return (
     <div className="app-shell" data-flow={page === "in" || page === "out"}>
       {browserError && (
@@ -634,22 +659,22 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
             {
               label: "销售",
               domain: "sales",
-              ids: ["sales", "customers", "returns"],
+              ids: ["invoice", "sales", "customers", "returns"],
             },
             {
               label: "库存",
               domain: "stock",
-              ids: ["inventory", "records", "stocktakes"],
+              ids: ["inventory", "movement", "stocktakes", "records"],
             },
             {
               label: "财务",
               domain: "money",
-              ids: ["finance"],
+              ids: ["finance", "accounts", "performance"],
             },
             {
               label: "设置",
               domain: "admin",
-              ids: ["catalog", "users", "settings", "updates"],
+              ids: ["catalog", "users", "settings"],
             },
           ]
             .filter((group) => nav.some(({ id }) => group.ids.includes(id)))
@@ -669,9 +694,9 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
                   .map(({ id, label, icon: Icon }) => (
                     <Button
                       key={id}
-                      className={`${page === id ? "nav-item active" : "nav-item"} ${secondary.includes(id) ? "secondary-nav" : ""}`}
-                      onClick={() => navigate(id as Page)}
-                      aria-current={page === id ? "page" : undefined}
+                      className={`${activePage === id ? "nav-item active" : "nav-item"} ${secondary.includes(id) ? "secondary-nav" : ""}`}
+                      onClick={() => void openMenu(id as Page)}
+                      aria-current={activePage === id ? "page" : undefined}
                     >
                       <Icon size={21} />
                       <span>{label}</span>
@@ -680,7 +705,7 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
               </div>
             ))}
           <Button
-            className={`nav-item mobile-more ${moreOpen || secondary.includes(page) ? "active" : ""}`}
+            className={`nav-item mobile-more ${moreOpen || secondary.includes(activePage) || page === "updates" ? "active" : ""}`}
             aria-haspopup="dialog"
             aria-expanded={moreOpen}
             onClick={() => setMoreOpen(true)}
@@ -695,6 +720,13 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
             数据保存在库存服务所在设备
             <br />
             <small>每次操作都会自动留痕</small>
+            <Button
+              className="text-button sidebar-about"
+              onClick={() => void navigate("updates")}
+            >
+              <Info size={15} aria-hidden="true" />
+              关于
+            </Button>
           </span>
         </div>
       </aside>
@@ -707,7 +739,11 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
           <span className="connection">
             <strong className="workspace-title">
               {nav.find((item) => item.id === page)?.label ??
-                (page === "in" ? "入库登记" : "出库登记")}
+                (page === "updates"
+                  ? "关于"
+                  : page === "in"
+                    ? "入库登记"
+                    : "出库登记")}
             </strong>
             <i />
             库存服务
@@ -777,7 +813,7 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
                 revision={revision}
                 refresh={refresh}
                 openSale={(item) => {
-                  void navigate("sales", item);
+                  void navigate("invoice", item);
                 }}
                 move={(direction, item) => {
                   navigate(direction, item);
@@ -799,11 +835,21 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
                 }}
               />
             )}
-            {["sales", "finance", "customers", "catalog", "returns"].includes(
-              page,
-            ) &&
+            {[
+              "invoice",
+              "sales",
+              "finance",
+              "accounts",
+              "performance",
+              "customers",
+              "catalog",
+              "returns",
+            ].includes(page) &&
               {
-                sales: can(user, "sales.read"),
+                sales:
+                  page === "invoice"
+                    ? can(user, "sales.create")
+                    : can(user, "sales.read"),
                 returns: can(user, "sales.read"),
                 finance: can(user, "finance.read"),
                 customers: can(user, "customers.read"),
@@ -811,14 +857,37 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
                   (p) => can(user, p),
                 ),
               }[
-                page as
+                salesView as
                   "sales" | "finance" | "customers" | "catalog" | "returns"
               ] && (
                 <Sales
-                  key={`${page}-${initialItem?.id || ""}`}
-                  initialItem={page === "sales" ? initialItem : undefined}
+                  key={
+                    financePage ? "finance" : `${page}-${initialItem?.id || ""}`
+                  }
+                  initialItem={
+                    page === "invoice" || page === "sales"
+                      ? initialItem
+                      : undefined
+                  }
+                  startNew={page === "invoice"}
+                  onOpenList={(id) =>
+                    void navigate("sales", undefined, {
+                      sale_open: id || "",
+                      sale_print: "",
+                    })
+                  }
+                  financeSection={
+                    financePage
+                      ? page === "accounts"
+                        ? "accounts"
+                        : page === "performance"
+                          ? "performance"
+                          : "debts"
+                      : undefined
+                  }
+                  navigationIndex={navigationIndex}
                   view={
-                    page as
+                    salesView as
                       "sales" | "finance" | "customers" | "catalog" | "returns"
                   }
                   user={user}
@@ -829,6 +898,15 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
                   }}
                 />
               )}
+            {page === "movement" && allowedPage && (
+              <Records
+                user={user}
+                revision={revision}
+                refresh={refresh}
+                mode="movement"
+                onMove={(direction) => void navigate(direction)}
+              />
+            )}
             {page === "records" && can(user, "records.read") && (
               <Records user={user} revision={revision} refresh={refresh} />
             )}
@@ -866,7 +944,7 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
                   key={id}
                   onClick={() => {
                     setMoreOpen(false);
-                    navigate(id as Page);
+                    void openMenu(id as Page);
                   }}
                 >
                   <Icon size={22} />
@@ -875,6 +953,16 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
                 </Button>
               ))}
           </nav>
+          <Button
+            className="button"
+            onClick={() => {
+              setMoreOpen(false);
+              void navigate("updates");
+            }}
+          >
+            <Info size={18} aria-hidden="true" />
+            关于
+          </Button>
           {logout.error && <Notice>{logout.error}</Notice>}
           <Button
             className="button mobile-signout"

@@ -859,7 +859,7 @@ test("退货作废汇总保留历史应收和实际退款，原单往返保留�
   await page.goto("/#/home");
   await page
     .getByRole("navigation", { name: "主要导航" })
-    .getByRole("button", { name: "退货与作废", exact: true })
+    .getByRole("button", { name: "退货", exact: true })
     .click();
   await page.getByLabel("搜索退货与作废", { exact: true }).fill(tag);
   const table = page.getByRole("table", { name: "退货与作废记录" });
@@ -1086,7 +1086,7 @@ test("退货作废汇总按原单归属隔离，未授权角色不能访问", as
         await expect(
           other
             .getByRole("navigation", { name: "主要导航" })
-            .getByRole("button", { name: "退货与作废", exact: true }),
+            .getByRole("button", { name: "退货", exact: true }),
         ).toHaveCount(0);
       }
     } finally {

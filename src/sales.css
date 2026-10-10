@@ -427,7 +427,7 @@
   background: var(--accent-soft);
 }
 .finance-summary span {
-  color: var(--muted);
+  color: var(--ink-2);
   font-size: 14px;
 }
 .finance-summary strong {

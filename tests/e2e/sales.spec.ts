@@ -477,7 +477,7 @@ test("真实界面多品类开单、收款、打印、手机版式与离开保�
   });
   await page.goto("/#/sales");
   await expect(
-    page.getByRole("heading", { name: "开单", exact: true }),
+    page.getByRole("heading", { name: "单据", exact: true }),
   ).toBeVisible();
   const listTab = page.getByRole("tab", { name: "单据列表", exact: true });
   await expect(listTab).toHaveAttribute("aria-selected", "true");
@@ -1669,8 +1669,10 @@ test("开单结算：抹零后部分收款、草稿保留、移动端欠款提�
   page,
 }, testInfo) => {
   const { item, customer } = await fixture(page.request, "100");
-  await page.goto("/#/sales");
-  await page.getByRole("button", { name: "新建单据", exact: true }).click();
+  await page.goto("/#/invoice");
+  await expect(
+    page.getByRole("heading", { name: "新建单据", exact: true }),
+  ).toBeVisible();
   await chooseSelect(
     page.getByRole("combobox", { name: "客户 必填", exact: true }),
     customer.id,

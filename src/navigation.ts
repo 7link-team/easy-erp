@@ -5,12 +5,16 @@ import { useConfirm } from "./ui";
 const pages = [
   "home",
   "inventory",
+  "invoice",
   "sales",
   "returns",
   "finance",
+  "accounts",
+  "performance",
   "customers",
   "catalog",
   "records",
+  "movement",
   "stocktakes",
   "users",
   "settings",
@@ -19,6 +23,11 @@ const pages = [
   "out",
 ] as const;
 export type Page = (typeof pages)[number];
+export type Navigate = (
+  page: Page,
+  initialItem?: Item,
+  query?: Record<string, string>,
+) => Promise<boolean>;
 interface Route {
   page: Page;
   index: number;
@@ -30,6 +39,19 @@ const hashPage = (): Page => {
 };
 const address = (page: Page) =>
   `${location.pathname}${location.search}#/${page}`;
+
+/** Share the same query cleanup between in-app navigation and native links. */
+export function pageAddress(page: Page, query?: Record<string, string>) {
+  const params = new URLSearchParams(location.search);
+  if (!query?.sale_open) params.delete("sale_open");
+  if (!query?.sale_print) params.delete("sale_print");
+  for (const [key, value] of Object.entries(query ?? {})) {
+    if (value) params.set(key, value);
+    else params.delete(key);
+  }
+  const search = params.toString();
+  return `${location.pathname}${search ? `?${search}` : ""}#/${page}`;
+}
 
 /** Keep app navigation and browser Back in the same history, including form guards. */
 export function useNavigation(dirty: RefObject<boolean>) {
@@ -89,15 +111,20 @@ export function useNavigation(dirty: RefObject<boolean>) {
       window.removeEventListener("beforeunload", unload);
     };
   }, [dirty]);
-  async function navigate(page: Page, initialItem?: Item) {
-    if (page === current.current.page && !initialItem) return;
-    if (dirty.current && !(await leave())) return;
+  async function navigate(
+    page: Page,
+    initialItem?: Item,
+    query?: Record<string, string>,
+  ) {
+    if (page === current.current.page && !initialItem && !query) return true;
+    if (dirty.current && !(await leave())) return false;
     const next = { page, initialItem, index: current.current.index + 1 };
-    history.pushState({ erpRoute: next }, "", address(page));
+    history.pushState({ erpRoute: next }, "", pageAddress(page, query));
     current.current = next;
     setRoute(next);
     window.scrollTo(0, 0);
     document.querySelector(".workspace")?.scrollTo(0, 0);
+    return true;
   }
   function reset() {
     const next: Route = { page: "home", index: current.current.index };

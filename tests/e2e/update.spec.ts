@@ -93,13 +93,13 @@ test("稍后更新后可从独立页面继续，下载状态跨页面保留", as
   await start(page);
   await page.getByRole("button", { name: "检查应用更新", exact: true }).click();
   await page.getByRole("button", { name: "稍后再说", exact: true }).click();
-  await page.getByRole("button", { name: "版本", exact: true }).click();
+  await page.getByRole("button", { name: "关于", exact: true }).click();
   await expect(page.getByRole("heading", { name: "版本", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "下载更新", exact: true }).click();
   await expect(page.getByRole("button", { name: "安装并重启", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "工作台", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await page.getByRole("button", { name: "版本", exact: true }).click();
+  await page.getByRole("button", { name: "关于", exact: true }).click();
   await page.getByRole("button", { name: "安装并重启", exact: true }).click();
   await page.getByRole("button", { name: "取消", exact: true }).click();
   await expect(page.getByRole("button", { name: "安装并重启", exact: true })).toBeVisible();
@@ -115,7 +115,7 @@ test("更新页面检查失败可重试，离开页面不弹出旧提示", async
       return original(command, args);
     };
   });
-  await page.getByRole("button", { name: "版本", exact: true }).click();
+  await page.getByRole("button", { name: "关于", exact: true }).click();
   await page.getByRole("button", { name: "检查更新", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("网络连接失败");
   await page.getByRole("button", { name: "检查更新", exact: true }).click();
@@ -129,7 +129,7 @@ test("手机更多菜单可进入更新页面，窄屏与横屏不溢出", async
   await page.emulateMedia({ reducedMotion: "reduce" });
   await start(page, true);
   await page.getByRole("button", { name: "更多", exact: true }).click();
-  await page.getByRole("dialog").getByRole("button", { name: "版本", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "关于", exact: true }).click();
   await expect(page.getByText("移动端请通过原安装渠道更新。", { exact: false })).toBeVisible();
   for (const size of [{width:320,height:568},{width:375,height:667},{width:812,height:375}]) {
     await page.setViewportSize(size);
@@ -160,7 +160,7 @@ test("下载切换直连时显示提示、重置进度并可完成", async ({ pa
       return original(command, args);
     };
   });
-  await page.getByRole("button", { name: "版本", exact: true }).click();
+  await page.getByRole("button", { name: "关于", exact: true }).click();
   await page.getByRole("button", { name: "检查更新", exact: true }).click();
   await page.getByRole("button", { name: "下载更新", exact: true }).click();
   await page.evaluate(() => window.dispatchEvent(new CustomEvent("erp:update-progress", { detail: { downloaded: 0, fallback: true } })));
@@ -172,7 +172,7 @@ test("下载切换直连时显示提示、重置进度并可完成", async ({ pa
 
 test("显示实际检查线路、回退结果，切换页面后保留", async ({ page }) => {
   await start(page);
-  await page.getByRole("button", { name: "版本", exact: true }).click();
+  await page.getByRole("button", { name: "关于", exact: true }).click();
   const routes = page.getByRole("region", { name: "更新网络线路" });
   await expect(routes).toContainText("本次打开尚未检查");
   await page.evaluate(() => {
@@ -191,7 +191,7 @@ test("显示实际检查线路、回退结果，切换页面后保留", async ({
   await expect(routes).toContainText("GitHub 直连 · 已完成（已自动切换线路）");
   await expect(routes).toContainText("本次打开尚未下载");
   await page.getByRole("button", { name: "工作台", exact: true }).click();
-  await page.getByRole("button", { name: "版本", exact: true }).click();
+  await page.getByRole("button", { name: "关于", exact: true }).click();
   await expect(routes).toContainText("GitHub 直连 · 已完成（已自动切换线路）");
   await page.setViewportSize({ width: 320, height: 568 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -199,7 +199,7 @@ test("显示实际检查线路、回退结果，切换页面后保留", async ({
 
 test("更新渠道默认稳定，取消切换保持原值，确认后保存并重新检查", async ({ page }) => {
   await start(page);
-  await page.getByRole("button", { name: "版本", exact: true }).click();
+  await page.getByRole("button", { name: "关于", exact: true }).click();
   const channel = page.getByRole("combobox", { name: "更新渠道", exact: true });
   await expect(channel).toContainText("稳定版");
   await channel.click();
@@ -219,7 +219,7 @@ test("更新渠道默认稳定，取消切换保持原值，确认后保存并�
 
 test("切换渠道清除已下载的包，保存失败保持原渠道", async ({ page }) => {
   await start(page);
-  await page.getByRole("button", { name: "版本", exact: true }).click();
+  await page.getByRole("button", { name: "关于", exact: true }).click();
   await page.getByRole("button", { name: "检查更新", exact: true }).click();
   await page.getByRole("button", { name: "下载更新", exact: true }).click();
   await expect(page.getByRole("button", { name: "安装并重启", exact: true })).toBeVisible();

@@ -1,6 +1,7 @@
 mod assets;
 mod auth;
 mod backup;
+mod dashboard;
 mod db;
 mod desktop_control;
 mod domain;
@@ -237,6 +238,7 @@ async fn main() -> anyhow::Result<()> {
             "/api/material-options/{id}",
             axum::routing::delete(options::remove),
         )
+        .route("/api/dashboard", get(dashboard::overview))
         .route("/api/sales", get(sales::list))
         .route(
             "/api/sales/catalog",

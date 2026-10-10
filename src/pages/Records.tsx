@@ -41,18 +41,23 @@ export default function Records({
   user,
   revision,
   refresh,
+  mode = "records",
+  onMove,
 }: {
   user: User;
   revision: number;
   refresh: () => void;
+  mode?: "records" | "movement";
+  onMove?: (direction: "in" | "out") => void;
 }) {
-  const [tabValue, setTab] = useQueryValue<string>("records_tab", "documents");
-  const tab = tabValue === "audit" ? "audit" : "documents";
-  const [page, setPage] = useQueryValue<number>("records_page", 1);
-  const [search, setSearch] = useQueryValue<string>("records_q", "");
+  const [tabValue, setTab] = useQueryValue<string>(`${mode}_tab`, "documents");
+  const tab =
+    mode === "records" && tabValue === "audit" ? "audit" : "documents";
+  const [page, setPage] = useQueryValue<number>(`${mode}_page`, 1);
+  const [search, setSearch] = useQueryValue<string>(`${mode}_q`, "");
   const [query, setQuery] = useState(search);
-  const [kind, setKind] = useQueryValue<string>("records_kind", "");
-  const [auditKind, setAuditKind] = useQueryValue<string>("records_action", "");
+  const [kind, setKind] = useQueryValue<string>(`${mode}_kind`, "");
+  const [auditKind, setAuditKind] = useQueryValue<string>(`${mode}_action`, "");
   useEffect(() => {
     const timer = setTimeout(() => {
       setQuery(search);
@@ -63,7 +68,7 @@ export default function Records({
   const [reason, setReason] = useState("");
   const action = useAction();
   const docs = useResource<{ items: Document[]; total: number }>(
-    tab === "documents"
+    can(user, "records.read") && tab === "documents"
       ? `/documents?page=${page}&q=${encodeURIComponent(query)}&kind=${encodeURIComponent(kind)}`
       : undefined,
     revision,
@@ -73,7 +78,7 @@ export default function Records({
     total: number;
     actions: string[];
   }>(
-    tab === "audit"
+    can(user, "records.read") && tab === "audit"
       ? `/audit?page=${page}&q=${encodeURIComponent(query)}&kind=${encodeURIComponent(auditKind)}`
       : undefined,
     revision,
@@ -88,27 +93,46 @@ export default function Records({
     >
       <div className="page-heading">
         <div>
-          <h1>记录</h1>
+          <h1>{mode === "movement" ? "出入库" : "记录"}</h1>
           <p>
-            {can(user, "records.all")
-              ? "查看每笔收发和人员操作，历史记录始终保留。"
-              : "查看自己登记的收发和操作记录。"}
+            {mode === "movement"
+              ? "登记到货、领用、退回与其他库存收发，核对每笔库存变化。"
+              : can(user, "records.all")
+                ? "查看每笔收发和人员操作，历史记录始终保留。"
+                : "查看自己登记的收发和操作记录。"}
           </p>
         </div>
-        {user.role === "admin" && (
-          <a
-            className="button"
-            href={`/api/export/${tab}?format=csv&q=${encodeURIComponent(query)}&kind=${encodeURIComponent(tab === "documents" ? kind : auditKind)}`}
-          >
-            导出 CSV
-          </a>
-        )}
+        <div className="row-actions">
+          {mode === "movement" && can(user, "movement.out") && (
+            <Button onClick={() => onMove?.("out")}>出库</Button>
+          )}
+          {mode === "movement" && can(user, "movement.in") && (
+            <Button className="button primary" onClick={() => onMove?.("in")}>
+              入库
+            </Button>
+          )}
+          {user.role === "admin" && (
+            <a
+              className="button"
+              href={`/api/export/${tab}?format=csv&q=${encodeURIComponent(query)}&kind=${encodeURIComponent(tab === "documents" ? kind : auditKind)}`}
+            >
+              导出 CSV
+            </a>
+          )}
+        </div>
       </div>
-      <TabsList aria-label="记录栏目">
+      <TabsList aria-label="记录栏目" hidden={mode === "movement"}>
         <Tab value="documents">出入库记录</Tab>
         <Tab value="audit">操作记录</Tab>
       </TabsList>
-      <TabsPanel value={tab} className="panel ledger-sheet records-sheet">
+      {!can(user, "records.read") && (
+        <Empty>当前账号可登记出入库，没有查看历史记录的权限。</Empty>
+      )}
+      <TabsPanel
+        value={tab}
+        className="panel ledger-sheet records-sheet"
+        hidden={!can(user, "records.read")}
+      >
         <div className="filters">
           <label className="search">
             <Search size={18} aria-hidden="true" />
