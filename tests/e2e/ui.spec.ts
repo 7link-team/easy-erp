@@ -31,6 +31,60 @@ async function fits(page: Page) {
   ).toBeTruthy();
 }
 
+test("深浅主题和三档字号可切换并在刷新后保留", async ({ page }) => {
+  await login(page);
+  await expect(page.getByRole("button", { name: "中号字（默认）", exact: true })).toHaveAttribute("aria-pressed", "true");
+  const sizes: number[] = [];
+  for (const name of ["小号字", "中号字（默认）", "大号字"]) {
+    await page.getByRole("button", { name, exact: true }).click();
+    sizes.push(await page.locator("main h1").evaluate(el => parseFloat(getComputedStyle(el).fontSize)));
+  }
+  expect(sizes[0]).toBeLessThan(sizes[1]);
+  expect(sizes[1]).toBeLessThan(sizes[2]);
+  await page.getByRole("button", { name: "切换到深色界面" }).click();
+  await page.reload();
+  await expect(page.getByRole("button", { name: "大号字", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "切换到浅色界面" })).toBeVisible();
+  await expect(page.locator("html")).toHaveCSS("color-scheme", "dark");
+  const paper = await page.locator("html").evaluate(el => getComputedStyle(el).getPropertyValue("--paper-2").trim());
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute("content", paper);
+  await page.getByRole("button", { name: "切换到浅色界面" }).click();
+  await expect(page.locator("html")).toHaveCSS("color-scheme", "light");
+  await page.setViewportSize({ width: 375, height: 667 });
+  await page.getByRole("button", { name: "更多", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "小号字", exact: true }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-size", "sm");
+  await page.reload();
+  await page.getByRole("button", { name: "更多", exact: true }).click();
+  await expect(page.getByRole("dialog").getByRole("button", { name: "小号字", exact: true })).toHaveAttribute("aria-pressed", "true");
+});
+
+test("侧栏标题固定，工作台开单入口与其他操作统一排列", async ({ page }) => {
+  await login(page);
+  await page.setViewportSize({ width: 1280, height: 600 });
+  await page.getByRole("button", { name: "大号字", exact: true }).click();
+  const brand = page.locator(".sidebar .brand");
+  const titlePosition = (await brand.boundingBox())!.y;
+  const menu = page.getByRole("navigation", { name: "主要导航" });
+  await menu.evaluate(el => { el.scrollTop = el.scrollHeight; });
+  expect(await menu.evaluate(el => el.scrollTop)).toBeGreaterThan(0);
+  expect((await brand.boundingBox())!.y).toBe(titlePosition);
+  await expect(brand).toBeInViewport();
+  await expect(menu.getByRole("button", { name: "版本", exact: true })).toBeInViewport();
+  const actions = page.locator(".task-grid").getByRole("button");
+  await expect(actions).toHaveCount(4);
+  const desktop = await actions.evaluateAll(els => els.map(el => el.getBoundingClientRect().top));
+  expect(new Set(desktop).size).toBe(1);
+  await page.setViewportSize({ width: 320, height: 568 });
+  const mobile = await actions.evaluateAll(els => els.map(el => el.getBoundingClientRect().top));
+  expect(mobile[0]).toBe(mobile[1]);
+  expect(mobile[2]).toBe(mobile[3]);
+  expect(mobile[2]).toBeGreaterThan(mobile[0]);
+  await fits(page);
+  await page.getByRole("button", { name: /开单发货/ }).click();
+  await expect(page.locator("main h1")).toHaveText("开单");
+});
+
 test("收发多物料局部滚动，确认按钮始终可见", async ({ page }) => {
   await login(page);
   for (let i = 0; i < 9; i++) {
@@ -93,20 +147,24 @@ test("工作台统计卡片保持渐变及悬停文字对比", async ({ page }) 
   for (const width of [1280, 375]) {
     await page.setViewportSize({ width, height: 800 });
     const summary = page.locator(".stock-summary");
-    expect(
-      await summary.evaluate((el) => getComputedStyle(el).backgroundImage),
-    ).toContain("linear-gradient");
+    // 展示带是多光源渐变：至少一层径向 + 一层线性
+    const band = await summary.evaluate(
+      (el) => getComputedStyle(el).backgroundImage,
+    );
+    expect(band).toContain("radial-gradient");
+    expect(band).toContain("linear-gradient");
     const cards = summary.getByRole("button");
     await expect(cards).toHaveCount(2);
     for (const card of await cards.all()) {
       await page.mouse.move(0, 0);
       await expect(card).not.toHaveClass(/(^|\s)button(\s|$)/);
       await expect(card).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-      await expect(card).toHaveCSS("color", "rgb(225, 241, 232)");
+      // 深底上的次级文字：--on-band-2
+      await expect(card).toHaveCSS("color", "rgba(255, 255, 255, 0.72)");
       await card.hover();
       await expect(card).toHaveCSS(
         "background-color",
-        "rgba(255, 255, 255, 0.035)",
+        "rgba(255, 255, 255, 0.06)",
       );
       await expect(card.locator("strong")).toHaveCSS(
         "color",
@@ -126,7 +184,7 @@ test("统一控件尺寸、中文行内校验、下拉键盘操作", async ({ pa
   await login(page);
   await page
     .getByRole("navigation")
-    .getByRole("button", { name: "库存", exact: true })
+    .getByRole("button", { name: "物料", exact: true })
     .click();
   await page.getByRole("button", { name: "添加物料", exact: true }).click();
   const dialog = page.getByRole("dialog");
@@ -142,16 +200,29 @@ test("统一控件尺寸、中文行内校验、下拉键盘操作", async ({ pa
   await expect(page.getByRole("listbox")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(type).toBeFocused();
+  // 控件高取自设计令牌 --h-control（随字号档位与触屏变化），不写死像素
+  const controlHeight = async () =>
+    parseFloat(
+      await page.evaluate(() =>
+        getComputedStyle(document.documentElement)
+          .getPropertyValue("--h-control")
+          .trim(),
+      ),
+    );
+  const desktopHeight = await controlHeight();
   for (const locator of [
     page.getByRole("dialog").getByLabel("规格", { exact: false }),
     type,
     dialog.getByRole("button", { name: "保存物料", exact: true }),
   ]) {
-    expect((await locator.boundingBox())!.height).toBe(44);
+    expect((await locator.boundingBox())!.height).toBe(desktopHeight);
   }
   await page.screenshot({ path: "test-results/unified-controls-desktop.png" });
   await page.setViewportSize({ width: 375, height: 667 });
-  expect((await type.boundingBox())!.height).toBe(48);
+  // 窄屏触控目标必须更高，且不低于 44px
+  const mobileHeight = await controlHeight();
+  expect(mobileHeight).toBeGreaterThanOrEqual(44);
+  expect((await type.boundingBox())!.height).toBe(mobileHeight);
   await type.click();
   await expect(
     page.getByRole("option", { name: "原材料", exact: true }),
@@ -259,7 +330,7 @@ test("Web 地址选择与中文文件选择器", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page
     .getByRole("navigation")
-    .getByRole("button", { name: "数据与备份", exact: true })
+    .getByRole("button", { name: "备份", exact: true })
     .click();
   await expect(page.getByText("未选择文件", { exact: true })).toBeVisible();
   await expect(page.getByText("选择文件", { exact: true })).toBeVisible();
@@ -290,28 +361,22 @@ for (const viewport of [
     await login(page);
     for (const name of [
       "工作台",
-      "库存",
-      "开单与收款",
+      "物料",
+      "开单",
       "客户",
       "基础资料",
-      "财务",
+      "收款",
       "记录",
-      "清点库存",
-      "人员与权限",
-      "数据与备份",
-      "版本更新",
+      "清点",
+      "人员",
+      "备份",
+      "版本",
     ]) {
       if (
         viewport.width <= 760 &&
-        [
-          "开单与收款",
-          "客户",
-          "基础资料",
-          "财务",
-          "人员与权限",
-          "数据与备份",
-          "版本更新",
-        ].includes(name)
+        ["客户", "基础资料", "记录", "清点", "人员", "备份", "版本"].includes(
+          name,
+        )
       ) {
         await page.getByRole("button", { name: "更多", exact: true }).click();
       }
@@ -321,7 +386,7 @@ for (const viewport of [
         .click();
       await expect(page.locator("main h1")).toBeVisible();
       await fits(page);
-      if (name === "财务") {
+      if (name === "收款") {
         const tabs = page.getByRole("tablist", {
           name: "财务栏目",
           exact: true,
@@ -347,7 +412,7 @@ for (const viewport of [
         ).toHaveAttribute("aria-selected", "true");
         await expect(page.getByRole("tabpanel")).toBeVisible();
       }
-      if (name === "开单与收款") {
+      if (name === "开单") {
         if (viewport.width <= 760)
           await page.getByRole("button", { name: "更多", exact: true }).click();
         await page
@@ -418,7 +483,7 @@ for (const viewport of [
         await page.getByRole("button", { name: "取消", exact: true }).click();
         await expect(modal).toHaveCount(0);
       }
-      if (name === "人员与权限") {
+      if (name === "人员") {
         if (viewport.width === 375) {
           const table = page.getByRole("region", {
             name: "可横向滚动的数据表格",
@@ -471,11 +536,11 @@ test("手机底部导航固定、更多入口、返回保护与刷新定位", as
   await nav.getByRole("button", { name: "更多", exact: true }).click();
   await page
     .getByRole("navigation", { name: "更多功能" })
-    .getByRole("button", { name: "数据与备份" })
+    .getByRole("button", { name: "备份" })
     .click();
   await expect(page).toHaveURL(/#\/settings$/);
   await page.reload();
-  await expect(page.locator("main h1")).toContainText("数据与备份");
+  await expect(page.locator("main h1")).toContainText("备份");
   await nav.getByRole("button", { name: "工作台" }).click();
   await page.getByRole("button", { name: /我要入库/ }).click();
   await page
@@ -515,7 +580,7 @@ test("手机物料列表不横滑即可入库，底栏不遮挡操作", async ({
   expect(created.ok()).toBeTruthy();
   await page
     .getByRole("navigation", { name: "主要导航" })
-    .getByRole("button", { name: "库存", exact: true })
+    .getByRole("button", { name: "物料", exact: true })
     .click();
   const searchResults = page.waitForResponse(
     (response) =>
@@ -555,20 +620,20 @@ test("全站栏目选中样式一致、侧栏分区与普通页面打印", async
   await page.setViewportSize({ width: 1280, height: 800 });
   const navigation = page.getByRole("navigation", { name: "主要导航" });
   await expect(
-    navigation.getByRole("group", { name: "常用功能" }),
+    navigation.getByRole("group", { name: "概览" }),
   ).toBeVisible();
   await expect(
-    navigation.getByRole("group", { name: "管理与设置" }),
-  ).toBeVisible();
-  await expect(
-    navigation
-      .getByRole("group", { name: "常用功能" })
-      .getByRole("button", { name: "开单与收款", exact: true }),
+    navigation.getByRole("group", { name: "设置" }),
   ).toBeVisible();
   await expect(
     navigation
-      .getByRole("group", { name: "管理与设置" })
-      .getByRole("button", { name: "数据与备份", exact: true }),
+      .getByRole("group", { name: "销售" })
+      .getByRole("button", { name: "开单", exact: true }),
+  ).toBeVisible();
+  await expect(
+    navigation
+      .getByRole("group", { name: "设置" })
+      .getByRole("button", { name: "备份", exact: true }),
   ).toBeVisible();
   for (const width of [1280, 375]) {
     await page.setViewportSize({ width, height: 800 });
@@ -633,7 +698,7 @@ test("全站栏目选中样式一致、侧栏分区与普通页面打印", async
   }
   // Loading the sales print CSS must not make an ordinary page print blank.
   await page.goto("/#/inventory");
-  await page.getByRole("heading", { name: "库存", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "物料", exact: true }).waitFor();
   await page.emulateMedia({ media: "print" });
   await expect(page.locator("#root")).toBeVisible();
   await page.emulateMedia({ media: "screen" });
@@ -670,7 +735,7 @@ test("普通开单人的配置栏目只提供客户并能快速建档", async ({
     await expect(
       worker
         .getByRole("navigation")
-        .getByRole("button", { name: "财务", exact: true }),
+        .getByRole("button", { name: "收款", exact: true }),
     ).toHaveCount(0);
     expect((await worker.request.get("/api/sales/finance")).status()).toBe(403);
     await worker.goto("/#/sales");

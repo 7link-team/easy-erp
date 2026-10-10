@@ -46,7 +46,7 @@ export default function Users({
     <>
       <div className="page-heading">
         <div>
-          <h1>人员与权限</h1>
+          <h1>人员</h1>
           <p>每人一个账号，收发操作记到本人名下。</p>
         </div>
         <Button className="button primary" onClick={() => open()}>

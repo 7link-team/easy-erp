@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>销售出货单 · 打印样稿</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="print.css">
+</head>
+<body class="print-preview">
+
+<div class="print-bar">
+  <b>销售出货单 · 打印样稿</b>
+  <span class="muted">A4 纵向 · 黑白激光打印机 · 不依赖彩色</span>
+  <span class="grow"></span>
+  <button onclick="print()" style="height:32px;padding:0 14px;border:0;border-radius:6px;background:#15181a;color:#fff;cursor:pointer">系统打印 / 存 PDF</button>
+</div>
+
+<div class="paper">
+<div class="doc doc-wrap">
+
+  <div class="doc-top">
+    <div class="doc-org">鑫利五金制品厂
+      <small>东莞市长安镇沙头工业区兴发路 12 号　电话 0769-8532 7741　开票资料见背面</small>
+    </div>
+    <div class="doc-kind">
+      <h1>销售出货单</h1>
+      <div class="no">No. XS-261009-06</div>
+      <div class="state">第 2 版 · 部分收款</div>
+    </div>
+  </div>
+
+  <div class="doc-rule"></div>
+
+  <dl class="doc-meta">
+    <div><dt>客户</dt><dd>中山华晨五金制品</dd></div>
+    <div><dt>开单日期</dt><dd>2026 年 10 月 9 日</dd></div>
+    <div><dt>联系人</dt><dd>黄经理　0760-8842 1937</dd></div>
+    <div><dt>部门 / 业务员</dt><dd>销售二部　吴志明</dd></div>
+    <div><dt>送货地址</dt><dd>中山市小榄镇工业大道 37 号</dd></div>
+    <div><dt>开单人</dt><dd>吴志明</dd></div>
+  </dl>
+
+  <table>
+    <thead>
+      <tr>
+        <th class="c" style="width:9mm">序</th>
+        <th>物料名称 / 规格</th>
+        <th class="c" style="width:16mm">单位</th>
+        <th class="n" style="width:20mm">数量</th>
+        <th class="n" style="width:24mm">单价</th>
+        <th class="n" style="width:28mm">金额</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td class="c">1</td>
+        <td>尼龙自锁螺母 M10<small>本色 · 袋装 200 只 · LM-M10</small></td>
+        <td class="c">袋</td><td class="n">320</td><td class="n">22.40</td><td class="n">7,168.00</td></tr>
+      <tr><td class="c">2</td>
+        <td>镀锌平垫圈 M8<small>GB97 · 袋装 1000 片 · DQ-M8</small></td>
+        <td class="c">袋</td><td class="n">180</td><td class="n">14.80</td><td class="n">2,664.00</td></tr>
+      <tr><td class="c">3</td>
+        <td>不锈钢拉丝管 201<small>φ25×1.2 · 6 米 / 根 · GG-2512</small></td>
+        <td class="c">根</td><td class="n">250</td><td class="n">58.60</td><td class="n">14,650.00</td></tr>
+    </tbody>
+    <tfoot>
+      <tr><td class="c"></td><td>合计 3 行</td><td class="c"></td>
+        <td class="n">750</td><td class="n"></td><td class="n">24,482.00</td></tr>
+    </tfoot>
+  </table>
+
+  <div class="doc-sum">
+    <div class="doc-words">
+      应收金额（大写）
+      <b>贰万肆仟肆佰陆拾圆整</b>
+      <div style="margin-top:3mm;font-size:8.5pt;color:#555;line-height:1.6">
+        本单已于 2026-10-09 确认出库，库存已扣减。<br>
+        客户签字即视为货物数量与品质核对无误。
+      </div>
+    </div>
+    <div class="doc-amounts">
+      <div><span>货款小计</span><b>24,482.00</b></div>
+      <div><span>折扣</span><b>0.00</b></div>
+      <div><span>抹零</span><b>−22.00</b></div>
+      <div class="due"><span>应收货款</span><b>24,460.00</b></div>
+      <div><span>现金柜 实收</span><b>16,000.00</b></div>
+      <div class="owe"><span>客户还欠</span><b>8,760.00</b></div>
+    </div>
+  </div>
+
+  <div class="doc-sign">
+    <div>　<span>发货人签字</span></div>
+    <div>　<span>送货 / 承运签字</span></div>
+    <div>　<span>客户签收（签字或盖章）</span></div>
+  </div>
+
+  <div class="doc-foot">
+    <span>打印时间 2026-10-09 15:04 · 打印人 陈建国</span>
+    <span>一式两联：白联客户留存 · 黄联公司存档</span>
+    <span>第 1 页 / 共 1 页</span>
+  </div>
+
+</div>
+</div>
+
+<!-- 第二张：作废单，演示水印章与状态标注 -->
+<div class="paper">
+<div class="doc doc-wrap">
+  <div class="doc-stamp">已 作 废</div>
+  <div class="doc-top">
+    <div class="doc-org">鑫利五金制品厂<small>东莞市长安镇沙头工业区兴发路 12 号　电话 0769-8532 7741</small></div>
+    <div class="doc-kind"><h1>销售出货单</h1>
+      <div class="no">No. XS-261009-04</div>
+      <div class="state">已作废 · 2026-10-09 09:40 陈建国</div></div>
+  </div>
+  <div class="doc-rule"></div>
+  <dl class="doc-meta">
+    <div><dt>客户</dt><dd>惠州金鼎紧固件</dd></div>
+    <div><dt>开单日期</dt><dd>2026 年 10 月 9 日</dd></div>
+    <div><dt>作废原因</dt><dd>客户取消订单</dd></div>
+    <div><dt>部门 / 业务员</dt><dd>销售一部　周丽娟</dd></div>
+  </dl>
+  <table>
+    <thead><tr><th class="c" style="width:9mm">序</th><th>物料名称 / 规格</th>
+      <th class="c" style="width:16mm">单位</th><th class="n" style="width:20mm">数量</th>
+      <th class="n" style="width:24mm">单价</th><th class="n" style="width:28mm">金额</th></tr></thead>
+    <tbody><tr><td class="c">1</td>
+      <td>镀锌平垫圈 M8<small>GB97 · 袋装 1000 片 · DQ-M8</small></td>
+      <td class="c">袋</td><td class="n">15</td><td class="n">124.00</td><td class="n">1,860.00</td></tr></tbody>
+    <tfoot><tr><td class="c"></td><td>合计 1 行</td><td class="c"></td>
+      <td class="n">15</td><td class="n"></td><td class="n">1,860.00</td></tr></tfoot>
+  </table>
+  <div class="doc-sum">
+    <div class="doc-words">应收金额（大写）<b>零圆整</b>
+      <div style="margin-top:3mm;font-size:8.5pt;color:#555;line-height:1.6">
+        本单已作废，库存 15 袋已加回，应收款已冲销。<br>原始记录保留在系统中可随时查阅。</div></div>
+    <div class="doc-amounts">
+      <div><span>原应收货款</span><b>1,860.00</b></div>
+      <div><span>作废冲销</span><b>−1,860.00</b></div>
+      <div class="due"><span>应收货款</span><b>0.00</b></div>
+    </div>
+  </div>
+  <div class="doc-foot">
+    <span>打印时间 2026-10-09 15:04 · 打印人 陈建国</span>
+    <span>作废单仅供存档核对，不作收款凭证</span>
+    <span>第 1 页 / 共 1 页</span>
+  </div>
+</div>
+</div>
+
+</body>
+</html>

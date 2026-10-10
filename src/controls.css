@@ -5,27 +5,48 @@
   justify-content: center;
   gap: 8px;
   border: 1px solid var(--control-border);
-  background: #fff;
+  background: var(--control-surface);
   color: var(--control-text);
+  font-weight: var(--w-medium);
+  transition: background var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease),
+    box-shadow var(--dur-1) var(--ease), transform var(--dur-1) var(--ease);
   text-decoration: none;
   flex-shrink: 0;
   min-height: var(--control-height);
-  padding: 8px 14px;
+  padding: 0 14px;
   border-radius: var(--control-radius);
   font-size: var(--control-font-size);
   line-height: 1.5;
+  /* 按钮文字永远不逐字换行；放不下就让容器换行或横向滚动 */
+  white-space: nowrap;
 }
 .button:hover:not(:disabled) {
-  background: #f0f5f1;
-  border-color: #758c7c;
+  background: var(--paper-1);
+  border-color: var(--ink-4);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px -6px rgba(16, 22, 24, 0.4);
 }
+.button:active:not(:disabled) { transform: translateY(0); }
 .button.primary {
-  background: var(--action-gradient);
-  border-color: #246b5e;
-  color: #fff;
+  position: relative;
+  overflow: hidden;
+  background: var(--grad-primary);
+  border-color: transparent;
+  color: var(--on-act);
+  box-shadow: var(--glow-brand);
 }
+.button.primary::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: var(--grad-sheen);
+}
+.button.primary > * { position: relative; }
 .button.primary:hover:not(:disabled) {
-  background: #1d5e52;
+  background: var(--grad-primary-hi);
+  border-color: transparent;
+  box-shadow: var(--glow-brand-hi);
 }
 .icon-button {
   display: inline-flex;
@@ -35,7 +56,10 @@
   color: var(--muted);
 }
 .icon-button:hover {
-  background: var(--accent-soft);
+  background: var(--paper-3);
+  color: var(--ink-1);
+  transform: none;
+  box-shadow: none;
 }
 .ui-disclosure-trigger {
   display: inline-flex;
@@ -60,16 +84,17 @@
   margin-bottom: 12px;
 }
 :root {
-  --control-height: 44px;
-  --control-radius: 8px;
-  --control-font-size: 14px;
+  /* 控件尺寸与配色全部取自设计系统令牌（src/theme.css），不在这里写死 */
+  --control-height: var(--h-control);
+  --control-radius: var(--r-control);
+  --control-font-size: var(--t-13);
   --control-padding: 12px;
-  --control-border: #aab8af;
-  --control-surface: #fff;
-  --control-text: #25362e;
-  --control-focus: #17665c;
-  --control-danger: #b42318;
-  --control-gap: 8px;
+  --control-border: var(--line-3);
+  --control-surface: var(--paper-0);
+  --control-text: var(--ink-1);
+  --control-focus: var(--brand);
+  --control-danger: var(--danger);
+  --control-gap: var(--s-2);
 }
 .ui-input:not([type="file"]),
 .ui-select {
@@ -107,7 +132,7 @@
   resize: vertical;
 }
 .ui-input[readonly] {
-  background: #f4f6f3;
+  background: var(--paper-1);
 }
 .ui-input:disabled,
 .ui-select:disabled {
@@ -130,7 +155,7 @@
 .ui-button.button,
 a.button {
   min-height: var(--control-height);
-  padding: 8px 14px;
+  padding: 0 14px;
   border-radius: var(--control-radius);
   font-size: var(--control-font-size);
   line-height: 1.5;
@@ -156,12 +181,12 @@ a.button {
 }
 .button.danger {
   background: var(--control-danger);
-  color: #fff;
+  color: var(--on-brand);
   border-color: var(--control-danger);
 }
 .button.danger:hover:not(:disabled) {
-  background: #912018;
-  border-color: #912018;
+  background: var(--danger);
+  border-color: var(--danger);
 }
 .button.danger-outline {
   color: var(--control-danger);
@@ -190,10 +215,10 @@ a.button {
   max-height: min(320px, var(--radix-select-content-available-height));
   overflow: auto;
   padding: 5px;
-  background: #fff;
-  border: 1px solid var(--border);
+  background: var(--paper-0);
+  border: 1px solid var(--line-2);
   border-radius: 10px;
-  box-shadow: 0 10px 30px #173f3026;
+  box-shadow: var(--shadow-pop);
 }
 .ui-select-option {
   min-height: 44px;
@@ -225,16 +250,17 @@ a.button {
   border: 1px solid var(--control-border);
   border-radius: 5px;
   padding: 0;
-  background: #fff;
+  background: var(--paper-0);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  /* 勾选标记压在品牌填充上，深浅主题各自取反 */
+  color: var(--on-brand);
   flex-shrink: 0;
 }
 .ui-checkbox[data-state="checked"] {
-  background: var(--primary);
-  border-color: var(--primary);
+  background: var(--brand);
+  border-color: var(--brand);
 }
 .ui-checkbox > span {
   display: flex;
@@ -252,7 +278,7 @@ a.button {
   position: fixed;
   inset: 0;
   z-index: 300;
-  background: #10292270;
+  background: color-mix(in srgb, #0a1416 52%, transparent);
 }
 .ui-dialog {
   position: fixed;
@@ -267,10 +293,10 @@ a.button {
   max-height: calc(var(--viewport-height, 100dvh) - 32px);
   padding: 0;
   overflow: hidden;
-  background: #fff;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  box-shadow: 0 24px 80px #10292233;
+  background: var(--paper-0);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-modal);
+  box-shadow: var(--shadow-modal);
 }
 .ui-dialog:focus {
   outline: none;
@@ -310,10 +336,10 @@ a.button {
   z-index: 330;
   max-width: min(340px, calc(100vw - 32px));
   padding: 16px;
-  background: #fff;
-  border: 1px solid var(--border);
+  background: var(--paper-0);
+  border: 1px solid var(--line-2);
   border-radius: 10px;
-  box-shadow: 0 8px 28px #173f3026;
+  box-shadow: var(--shadow-pop);
   font-size: 14px;
 }
 .ui-help-content p {
@@ -321,7 +347,8 @@ a.button {
 }
 @media (max-width: 760px) {
   :root {
-    --control-height: 48px;
+    /* 窄屏高度同样由设计令牌决定，不在这里另开一套 */
+    --control-height: var(--h-control);
     --control-font-size: 16px;
   }
   .ui-dialog {
@@ -411,8 +438,8 @@ a.button {
   background: var(--accent-soft);
 }
 .ui-tab[data-state="active"] {
-  color: var(--control-focus);
-  border-bottom-color: var(--control-focus);
+  color: var(--brand-ink);
+  border-bottom-color: var(--brand);
   font-weight: 650;
 }
 .ui-tab:focus-visible {
@@ -451,10 +478,10 @@ a.button {
   z-index: 80;
   max-height: 240px;
   overflow-y: auto;
-  background: var(--surface, #fff);
+  background: var(--paper-0);
   border: 1px solid var(--border);
   border-radius: 8px;
-  box-shadow: 0 6px 20px #0002;
+  box-shadow: var(--shadow-pop);
   padding: 4px;
 }
 .ui-combobox-option {
@@ -470,7 +497,7 @@ a.button {
 }
 .ui-combobox-option:hover,
 .ui-combobox-option[aria-selected="true"] {
-  background: var(--accent-soft, #e9f3ed);
+  background: var(--brand-soft);
 }
 .ui-combobox-list p {
   margin: 8px;

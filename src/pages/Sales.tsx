@@ -1630,8 +1630,8 @@ export default function Sales({
                 ? "客户"
                 : "基础资料"
               : financeView
-                ? "财务"
-                : "开单与收款"}
+                ? "收款"
+                : "开单"}
           </h1>
           <p>
             {configView
@@ -1656,7 +1656,7 @@ export default function Sales({
         )}
       </div>
       <TabsList
-        aria-label="开单与收款栏目"
+        aria-label="开单栏目"
         hidden={editing || financeView || configView}
       >
         <Tab value="list">单据列表</Tab>
@@ -1684,7 +1684,7 @@ export default function Sales({
           />
         ) : selected ? (
           <Detail
-            backLabel={financeView ? "返回财务" : "返回列表"}
+            backLabel={financeView ? "返回收款" : "返回列表"}
             sale={selected}
             user={user}
             catalog={entries}

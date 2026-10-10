@@ -49,7 +49,7 @@ export default function Updates() {
     <div className="updates-page">
       <div className="page-heading">
         <div>
-          <h1>版本更新</h1>
+          <h1>版本</h1>
           <p>查看当前版本，选择合适的时间更新。</p>
         </div>
       </div>

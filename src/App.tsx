@@ -33,6 +33,8 @@ import {
   MoreHorizontal,
   ChevronRight,
   ExternalLink,
+  Sun,
+  Moon,
 } from "lucide-react";
 import {
   api,
@@ -63,6 +65,68 @@ const Users = lazy(() => import("./pages/Users"));
 const SettingsPage = lazy(() => import("./pages/Settings"));
 const UpdatesPage = lazy(() => import("./pages/Updates"));
 import WebAccess from "./WebAccess";
+
+/** 界面字号与深浅主题。写在 <html> 的 data 属性上，由设计令牌接管缩放与配色。 */
+function useDisplaySettings() {
+  const read = (key: string, fallback: string) => {
+    try {
+      return localStorage.getItem(key) ?? fallback;
+    } catch {
+      return fallback;
+    }
+  };
+  const [size, setSize] = useState(() => read("erp-size", "md"));
+  const [theme, setTheme] = useState(() => read("erp-theme", "light"));
+  useEffect(() => {
+    document.documentElement.dataset.size = size;
+    document.documentElement.dataset.theme = theme;
+    document
+      .querySelector('meta[name="theme-color"]')
+      ?.setAttribute(
+        "content",
+        getComputedStyle(document.documentElement)
+          .getPropertyValue("--paper-2")
+          .trim(),
+      );
+    try {
+      localStorage.setItem("erp-size", size);
+      localStorage.setItem("erp-theme", theme);
+    } catch {
+      /* 隐私模式下不可写，不影响使用 */
+    }
+  }, [size, theme]);
+  return { size, setSize, theme, setTheme };
+}
+
+function SizeSwitch({
+  size,
+  onChange,
+}: {
+  size: string;
+  onChange: (size: string) => void;
+}) {
+  return (
+    <div className="size-switch" role="group" aria-label="界面字号">
+      {(
+        [
+          ["sm", "小号字"],
+          ["md", "中号字（默认）"],
+          ["lg", "大号字"],
+        ] as const
+      ).map(([value, label]) => (
+        <Button
+          key={value}
+          title={label}
+          aria-label={label}
+          aria-pressed={size === value}
+          onClick={() => onChange(value)}
+        >
+          A
+        </Button>
+      ))}
+    </div>
+  );
+}
 
 function Login({
   initialized,
@@ -271,12 +335,16 @@ function Home({
           <ChevronRight size={18} />
         </Button>
       </div>
-      {(user.role === "admin" || (user.role === "worker" && user.can_out)) && (
-        <Button className="button primary" onClick={() => navigate("sales")}>
-          开单发货
-        </Button>
-      )}
       <div className="task-grid">
+        {(user.role === "admin" || (user.role === "worker" && user.can_out)) && (
+          <Button className="task-card sales-entry" onClick={() => navigate("sales")}>
+            <span className="task-icon">
+              <ReceiptText size={28} />
+            </span>
+            <strong>开单发货</strong>
+            <span>多物料开单、登记收款</span>
+          </Button>
+        )}
         {(user.role === "admin" || user.can_in) && (
           <Button className="task-card inbound" onClick={() => navigate("in")}>
             <span className="task-icon">
@@ -369,6 +437,7 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
     back,
     reset,
   } = useNavigation(dirty);
+  const display = useDisplaySettings();
   useVisualViewport();
   const [moreOpen, setMoreOpen] = useState(false);
   const logout = useAction();
@@ -463,30 +532,40 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
         />
       </>
     );
+  /* 手机底栏只放 5 个最高频入口，其余走「更多」。清单只在这里定义一次。 */
+  const secondary = [
+    "customers",
+    "records",
+    "stocktakes",
+    "catalog",
+    "users",
+    "settings",
+    "updates",
+  ];
   const nav = [
     { id: "home", label: "工作台", icon: LayoutDashboard },
-    { id: "inventory", label: "库存", icon: PackageSearch },
+    { id: "inventory", label: "物料", icon: PackageSearch },
     ...(user.role === "admin" || (user.role === "worker" && user.can_out)
-      ? [{ id: "sales", label: "开单与收款", icon: ReceiptText }]
+      ? [{ id: "sales", label: "开单", icon: ReceiptText }]
       : []),
     ...(user.role === "admin" || (user.role === "worker" && user.can_out)
       ? [{ id: "customers", label: "客户", icon: ContactRound }]
       : []),
     ...(user.role === "admin"
-      ? [{ id: "finance", label: "财务", icon: Wallet }]
+      ? [{ id: "finance", label: "收款", icon: Wallet }]
       : []),
     { id: "records", label: "记录", icon: ClipboardList },
     ...(user.role === "admin" || user.can_count
-      ? [{ id: "stocktakes", label: "清点库存", icon: ClipboardCheck }]
+      ? [{ id: "stocktakes", label: "清点", icon: ClipboardCheck }]
       : []),
     ...(user.role === "admin"
       ? [
           { id: "catalog", label: "基础资料", icon: ListChecks },
-          { id: "users", label: "人员与权限", icon: UsersRound },
-          { id: "settings", label: "数据与备份", icon: Settings },
+          { id: "users", label: "人员", icon: UsersRound },
+          { id: "settings", label: "备份", icon: Settings },
         ]
       : []),
-    { id: "updates", label: "版本更新", icon: RefreshCw },
+    { id: "updates", label: "版本", icon: RefreshCw },
   ];
   return (
     <div className="app-shell" data-flow={page === "in" || page === "out"}>
@@ -505,49 +584,55 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
         </div>
         <nav aria-label="主要导航">
           {[
+            { label: "概览", domain: "overview", ids: ["home"] },
+            { label: "销售", domain: "sales", ids: ["sales", "customers"] },
             {
-              label: "常用功能",
-              ids: [
-                "home",
-                "inventory",
-                "sales",
-                "finance",
-                "customers",
-                "records",
-                "stocktakes",
-              ],
+              label: "库存",
+              domain: "stock",
+              ids: ["inventory", "records", "stocktakes"],
             },
             {
-              label: "管理与设置",
+              label: "财务",
+              domain: "money",
+              ids: ["finance"],
+              lock: "最高权限",
+            },
+            {
+              label: "设置",
+              domain: "admin",
               ids: ["catalog", "users", "settings", "updates"],
             },
-          ].map((group) => (
-            <div
-              className="nav-group"
-              role="group"
-              aria-label={group.label}
-              key={group.label}
-            >
-              <p className="nav-group-title" aria-hidden="true">
-                {group.label}
-              </p>
-              {nav
-                .filter(({ id }) => group.ids.includes(id))
-                .map(({ id, label, icon: Icon }) => (
-                  <Button
-                    key={id}
-                    className={`${page === id ? "nav-item active" : "nav-item"} ${["sales", "finance", "customers", "catalog", "users", "settings", "updates"].includes(id) ? "secondary-nav" : ""}`}
-                    onClick={() => navigate(id as Page)}
-                    aria-current={page === id ? "page" : undefined}
-                  >
-                    <Icon size={21} />
-                    <span>{label}</span>
-                  </Button>
-                ))}
-            </div>
-          ))}
+          ]
+            .filter((group) => nav.some(({ id }) => group.ids.includes(id)))
+            .map((group) => (
+              <div
+                className="nav-group"
+                role="group"
+                data-domain={group.domain}
+                aria-label={group.label}
+                key={group.label}
+              >
+                <p className="nav-group-title" aria-hidden="true">
+                  {group.label}
+                  {group.lock && <span className="lock">{group.lock}</span>}
+                </p>
+                {nav
+                  .filter(({ id }) => group.ids.includes(id))
+                  .map(({ id, label, icon: Icon }) => (
+                    <Button
+                      key={id}
+                      className={`${page === id ? "nav-item active" : "nav-item"} ${secondary.includes(id) ? "secondary-nav" : ""}`}
+                      onClick={() => navigate(id as Page)}
+                      aria-current={page === id ? "page" : undefined}
+                    >
+                      <Icon size={21} />
+                      <span>{label}</span>
+                    </Button>
+                  ))}
+              </div>
+            ))}
           <Button
-            className={`nav-item mobile-more ${moreOpen || ["sales", "finance", "customers", "catalog", "users", "settings", "updates"].includes(page) ? "active" : ""}`}
+            className={`nav-item mobile-more ${moreOpen || secondary.includes(page) ? "active" : ""}`}
             aria-haspopup="dialog"
             aria-expanded={moreOpen}
             onClick={() => setMoreOpen(true)}
@@ -559,9 +644,9 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
         <div className="sidebar-bottom">
           <ShieldCheck size={18} />
           <span>
-            数据保存在库存电脑
+            数据保存在库存服务所在设备
             <br />
-            <small>自动保存操作记录</small>
+            <small>每次操作都会自动留痕</small>
           </span>
         </div>
       </aside>
@@ -577,9 +662,29 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
                 (page === "in" ? "入库登记" : "出库登记")}
             </strong>
             <i />
-            已连接库存电脑
+            库存服务
+            <span className="host">{location.host}</span>
           </span>
           <div className="topbar-actions">
+            <SizeSwitch size={display.size} onChange={display.setSize} />
+            <Button
+              className="icon-button"
+              aria-label={
+                display.theme === "dark" ? "切换到浅色界面" : "切换到深色界面"
+              }
+              title={
+                display.theme === "dark" ? "切换到浅色界面" : "切换到深色界面"
+              }
+              onClick={() =>
+                display.setTheme(display.theme === "dark" ? "light" : "dark")
+              }
+            >
+              {display.theme === "dark" ? (
+                <Sun size={18} />
+              ) : (
+                <Moon size={18} />
+              )}
+            </Button>
             <NativeTools pageOpen={page === "updates"} />
             <Button
               className="icon-button"
@@ -701,19 +806,13 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
               </small>
             </div>
           </div>
+          <div className="mobile-display-settings">
+            <span>界面字号</span>
+            <SizeSwitch size={display.size} onChange={display.setSize} />
+          </div>
           <nav className="more-menu" aria-label="更多功能">
             {nav
-              .filter((item) =>
-                [
-                  "sales",
-                  "finance",
-                  "customers",
-                  "catalog",
-                  "users",
-                  "settings",
-                  "updates",
-                ].includes(item.id),
-              )
+              .filter((item) => secondary.includes(item.id))
               .map(({ id, label, icon: Icon }) => (
                 <Button
                   className="more-menu-item"

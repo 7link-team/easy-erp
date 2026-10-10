@@ -56,18 +56,22 @@ svg {
   flex-shrink: 0;
 }
 .sidebar {
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  overflow: hidden;
 }
 .sidebar .brand {
+  flex-shrink: 0;
   padding-bottom: 24px;
 }
 .sidebar-bottom {
+  flex-shrink: 0;
   padding-top: 16px;
   margin-top: 24px;
 }
 .sidebar nav {
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .topbar {
   min-height: 72px;
@@ -99,7 +103,7 @@ svg {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 .panel {
-  box-shadow: 0 2px 5px #172b3704;
+  box-shadow: 0 2px 5px rgba(16, 22, 24, 0.03);
 }
 .table-wrap {
   max-width: 100%;
@@ -124,7 +128,7 @@ tbody tr:last-child td {
   border-bottom: 0;
 }
 tbody tr:hover {
-  background: #f8fafb;
+  background: var(--paper-1);
 }
 .row-actions {
   align-items: center;
@@ -158,13 +162,13 @@ tbody tr:hover {
   position: static;
   width: 100%;
   padding: 12px 14px;
-  background: #eff4f7;
-  color: #263e4b;
+  background: var(--paper-1);
+  color: var(--ink-1);
   box-shadow: none;
-  border-left: 3px solid #8a9dac;
+  border-left: 3px solid var(--line-3);
 }
 .help-content p {
-  color: #435865;
+  color: var(--ink-2);
 }
 .modal-heading {
   flex-shrink: 0;
@@ -189,7 +193,7 @@ tbody tr:hover {
 .modal-body .form-actions {
   position: sticky;
   bottom: -24px;
-  background: #fff;
+  background: var(--paper-0);
   border-top: 1px solid var(--border);
   padding: 16px 0 24px;
   margin-top: 20px;
@@ -262,6 +266,7 @@ tbody tr:hover {
     display: none;
   }
   .sidebar nav {
+    overflow: visible;
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 6px;
@@ -370,7 +375,7 @@ tbody tr:hover {
   }
   .login-page {
     display: block;
-    background: #f4f7f8;
+    background: var(--paper-1);
     padding-bottom: 20px;
   }
   .login-intro {

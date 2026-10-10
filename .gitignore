@@ -62,3 +62,7 @@ target/
 ._*
 Thumbs.db
 Desktop.ini
+
+# Agent / 设计工作区产物
+.playwright-mcp/
+/design-system/*/shots/

@@ -236,7 +236,7 @@ export default function Inventory({
     <>
       <div className="page-heading">
         <div>
-          <h1>库存</h1>
+          <h1>物料</h1>
           <p>找物料、看数量。每笔收发都有记录。</p>
         </div>
         {user.role === "admin" && (

@@ -477,7 +477,7 @@ test("真实界面多品类开单、收款、打印、手机版式与离开保�
   });
   await page.goto("/#/sales");
   await expect(
-    page.getByRole("heading", { name: "开单与收款", exact: true }),
+    page.getByRole("heading", { name: "开单", exact: true }),
   ).toBeVisible();
   const listTab = page.getByRole("tab", { name: "单据列表", exact: true });
   await expect(listTab).toHaveAttribute("aria-selected", "true");
@@ -996,12 +996,12 @@ test("账户筛选对账与 CSV 退款保持数值", async ({ request, page }) =
   await page.goto("/");
   await page
     .getByRole("navigation", { name: "主要导航" })
-    .getByRole("group", { name: "常用功能" })
-    .getByRole("button", { name: "财务", exact: true })
+    .getByRole("group", { name: "财务" })
+    .getByRole("button", { name: "收款", exact: true })
     .click();
   await expect(page).toHaveURL(/#\/finance$/);
   await expect(
-    page.getByRole("heading", { name: "财务", exact: true }),
+    page.getByRole("heading", { name: "收款", exact: true }),
   ).toBeVisible();
   await page.reload();
   await expect(
@@ -1083,7 +1083,7 @@ test("账户筛选对账与 CSV 退款保持数值", async ({ request, page }) =
   });
   await page.getByRole("button", { name: "刷新数据", exact: true }).click();
   await started;
-  await page.getByRole("button", { name: "返回财务", exact: true }).click();
+  await page.getByRole("button", { name: "返回收款", exact: true }).click();
   releaseRefresh();
   await Promise.all([delivered, ended]);
   await page.evaluate(
@@ -1096,7 +1096,7 @@ test("账户筛选对账与 CSV 退款保持数值", async ({ request, page }) =
   page.off("requestfailed", onRequestEnd);
   await page.unroute(detailUrl);
   await expect(
-    page.getByRole("button", { name: "返回财务", exact: true }),
+    page.getByRole("button", { name: "返回收款", exact: true }),
   ).toHaveCount(0);
   await page.getByRole("button", { name: customer.name, exact: true }).click();
   await ledger.getByRole("button", { name: sale.number, exact: true }).click();
@@ -1112,7 +1112,7 @@ test("账户筛选对账与 CSV 退款保持数值", async ({ request, page }) =
     .fill("财务客户对账补收");
   await payment.getByRole("button", { name: "登记收款", exact: true }).click();
   await expect(payment).toHaveCount(0);
-  await page.getByRole("button", { name: "返回财务", exact: true }).click();
+  await page.getByRole("button", { name: "返回收款", exact: true }).click();
   await page.getByRole("button", { name: customer.name, exact: true }).click();
   await expect(
     ledger.getByRole("table", { name: "客户单据对账" }),

@@ -2,16 +2,16 @@
   font-family:
     -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei",
     sans-serif;
-  color: #172b37;
-  background: #f5f7f9;
+  color: var(--ink-1);
+  background: var(--paper-1);
   font-synthesis: none;
   line-height: 1.6;
   font-size: 16px;
-  --primary: #334155;
-  --border: #dce3e8;
-  --muted: #576875;
-  --green: #047857;
-  --amber: #92400e;
+  --primary: var(--ink-2);
+  --border: var(--line-2);
+  --muted: var(--ink-3);
+  --green: var(--ok);
+  --amber: var(--warn);
 }
 * {
   box-sizing: border-box;
@@ -74,11 +74,11 @@ summary:focus-visible,
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible {
-  outline: 3px solid #2563eb;
+  outline: 3px solid var(--brand-500);
   outline-offset: 3px;
 }
 input::placeholder {
-  color: #6b7a85;
+  color: var(--ink-3);
 }
 button {
   border: 0;
@@ -86,7 +86,7 @@ button {
 .text-button,
 .back-link {
   background: transparent;
-  color: #334155;
+  color: var(--ink-2);
   padding: 8px 0;
   font-weight: 600;
   display: inline-flex;
@@ -102,14 +102,14 @@ button {
   margin: 6px 0 0;
 }
 .eyebrow {
-  color: #647785;
+  color: var(--ink-3);
   font-size: 13px;
   letter-spacing: 2px;
   display: block;
   margin-bottom: 12px;
 }
 .panel {
-  background: #fff;
+  background: var(--paper-0);
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 24px;
@@ -156,7 +156,7 @@ button {
   font-weight: 600;
 }
 .field-label label span {
-  color: #647785;
+  color: var(--ink-3);
   font-size: 12px;
   font-weight: 400;
   margin-left: 7px;
@@ -189,14 +189,14 @@ button {
   margin-top: 2px;
 }
 .notice.error {
-  background: #fff1f0;
-  color: #a52624;
-  border: 1px solid #efc6c2;
+  background: var(--danger-soft);
+  color: var(--danger);
+  border: 1px solid var(--danger-line);
 }
 .notice.success {
-  background: #eaf8f1;
-  color: #076744;
-  border: 1px solid #bbdfcd;
+  background: var(--ok-soft);
+  color: var(--ok);
+  border: 1px solid var(--ok-line);
 }
 .empty {
   padding: 32px 16px;
@@ -217,7 +217,7 @@ button {
   justify-content: center;
   width: 44px;
   height: 32px;
-  color: #586e7d;
+  color: var(--ink-2);
 }
 .help summary::-webkit-details-marker {
   display: none;
@@ -229,13 +229,13 @@ button {
   left: -150px;
   width: 280px;
   padding: 16px;
-  background: #203443;
+  background: var(--ink-1);
   color: white;
   border-radius: 8px;
-  box-shadow: 0 5px 20px #172b3726;
+  box-shadow: 0 5px 20px var(--ink-1)26;
 }
 .help-content p {
-  color: #fff;
+  color: var(--on-brand);
   margin: 5px 0 0;
   font-size: 14px;
 }
@@ -245,7 +245,7 @@ button {
   margin-top: 20px;
 }
 .more > summary {
-  color: #475569;
+  color: var(--ink-2);
   min-height: 44px;
 }
 .more[open] > summary {
@@ -287,7 +287,7 @@ fieldset {
   top: -100px;
   left: 20px;
   z-index: 100;
-  background: #fff;
+  background: var(--paper-0);
   padding: 12px;
 }
 .skip-link:focus {
@@ -302,7 +302,7 @@ fieldset {
   flex-shrink: 0;
   position: fixed;
   inset: 0 auto 0 0;
-  background: #fff;
+  background: var(--paper-0);
   border-right: 1px solid var(--border);
   padding: 26px 16px;
   display: flex;
@@ -314,7 +314,7 @@ fieldset {
   gap: 12px;
   font-size: 21px;
   font-weight: 700;
-  color: #263e4b;
+  color: var(--ink-1);
 }
 .brand small {
   font-size: 11px;
@@ -338,16 +338,16 @@ fieldset {
   min-height: 51px;
   padding: 12px 16px;
   background: transparent;
-  color: #50636f;
+  color: var(--ink-2);
   text-align: left;
   font-weight: 500;
 }
 .nav-item:hover {
-  background: #f3f6f8;
+  background: var(--paper-1);
 }
 .nav-item.active {
-  background: #eaf0f4;
-  color: #1e3444;
+  background: var(--paper-1);
+  color: var(--ink-1);
   font-weight: 700;
 }
 .sidebar-bottom {
@@ -356,7 +356,7 @@ fieldset {
   gap: 10px;
   padding: 16px 8px 0;
   font-size: 12px;
-  color: #607581;
+  color: var(--ink-3);
   border-top: 1px solid var(--border);
 }
 .sidebar-bottom small {
@@ -368,7 +368,7 @@ fieldset {
 }
 .topbar {
   height: 78px;
-  background: #ffffffd9;
+  background: color-mix(in srgb, var(--paper-0) 85%, transparent);
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
@@ -377,7 +377,7 @@ fieldset {
 }
 .connection {
   font-size: 13px;
-  color: #50636f;
+  color: var(--ink-2);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -386,7 +386,7 @@ fieldset {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #047857;
+  background: var(--ok);
 }
 .topbar-actions {
   display: flex;
@@ -401,7 +401,7 @@ fieldset {
   width: 34px;
   height: 34px;
   border-radius: 50%;
-  background: #e9eef2;
+  background: var(--line-1);
   display: grid;
   place-items: center;
 }
@@ -412,14 +412,14 @@ fieldset {
   outline: none;
 }
 .workspace footer {
-  color: #7a8a94;
+  color: var(--ink-3);
   text-align: center;
   font-size: 12px;
   padding: 20px;
 }
 .date-label {
   font-size: 13px;
-  color: #607581;
+  color: var(--ink-3);
 }
 .task-grid {
   display: grid;
@@ -436,14 +436,14 @@ fieldset {
   padding: 25px;
   border-radius: 12px;
   min-height: 216px;
-  background: white;
-  color: #263e4b;
+  background: var(--paper-0);
+  color: var(--ink-1);
   transition:
     border-color 0.15s,
     background-color 0.15s;
 }
 .task-card:hover {
-  border-color: #7a9890;
+  border-color: var(--brand-line);
 }
 .task-card strong {
   font-size: 25px;
@@ -451,7 +451,7 @@ fieldset {
 }
 .task-card > span:not(.task-icon) {
   font-size: 14px;
-  color: #536c6b;
+  color: var(--ink-3);
 }
 .task-card small {
   font-size: 12px;
@@ -463,28 +463,28 @@ fieldset {
   display: flex;
 }
 .inbound {
-  background: #f0f8f4;
-  border-color: #d2e6da;
+  background: var(--paper-1);
+  border-color: var(--ok-line);
 }
 .inbound .task-icon {
-  background: #dcefe4;
-  color: #047857;
+  background: var(--ok-soft);
+  color: var(--ok);
 }
 .outbound {
-  background: #fcf6ec;
-  border-color: #eedfc9;
+  background: var(--warn-soft);
+  border-color: var(--warn-line);
 }
 .outbound .task-icon {
-  background: #f8e9cf;
-  color: #92400e;
+  background: var(--warn-line);
+  color: var(--warn);
 }
 .lookup {
-  background: #f0f5f9;
-  border-color: #d8e3ec;
+  background: var(--paper-1);
+  border-color: var(--info-line);
 }
 .lookup .task-icon {
-  background: #dfebf4;
-  color: #315a77;
+  background: var(--info-soft);
+  color: var(--info);
 }
 .home-columns {
   display: grid;
@@ -496,7 +496,7 @@ fieldset {
   align-items: center;
   gap: 13px;
   padding: 16px 0;
-  border-bottom: 1px solid #edf0f2;
+  border-bottom: 1px solid var(--paper-1);
 }
 .recent-row:last-child {
   border: 0;
@@ -512,21 +512,21 @@ fieldset {
   font-size: 12px;
   padding: 4px 9px;
   border-radius: 5px;
-  background: #edf2f5;
-  color: #526672;
+  background: var(--paper-1);
+  color: var(--ink-3);
   white-space: nowrap;
 }
 .badge.amber {
-  background: #fff3dd;
-  color: #92400e;
+  background: var(--warn-soft);
+  color: var(--warn);
 }
 .badge.green {
-  background: #e6f4ed;
-  color: #047857;
+  background: var(--ok-soft);
+  color: var(--ok);
 }
 .reminder-number {
   font-size: 46px;
-  color: #334155;
+  color: var(--ink-2);
   display: block;
   margin: 22px 0 8px;
   font-variant-numeric: tabular-nums;
@@ -543,7 +543,7 @@ fieldset {
   padding-top: 20px;
   border-top: 1px solid var(--border);
   font-size: 13px;
-  color: #6a7c87;
+  color: var(--ink-3);
 }
 .filters {
   display: flex;
@@ -560,7 +560,7 @@ fieldset {
 .search svg {
   position: absolute;
   left: 13px;
-  color: #637986;
+  color: var(--ink-3);
 }
 .search input {
   padding-left: 43px;
@@ -582,15 +582,15 @@ table {
 }
 th {
   font-size: 12px;
-  color: #607581;
+  color: var(--ink-3);
   font-weight: 500;
-  background: #f7f9fa;
+  background: var(--paper-1);
   padding: 12px 14px;
   border-bottom: 1px solid var(--border);
 }
 td {
   padding: 17px 14px;
-  border-bottom: 1px solid #edf0f2;
+  border-bottom: 1px solid var(--paper-1);
   vertical-align: middle;
 }
 td small {
@@ -616,7 +616,7 @@ td small {
   align-items: center;
   padding-top: 22px;
   font-size: 13px;
-  color: #647785;
+  color: var(--ink-3);
 }
 .pagination > div {
   display: flex;
@@ -635,7 +635,7 @@ td small {
 }
 .picker-item {
   width: 100%;
-  background: #fff;
+  background: var(--paper-0);
   display: flex;
   justify-content: space-between;
   gap: 12px;
@@ -645,7 +645,7 @@ td small {
   border-radius: 5px;
 }
 .picker-item:hover {
-  background: #f0f5f8;
+  background: var(--paper-1);
 }
 .picker-item > span:last-child {
   text-align: right;
@@ -656,7 +656,7 @@ td small {
 }
 .selected-item {
   padding: 14px 16px;
-  background: #f6f8fa;
+  background: var(--paper-1);
   border-radius: 8px;
   margin-bottom: 18px;
 }
@@ -669,7 +669,7 @@ td small {
   text-align: center;
 }
 .complete > svg {
-  color: #047857;
+  color: var(--ok);
 }
 .complete h1 {
   margin-top: 18px;
@@ -679,7 +679,7 @@ td small {
   flex-direction: column;
   gap: 5px;
   text-align: left;
-  background: #f5f8fa;
+  background: var(--paper-1);
   padding: 15px 18px;
   border-radius: 7px;
   margin: 12px 0;
@@ -690,10 +690,10 @@ td small {
   align-items: center;
   gap: 16px;
   padding: 18px 6px;
-  background: #fff;
+  background: var(--paper-0);
   text-align: left;
   border-bottom: 1px solid var(--border);
-  color: #263e4b;
+  color: var(--ink-1);
 }
 .document-body {
   flex: 1;
@@ -702,7 +702,7 @@ td small {
   display: block;
 }
 .document:hover {
-  background: #f8fafb;
+  background: var(--paper-1);
 }
 .detail-grid {
   display: grid;
@@ -711,7 +711,7 @@ td small {
   font-size: 15px;
 }
 .detail-grid dt {
-  color: #6a7c87;
+  color: var(--ink-3);
 }
 .detail-grid dd {
   margin: 0;
@@ -742,11 +742,11 @@ td small {
   min-height: 100vh;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  background: #fff;
+  background: var(--paper-0);
 }
 .login-intro {
   padding: 60px 10%;
-  background: #edf3f3;
+  background: var(--paper-1);
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -769,7 +769,7 @@ td small {
   gap: 14px;
   margin-top: 35px;
   font-size: 14px;
-  color: #506e6b;
+  color: var(--ink-3);
 }
 .login-points span {
   display: flex;

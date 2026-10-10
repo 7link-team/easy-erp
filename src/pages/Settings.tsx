@@ -58,7 +58,7 @@ export default function Settings({
     <>
       <div className="page-heading">
         <div>
-          <h1>数据与备份</h1>
+          <h1>备份</h1>
           <p>表格用于查看与交接；完整备份用于恢复整个库存账。</p>
           <Disclosure className="more" title="备份和导出有什么区别？">
             <p>

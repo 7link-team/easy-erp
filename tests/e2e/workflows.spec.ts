@@ -39,7 +39,7 @@ test("物料分页前后切换与搜索重置页码", async ({ page }) => {
       })
     ).ok(),
   ).toBeTruthy();
-  await navigate(page, "库存");
+  await navigate(page, "物料");
   await page.getByLabel("搜索物料", { exact: true }).fill("翻页验收");
   await expect(page.locator("tbody tr")).toHaveCount(50);
   await page.getByRole("button", { name: "下一页", exact: true }).click();
@@ -53,7 +53,7 @@ test("物料分页前后切换与搜索重置页码", async ({ page }) => {
   await page.getByLabel("搜索物料", { exact: true }).fill("翻页验收00");
   await expect(page.locator("tbody tr")).toHaveCount(1);
   await expect(page.locator(".pagination")).toContainText("第 1 页");
-  await navigate(page, "清点库存");
+  await navigate(page, "清点");
   await page.getByRole("button", { name: "开始清点", exact: true }).click();
   const dialog = page.getByRole("dialog");
   await page.getByLabel("查找清点物料", { exact: false }).fill("翻页验收");
@@ -135,7 +135,7 @@ test.beforeEach(async ({ page }) => {
 test("物料新增、重复编码校验、修改、搜索、类型与低库存筛选", async ({
   page,
 }) => {
-  await navigate(page, "库存");
+  await navigate(page, "物料");
   await page.getByRole("button", { name: "添加物料", exact: true }).click();
   await page.getByLabel("物料名称", { exact: false }).fill("验收专用物料");
   await chooseSelect(page.getByLabel("物料类型 选填", { exact: true }), "成品");
@@ -197,7 +197,13 @@ test("全部收发用途、数量限制、移除物料、连续登记、记录�
     await page
       .getByRole("button", { name: incoming ? /我要入库/ : /我要出库/ })
       .click();
+    const results = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return url.pathname === "/api/items" && url.searchParams.get("q") === "收发用途验收";
+    });
     await page.getByLabel("查找要收发的物料").fill("收发用途验收");
+    await results;
+    await expect(page.locator(".picker-item")).toHaveCount(1);
     await page.getByRole("button", { name: /收发用途验收.*点击添加/ }).click();
     await page.getByRole("button", { name: "移除收发用途验收" }).click();
     await expect(page.getByText("先选物料，再填写数量。")).toBeVisible();
@@ -259,7 +265,7 @@ test("清点锁定阻止收发，取消后恢复收发", async ({ page }) => {
     data: { name: "清点取消验收", kind: "其他", unit: "个", precision: 0 },
   });
   const { id } = await response.json();
-  await navigate(page, "清点库存");
+  await navigate(page, "清点");
   await page.getByRole("button", { name: "开始清点", exact: true }).click();
   await page.getByRole("checkbox", { name: /清点取消验收/ }).check();
   await page.getByRole("button", { name: "开始清点 1 种物料" }).click();
@@ -295,7 +301,7 @@ test("清点锁定阻止收发，取消后恢复收发", async ({ page }) => {
 test("备份计划保存、模板与所有导出下载、错误导入不写入、恢复取消", async ({
   page,
 }) => {
-  await navigate(page, "数据与备份");
+  await navigate(page, "备份");
   await expect(
     page.getByText("每小时自动备份一次", { exact: false }),
   ).toBeVisible();
@@ -350,7 +356,7 @@ test("查看员权限、角色更改、停用、重置密码与退出登录", as
   page,
   browser,
 }) => {
-  await navigate(page, "人员与权限");
+  await navigate(page, "人员");
   await page.getByRole("button", { name: "添加人员账号" }).click();
   await page.getByLabel("姓名 必填", { exact: true }).fill("权限验收员");
   await page.getByLabel("登录账号", { exact: false }).fill("ui_viewer");
@@ -378,7 +384,7 @@ test("查看员权限、角色更改、停用、重置密码与退出登录", as
     ).toBeVisible();
     await expect(
       viewer.getByRole("button", {
-        name: /我要入库|我要出库|人员与权限|清点库存/,
+        name: /我要入库|我要出库|人员|清点/,
       }),
     ).toHaveCount(0);
     expect(

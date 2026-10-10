@@ -8,7 +8,7 @@ test("自动备份仅配置保留天数，支持手机并保存验证结果", as
   }
   expect((await page.request.post("/api/login", { headers, data: credentials })).ok()).toBeTruthy();
   await page.goto("/#/settings");
-  await expect(page.getByRole("heading", { name: "数据与备份", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "备份", exact: true })).toBeVisible();
   const section = page.locator("section").filter({ has: page.getByRole("heading", { name: "自动备份", exact: true }) });
   await expect(section.locator("input")).toHaveCount(1);
   await expect(section.getByRole("combobox")).toHaveCount(0);

@@ -66,7 +66,7 @@ export default function Stocktakes({
     <>
       <div className="page-heading">
         <div>
-          <h1>清点库存</h1>
+          <h1>清点</h1>
           <p>填写实际数到的数量，管理员确认后更新库存。</p>
         </div>
         {user.role === "admin" && (

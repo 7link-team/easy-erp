@@ -58,7 +58,7 @@
 }
 .movement-confirm {
   flex-shrink: 0;
-  background: var(--surface, #fff);
+  background: var(--paper-0);
   border-top: 1px solid var(--border);
   padding-top: 12px;
 }
@@ -69,7 +69,7 @@
   justify-content: space-between;
 }
 .movement-count {
-  color: var(--muted, #657178);
+  color: var(--ink-3);
   font-size: 13px;
   white-space: nowrap;
 }
@@ -101,7 +101,7 @@
     right: 0;
     bottom: var(--keyboard-inset, 0px);
     padding: 12px 24px;
-    box-shadow: 0 -4px 16px #183c3210;
+    box-shadow: var(--shadow-sticky, 0 -4px 16px rgba(16, 22, 24, 0.08));
   }
 }
 @media (max-width: 760px) {
