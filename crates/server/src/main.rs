@@ -101,7 +101,7 @@ async fn main() -> anyhow::Result<()> {
             .sqlx_logging(false)
             .map_sqlx_sqlite_opts(move |options| options.filename(&path).read_only(true));
         let db = Database::connect(options).await?;
-        let result = backup::snapshot(&db, &cfg.data_dir).await;
+        let result = backup::snapshot(&db, &cfg.data_dir, "maintenance").await;
         db.close().await?;
         let info = result.map_err(|error| anyhow::anyhow!(error.1))?;
         if let Some(target) = &cfg.migrate_data_to {
@@ -168,7 +168,7 @@ async fn main() -> anyhow::Result<()> {
         .await?
         .is_none()
     {
-        let before = backup::snapshot(&db, &cfg.data_dir).await?;
+        let before = backup::snapshot(&db, &cfg.data_dir, "upgrade").await?;
         tracing::info!(backup=?serde_json::to_value(before)?, "业务模块升级前备份已完成");
     }
     migration::Migrator::up(&db, None).await?;

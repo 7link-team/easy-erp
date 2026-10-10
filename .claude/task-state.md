@@ -1,9 +1,9 @@
 # Task State
 
 ## Objective / Phase
-Active goal：全部做到位啊。依据docs/客户需求/20261009.md、已确认需求及v2原型；整体未完成，不标记complete。
-当前ANALYSIS：财务期间、业务员筛选、资料月度统计和部门负责人已交付；继续清点/备份原型差异复核。上一批Direct，无subagent；共享快照/报表/界面紧密关联。
-分支feat/sales-and-receivables，功能提交31e6f0e已提交推送，已核验HEAD=origin和干净工作区；本文件为交付后checkpoint，后续HEAD可能为状态记录提交。用户已授权全部提交推送，不合并、不发Release。显式stage，保留数据库、tmp与预览服务。
+Active goal：全部做到位啊。按docs/客户需求/20261009.md、已确认交互与v2原型。当前批次已验收，整体完成尚待最终审计，不标记complete。
+当前ACCEPTANCE：清点分类、备份记录字段与手机布局本批PASS，等待提交推送。Direct，无subagent；复用既有查询、快照、恢复和表格，不加新schema/依赖。
+分支feat/sales-and-receivables，上一交付31e6f0e及状态ad67a05已推送。本批仍未提交。用户授权全部提交推送，不合并、不发Release；显式stage，保留数据库、tmp与预览服务。
 
 ## Delivered
 - 2211f46：自定义角色/模块权限、逐行选料、固定标题/操作栏、财务同页、基础资料左清单右表格。
@@ -15,37 +15,39 @@ Active goal：全部做到位啊。依据docs/客户需求/20261009.md、已确�
 - 2f8902d：八类资料CSV/XLSX原子导入导出、预览回滚/确认重验/幂等/部门ID防错绑；共享保存核心和Modal；双浏览器分批及最终专项、Rust7、216显示/36嵌入组合通过。
 - 2d6d4a7：字典元数据、启停/引用/来源/使用时间、原子拖拽/按钮排序、账户类型、旧模板/API/备份兼容；Chromium71/WebKit71、最终Chromium29/WebKit6、Rust7及显示检查通过。0da6570为交付状态checkpoint。
 
+- 31e6f0e：业务员/部门/期间筛选、真实月度资料统计、部门负责人、账户同条件对账；旧分类快照不倒填，账号绑定不实施。Chromium89+最终25/WebKit90、Rust7、240显示及48嵌入组合通过。ad67a05为状态checkpoint。
+
 ## Current Implementation / Scope
-- sales::finance新增可选performance_period（all/month/quarter/year，默认all兼容）。月/季/年按主机本地日历截至今日；按单据业务日期取当前应收/净实收/欠款，客户总账不跟随业绩期间。
-- performance_choices包含历史归属组合及当前无单据业务员；前端按部门/业务员ID筛选与合计，URL保持。全部部门候选附部门名称，同一人多历史部门确定排序合并；同名不同人不混账。
-- 用户澄清业务员用于区分/查看个人业绩；不实现原型账号绑定，开单人继续独立。无新账号/权限规则，成本与目标仍暂停。
-- 财务响应附monthly：账户按收退款业务日期，部门/业务员按单据日期当前应收。分类按新增SaleLine.kind可选快照及已分摊净额减实际退货；新单记录类别，修订保留原快照，旧单未知不倒填，已消失分类/未分类金额独立列示。
-- 部门负责人复用data.contact，旧API省略时保留。新五列模板/导出兼容旧四列及旧预览。无schema或依赖新增。
-- 账户汇总/流水/CSV使用相同账户/日期条件，本月快捷、零流水账户可查、URL保持；起始晚于结束提示且隐藏误导金额。“查看流水”筛账户并滚动/聚焦标题。
-- 基础资料金额遵守finance.read；加载/失败不显示零。业绩标题允许窄屏整行换行。
-- 新finance-periods.spec.ts 7项；reference-transfer仅部门模板适配、sales仅账户表名定位变化，原业务金额断言保留。
+- Stocktakes分类来自material-options实际在用物料kinds，复用items.kind；候选改删仍可查旧分类，跨页/分类保留勾选，排除清点锁、沿用1–100上限。搜索等待禁止操作旧候选、查询失败隐藏旧候选但保留勾选；恢复后继续。表单与库存事务不改。
+- Manifest新增可选source/photo_count。来源内部调用显式记录manual/automatic/restore/upgrade/shutdown/maintenance，桌面prepare-update也用于退出，显示退出或升级前。数量从已完成的SQLite快照计算全部凭证（含历史），旧库无附件表为0；旧备份缺失字段为未知。
+- BackupInfo增加snapshot_at/source/photo_count/path/metadata_error；原created_at仍是文件mtime用于原保留规则。列表仅读64KB以内清单，不解压数据库；坏清单或无效日期单条标记，不影响其他条目。恢复复用read_manifest，完整校验/事务与本机限制不变。无新schema/依赖，不改每小时备份/按天保留。
+- Settings账册列展示真实字段，桌面尾列固定，手机分区/长路径换行/操作独立。未知生成时间的恢复提示明确是文件修改时间。清点候选增加行间距与分隔线。
+- 手机workspace position:relative约束绝对定位隐藏控件，修复长列表撑高根页面和底栏移出视口；实际高度11402→800，回归断言根高度及导航可见。仅screen媒体，不影响打印。
+- 新stocktake-backup-details.spec.ts 4项；desktop-control.test.mjs补真实来源/零图片断言。原业务测试断言未弱化。
 
 ## Verification / Actual Evidence
-- 首轮finance-periods+reference-transfer：11 PASS/1 FAIL，新fixture误用draft命令，改为既有save；补测finance-periods5 PASS，/tmp/erp-reference-metrics-focused-final.log。
-- 首轮相关Chromium89 PASS（9.9m），/tmp/erp-reference-metrics-chromium.log。
-- 最终前端→后端构建PASS，/tmp/erp-reference-metrics-final-{frontend,backend}.log；Rust7 PASS /tmp/erp-reference-metrics-final-unit.log；typecheck:e2e、cargo fmt、prettier、diff-check通过。
-- 最终Chromium finance-periods+ui 25 PASS（3.5m），/tmp/erp-reference-metrics-final-chromium.log；包含同名业务员/调任/零业绩/权限/现金日期/退货/旧快照/分类改名/模板/日期范围/手机刷新。
-- 首次视觉240组合有业务员1280/light/sm一组对比度异常；等待主题动画稳定后最终240页面/弹窗组合PASS /tmp/erp-reference-metrics-visual-final.log。已人工查看部门/类别/业绩/账户桌面及320深浅截图；金融表格保留局部横滑。
-- 最终嵌入预览财务48显示组合PASS /tmp/erp-reference-metrics-preview-final.log；4280实际JS/CSS字节与dist一致。
-- 最终WebKit相关90 PASS（9.5m），日志/tmp/erp-reference-metrics-final-webkit.log，session80835已结束，4289测试服务已退出。测试覆盖finance-periods/sales/dashboard/catalog/roles/queries/ui/navigation/reference-transfer/dictionary-management。
+- 首轮专项5：3PASS/2FAIL，fixture删候选漏version、手机td固定高度挡住按钮；已分别修正。相关Chromium60：59PASS/1FAIL，fixture误以名称顺序分页；按接口实际候选身份修正。
+- 修正后Chromium专项+ui21 PASS（3.5m），/tmp/erp-backup-count-delivery-chromium.log；追加查询失败修正及来源Map后专项4 PASS（1.2m），/tmp/erp-backup-count-accepted-chromium.log。
+- 最终相关WebKit61 PASS（9.4m），/tmp/erp-backup-count-webkit.log：stocktake-backup-details/zip-backups/backup-policy/workflows/ui/sales/lifecycle/roles/inventory。
+- 最后未知生成时间的恢复提示：最终前端→后端构建PASS /tmp/erp-backup-count-final-copy-{frontend,backend}.log；专项第2项Chromium/WebKit各1 PASS，/tmp/erp-backup-count-final-copy-{chromium,webkit}.log。测试服务已结束，4289释放。
+- Rust7 PASS /tmp/erp-backup-count-unit.log；desktop-control1 PASS /tmp/erp-backup-count-desktop-control.log（真实关闭/离线备份/迁移/保留策略）；typecheck:e2e、prettier、cargo fmt、diff-check通过。
+- 初次96显示组合仅自动检查通过；人工发现方式列挤字/候选过密/根页面变高并修正。最终嵌入96组合PASS /tmp/erp-backup-count-visual-accepted.log，桌面与320深浅截图tmp/backup-count-*.png已人工复核。最后文字补测手机弹窗常显通过；最终嵌入JS/CSS字节与dist一致。
 
 ## Constraints / Preview
-- 每条回复以✅ CLAUDE.md loaded 🎉开头。已应用.claude/skills/web-design-guidelines/SKILL.md，刷新规则/tmp/erp-web-interface-guidelines.md；本批UI检查标签、状态、焦点、URL、移动布局与对比度。
-- 先前端构建再后端嵌入；cargo路径/Users/apple/.cargo/bin/cargo。不要按CLAUDE过时的Go/monorepo目录执行命令。
-- 成本与目标暂停（需求无销售目标，成本口径未确认）；单位精度保留物料级最多3位；字典改删不改物料和历史。
-- Vite5173代理4280，预览数据/tmp/erp-live，admin / Aa123456!。升级前备份backup-20261010-153452-aa9ff033.zip（/tmp/erp-metrics-preview-backup.json）。
-- 当前4280 session52345为最终嵌入构建，原78675已正常关闭。保留5500、4290、8912。
-- 实体打印机/相机/手机软键盘未测；不以浏览器仿真冒充物理测试，不宣称全站无障碍或像素一致。
+- 每条回复以✅ CLAUDE.md loaded 🎉开头。已按.claude/skills/web-design-guidelines/SKILL.md复核本批UI，最新规则/tmp/erp-web-interface-guidelines.md；检查语义表格/按钮/标签、焦点/固定区/深浅可读与手机滚动，不宣称全站无障碍。
+- 先前端构建再后端嵌入；cargo /Users/apple/.cargo/bin/cargo。CLAUDE中的Go/monorepo目录为过时约定，不用于此仓库。
+- 成本/目标暂停，原需求无目标且成本口径未确认。业务员用于业绩而非登录绑定；开单人独立。单位精度为物料级最多3位；候选改删不重写物料/历史。
+- Vite5173代理4280，数据/tmp/erp-live，admin / Aa123456!。当前预览4280 session22192为最终嵌入构建，旧38290已正常关闭。保留5500、4290、8912。
+- 升级前备份backup-20261010-161720-9225b252.zip，/tmp/erp-backup-count-preview-backup.json；新版本实际手动备份backup-20261010-163404-7ecfd319.zip确认来源manual/图片0，/tmp/erp-backup-count-preview-current.json。
+- 实体打印机/相机/手机软键盘未测试；不能用浏览器仿真声称已测实体设备。本轮不打包、不发布。
+
+## Self-Review / Acceptance
+本批PASS：新分类查询/跨页与失败恢复、真实快照与来源/旧备份兼容/坏文件隔离、原保留策略、角色鉴权、真实恢复和手机操作均有实际证据。复用原查询/保存/快照/恢复/UI，无无关重构或新依赖。生成物/tmp/数据库均排除提交。完整目标仍待下一步完成性审计，不能以本批通过代替全部完成。
 
 ## Remaining / Next Action
-1. 本批源码自查与原需求验收PASS：业务员按ID查询/历史归属/期间口径，财务权限与金额加载错误处理，类别快照不倒填，旧API/模板/备份兼容，手机和双浏览器已验证；复用既有余额/表单/事务，未加依赖或无关业务。
-2. 31e6f0e已显式stage、自查、提交推送并核验HEAD=origin；生成物/tmp/数据库均排除。
-3. 整体原型逐页收尾仍待继续：已初步核对Stocktakes.tsx选择物料只有名称/编码搜索，原型描述按分类分批；Settings.tsx备份列表只有时间/大小/下载/恢复，原型另有方式/凭证数量/存放位置。下一批先核对现有API与备份ZIP清单可复用字段，再判断需补项；每小时备份/保留天数是既定规则，不抄原型每日/每周演示策略。本批不据原型演示值引入新业务规则。成本/目标/账号绑定不重启。
+1. 显式stage本批源代码、测试、docs和state，检查staged diff；提交推送并核验HEAD=origin、干净工作区。
+2. 对原客户需求与用户已确认事项、prototype.html的15个业务菜单建立最终逐项完成性核对，检查当前代码/实际页面/测试覆盖。不要默认继续添加功能；仅针对有证据的明确缺项修复。
+3. 审计范围包括完整业务流程、导航/显式操作/表单sticky、字典与查询、业绩、清点、备份、角色；保留已明确的成本/目标/单位精度/账号绑定/财务同页例外。收齐全目标证据后才update_goal complete；目前仍active。
 
 ## Last Checkpoint
-2026-10-11：最终Chromium25、WebKit90、Rust7、240显示与48嵌入显示通过。本批源码与文档自查/验收PASS，31e6f0e已推送并核验。下一步核对清点分类筛选、备份真实元数据与原型差异，先读现有API和备份ZIP清单。
+2026-10-11：清点/备份批次自查及验收PASS，双浏览器/原生控制/静态与显示检查完成，预览最终代码一致。下一步提交推送，随后原始需求与全菜单最终审计。

@@ -44,7 +44,7 @@ pub async fn prepare_update(
         can_count: false,
         active: true,
     };
-    let backup = backup::create(&s, &actor).await?;
+    let backup = backup::create(&s, &actor, "shutdown").await?;
     s.updating.store(true, Ordering::Release);
     s.shutdown.notify_one();
     Ok(Json(

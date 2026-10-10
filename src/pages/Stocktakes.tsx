@@ -1,5 +1,5 @@
 import { can } from "../api";
-import { Button, Form, Input, Checkbox, Textarea } from "../ui";
+import { Button, Form, Input, Checkbox, Textarea, Select } from "../ui";
 import { useEffect, useState } from "react";
 import {
   type User,
@@ -33,6 +33,11 @@ export default function Stocktakes({
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
+  const [kind, setKind] = useState("");
+  const choices = useResource<{ kinds: string[] }>(
+    "/material-options",
+    revision,
+  );
   useEffect(() => {
     const timer = setTimeout(() => {
       setQuery(search);
@@ -41,7 +46,7 @@ export default function Stocktakes({
     return () => clearTimeout(timer);
   }, [search]);
   const materials = useResource<{ items: Item[]; total: number }>(
-    `/items?q=${encodeURIComponent(query)}&page=${page}`,
+    `/items?q=${encodeURIComponent(query)}&kind=${encodeURIComponent(kind)}&page=${page}`,
     revision,
   );
   const [starting, setStarting] = useState(false);
@@ -50,6 +55,10 @@ export default function Stocktakes({
   const [values, setValues] = useState<Record<string, string>>({});
   const [reason, setReason] = useState("");
   const action = useAction();
+  const choosing = materials.loading || search !== query;
+  const available = materials.error
+    ? []
+    : materials.data?.items.filter((i) => !i.counting) || [];
   const open = (count: Stocktake) => {
     setEditing(count);
     setValues(
@@ -77,6 +86,8 @@ export default function Stocktakes({
               setStarting(true);
               setChosen([]);
               setSearch("");
+              setQuery("");
+              setKind("");
               setPage(1);
             }}
           >
@@ -156,9 +167,29 @@ export default function Stocktakes({
               )
             }
           >
+            <Field label="物料分类">
+              {(p) => (
+                <Select
+                  {...p}
+                  value={kind}
+                  onChange={(e) => {
+                    setKind(e.target.value);
+                    setPage(1);
+                  }}
+                >
+                  <option value="">全部分类</option>
+                  {(choices.data?.kinds || []).map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+            {choices.error && <Notice>{choices.error}</Notice>}
             <Field
               label="查找清点物料"
-              hint="可按名称或编码搜索；切换页面会保留已勾选的物料。"
+              hint="可按名称、编码或规格搜索；切换分类和页面会保留已勾选的物料，每次最多100种。"
             >
               {(p) => (
                 <Input
@@ -170,35 +201,40 @@ export default function Stocktakes({
               )}
             </Field>
             {materials.error && <Notice>{materials.error}</Notice>}
-            <div className="selection-list" aria-busy={materials.loading}>
-              {materials.data?.items
-                .filter((i) => !i.counting)
-                .map((i) => (
-                  <label key={i.id} className="checkbox">
-                    <Checkbox
-                      checked={chosen.includes(i.id)}
-                      onChange={(e) =>
-                        setChosen((ids) =>
-                          e.target.checked
-                            ? [...ids, i.id]
-                            : ids.filter((id) => id !== i.id),
-                        )
-                      }
-                    />
-                    <span className="stocktake-choice">
-                      <strong>
-                        {i.name} · {i.spec || "未填写规格"}
-                      </strong>
-                      <span>
-                        {i.code} · 当前库存 {quantity(i.balance, i.precision)}{" "}
-                        {i.unit}
-                      </span>
+            <div className="selection-list" aria-busy={choosing}>
+              {available.map((i) => (
+                <label key={i.id} className="checkbox">
+                  <Checkbox
+                    disabled={
+                      choosing ||
+                      action.busy ||
+                      (!chosen.includes(i.id) && chosen.length >= 100)
+                    }
+                    checked={chosen.includes(i.id)}
+                    onChange={(e) =>
+                      setChosen((ids) =>
+                        e.target.checked
+                          ? [...ids, i.id]
+                          : ids.filter((id) => id !== i.id),
+                      )
+                    }
+                  />
+                  <span className="stocktake-choice">
+                    <strong>
+                      {i.name} · {i.spec || "未填写规格"}
+                    </strong>
+                    <span>
+                      {i.code} · 当前库存 {quantity(i.balance, i.precision)}{" "}
+                      {i.unit}
                     </span>
-                  </label>
-                ))}
+                  </span>
+                </label>
+              ))}
             </div>
-            {!materials.loading && !materials.data?.items.length && (
-              <Empty>没有找到物料，请换个关键词。</Empty>
+            {!choosing && !materials.error && !available.length && (
+              <Empty>
+                本页没有可清点物料；请切换分类、关键词或页码，正在清点的物料暂不可选。
+              </Empty>
             )}
             <div className="pagination">
               <span>

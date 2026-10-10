@@ -112,6 +112,7 @@
   font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
+.selection-list .checkbox { padding-block: 8px; border-bottom: 1px solid var(--line-1); }
 
 /* ══════════════════════════════════════════════════════════════════════
    设计系统 v2 · 令牌层
@@ -1154,7 +1155,7 @@ button { transition: background-color var(--dur-1) var(--ease), border-color var
 @media screen and (max-width: 760px) {
   .app-shell { display: grid; grid-template-rows: minmax(0, 1fr) auto; height: 100dvh; min-height: 0; }
   .app-shell > .sidebar { position: relative; inset: auto; grid-row: 2; }
-  .app-shell > .workspace { grid-row: 1; height: 100%; min-height: 0; overflow: auto; padding-bottom: 0; scroll-padding-block: 76px 16px; }
+  .app-shell > .workspace { position: relative; grid-row: 1; height: 100%; min-height: 0; overflow: auto; padding-bottom: 0; scroll-padding-block: 76px 16px; }
   .app-shell > .workspace:has(.document-editor) { height: 100%; overflow: hidden; }
   html[data-keyboard="open"] .app-shell { height: calc(var(--viewport-height, 100dvh) + var(--viewport-top, 0px)); }
   html[data-keyboard="open"] .app-shell > .workspace:has(.document-editor) { height: 100%; }
@@ -1304,6 +1305,27 @@ button { transition: background-color var(--dur-1) var(--ease), border-color var
 .sidebar-about { display: flex; gap: 6px; align-items: center; margin-top: 6px; min-height: 36px; }
 .finance-section, #finance-cash-entries { scroll-margin-top: 76px; }
 .finance-section > .section-title { flex-wrap: wrap; }
+.backup-table { min-width: 960px; }
+.backup-table td:first-child { min-width: 230px; }
+.backup-table .backup-path { min-width: 220px; max-width: 360px; overflow-wrap: anywhere; }
+.backup-table .ledger-actions { position: sticky; right: 0; background: var(--paper-0); border-left: 1px solid var(--line-1); }
+.backup-table .ledger-actions .row-actions { flex-wrap: nowrap; justify-content: flex-end; }
+@media screen and (min-width: 761px) {
+  .backup-table td:nth-child(2) { min-width: 120px; white-space: nowrap; }
+  .backup-table .numeric { min-width: 90px; white-space: nowrap; }
+}
+@media screen and (max-width: 760px) {
+  .table-wrap:has(.backup-table) { border: 0; overflow: visible; }
+  .table-wrap .backup-table, .backup-table tbody { display: block; min-width: 0; width: 100%; }
+  .backup-table { position: relative; }
+  .backup-table thead { position: absolute; top: 0; left: 0; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .backup-table tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 16px 0; border-bottom: 1px solid var(--line-1); }
+  .backup-table td, .backup-table td:first-child, .backup-table .backup-path { display: block; min-width: 0; max-width: none; height: auto; padding: 0; border: 0; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+  .backup-table td:first-child, .backup-table .backup-path, .backup-table .ledger-actions { grid-column: 1 / -1; }
+  .backup-table td[data-label]::before { content: attr(data-label); display: block; margin-bottom: 4px; color: var(--ink-3); font-size: var(--t-11); }
+  .backup-table .ledger-actions { position: static; background: transparent; border-top: 1px solid var(--line-1); padding-top: 12px; }
+  .backup-table .ledger-actions .row-actions { flex-wrap: wrap; }
+}
 .document-row-actions .row-actions { flex-wrap: wrap; justify-content: flex-end; }
 @media (min-width: 761px) {
   .sale-list-table .sale-list-type { min-width: 100px; }
