@@ -2,7 +2,7 @@
 
 ## Objective / Phase
 Active goal：全部做到位啊。依据docs/客户需求/20261009.md、用户后续确认及v2原型；整体active，未标记complete。
-当前ACCEPTANCE：财务客户账册/账龄、账户占比与合计已实现并验收。完整Chromium139及最终界面22 PASS；最终WebKit首轮138 PASS/1 FAIL，原失败用例5次及queries15复验PASS，偶发输入为空尚无稳定复现。Direct，无subagent。财务本批已完成独立工作并以6560988提交推送，已核对远端一致和工作区干净；全目标仍有优惠汇总澄清及已记录的偶发测试问题。
+当前TESTING：财务批6560988及checkpoint9712276已推送。上一goal turn为progress（实现交付和实际验证）。本轮追查WebKit搜索输入为空，新增140次有事件记录的诊断均正常，并查到云端旧提交同型失败；发现当前代码云端CI仍运行，下一步跟踪已存在run，不重复启动。全目标active，优惠汇总仍待用户回复，未自行变更口径。Direct，无subagent。
 分支feat/sales-and-receivables；用户授权全部提交推送，不合并、不发Release。保留数据库、tmp和预览服务；仅显式stage。
 
 ## Delivered / Historical Evidence
@@ -73,9 +73,17 @@ FinancePanel客户欠款/全部筛选、逐列账册/账龄、账户占比及合
 财务本批PASS：客户ID分账、未结清日期/未来日期/结清与退货账龄、筛选/分页/CSV、只读权限、账户日期和净收比例、0/负/超100%与移动布局均有实际断言。复用finance事务、balances、CustomerLedger、共享控件及URL筛选；无schema、权限、依赖或资金写入规则变化。修改范围web-design-guidelines复核完成，截图与嵌入资源已核对。完整原需求、后续确认及方案第12节不变量已写入需求复核证据矩阵。
 完整WebKit首轮的单次记录搜索失败不隐藏：trace显示输入为空且无筛选请求，原代码和断言连续5次及完整queries15均通过，原因尚未确定；不宣称已修复或首轮全绿。财务新增和本次菜单功能在两浏览器通过。实体硬件未测。全目标仍active，优惠汇总口径未确认。
 
+## WebKit Diagnosis / Cloud CI（2026-10-11）
+- 本地记录搜索失败与云端239c5a2销售搜索失败均为fill完成后输入框为空、只见空查询请求；云端run38073216491仅WebKit失败，其他实际执行jobs成功。失败不是财务新增专项，也不能据此断言为浏览器或产品根因。
+- 新增只读诊断140次全部正常：预览冷页40；原失败隔离库副本399条记录、初始响应0/200/600/1000ms延迟40；记录/销售各半独立浏览器context40；启用与E2E相同截图/快照trace20。每次核对输入值、URL参数、已发出对应查询，捕获input/beforeinput/focus/popstate事件；全部有正确input事件、无popstate。不能以未复现宣称根因修复，不改产品或放宽断言。
+- 诊断脚本tmp/record-search-diagnostic.mjs；结果tmp/{record-search-diagnostic,record-search-large-diagnostic,search-cold-diagnostic,search-traced-diagnostic}.json；日志/tmp/erp-{record-search-diagnostic,record-search-large-diagnostic,search-cold-diagnostic,search-traced-diagnostic}.log。复制旧隔离库到tmp/record-search-large-data，源库及预览业务数据未改；4294诊断服务已停止。
+- 云端旧失败证据tmp/ci-239c5a2-webkit/test-results及/tmp/erp-ci-239c5a2-failed.log，下载进程已完成。原本地trace仍保留。
+- 当前功能提交6560988的run38076087635已通过Windows/Linux checks、web、Android、Windows/Linux桌面及macOS ARM桌面；最近实际查询双浏览器E2E、macOS Intel桌面及iOS模拟器仍in_progress。9712276文档checkpoint的run38076119049此前pending；只跟踪这些已有任务，后续先重新查询实际状态。PR #1仍OPEN/DRAFT，不合并、不发布。
+
 ## Next Action
-1. 等用户回复原型优惠经营汇总的取舍/退货后口径；建议本轮不增加该汇总，保留现有单据优惠明细。未收到回复不实施或宣称差异关闭。
-2. 若记录搜索再次发生输入为空，使用保留trace继续定位；当前复现5次及完整相关15均通过，无证据时不臆测改产品代码。
+1. 用gh run view 38076087635 --json status,conclusion,jobs核对现有云端任务；终态若失败读具体失败日志/trace，保留断言定位。文档提交不改变产品代码，核对最终head排队的run实际状态；不能因观察超时重启CI。
+2. 目前没有稳定复现，不继续机械重复140次已验证的相同条件；如云端再失败，比较新证据定位共同原因。
+3. 等用户回复原型优惠经营汇总的取舍/退货后口径；建议本轮不增加该汇总，保留现有单据优惠明细。未收到回复不实施或宣称差异关闭。
 
 ## Last Checkpoint
-2026-10-11：财务批最终Chromium22 PASS（1.7m），/tmp/erp-finance-final-chromium-supplement.log。本轮测试进程均已结束，4289不保留；4280/5173等预览服务保持。财务批6560988已提交推送并核验远端一致与工作区干净；本次仅补充交付checkpoint。菜单合并已在cc2569c推送，不重复修改。全目标active。
+2026-10-11：本轮完成140次针对性诊断，得到第二份同型云端失败证据，当前云端CI经实际查询仍运行。本轮为progress并有verified wait，未满足blocked audit；已停止仅本轮4294诊断服务，保留其他预览、数据库及tmp。本轮仅更新验证记录，不修改产品或测试断言。全目标active。
