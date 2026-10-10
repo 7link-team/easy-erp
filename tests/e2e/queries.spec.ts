@@ -393,3 +393,385 @@ test("出入库与审计搜索、类型筛选和CSV导出一致，普通账号�
     await context.close();
   }
 });
+
+test("客户档案账款按客户ID汇总，退货/草稿/作废口径及补收返回对账", async ({
+  page,
+}, testInfo) => {
+  const tag = `客户往来-${randomUUID().slice(0, 8)}`;
+  const material = await item(page.request, tag, "M8");
+  await movement(page.request, material.id, "receipt", "30");
+  const customer = await post(page.request, "/sales/catalog", {
+    kind: "customer",
+    name: tag,
+    data: { contact: "李经理", phone: "13800000000", address: "客户仓库" },
+  });
+  const empty = await post(page.request, "/sales/catalog", {
+    kind: "customer",
+    name: `${tag}-未开单`,
+  });
+  const input = {
+    customer_id: customer.id,
+    type_id: "sale",
+    business_date: "2026-10-10",
+    lines: [{ item_id: material.id, quantity: "4", price: "50" }],
+  };
+  let sale = await post(page.request, "/sales/commands", {
+    request_id: randomUUID(),
+    action: "confirm",
+    input: { ...input, initial_payment: { account_id: "cash", amount: "50" } },
+  });
+  sale = await post(page.request, "/sales/commands", {
+    request_id: randomUUID(),
+    action: "return",
+    sale_id: sale.id,
+    version: sale.version,
+    reason: "退回一件",
+    business_date: "2026-10-10",
+    lines: [{ item_id: material.id, quantity: "1" }],
+  });
+  await post(page.request, "/sales/commands", {
+    request_id: randomUUID(),
+    action: "save",
+    input,
+  });
+  const voided = await post(page.request, "/sales/commands", {
+    request_id: randomUUID(),
+    action: "confirm",
+    input,
+  });
+  await post(page.request, "/sales/commands", {
+    request_id: randomUUID(),
+    action: "void",
+    sale_id: voided.id,
+    version: voided.version,
+    reason: "取消",
+    business_date: "2026-10-10",
+  });
+  const renamed = `${tag}-新名称`;
+  await post(page.request, "/sales/catalog", { ...customer, name: renamed });
+  await page.goto("/#/customers");
+  const row = page
+    .getByRole("table", { name: "客户列表" })
+    .getByRole("row")
+    .filter({ hasText: renamed });
+  await expect(row.locator('[data-label="应收合计"]')).toHaveText("¥150.00");
+  await expect(row.locator('[data-label="净实收"]')).toHaveText("¥50.00");
+  await expect(row.locator('[data-label="欠款"]')).toHaveText("¥100.00");
+  await expect(
+    page
+      .getByRole("row")
+      .filter({ hasText: empty.name })
+      .locator('[data-label="欠款"]'),
+  ).toHaveText("¥0.00");
+  await page.setViewportSize({ width: 320, height: 640 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBeTruthy();
+  await row.scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: testInfo.outputPath("customer-balances-mobile.png"),
+  });
+  await row.getByRole("button", { name: "对账", exact: true }).click();
+  const ledger = page.getByRole("dialog", { name: `${renamed} · 单据对账` });
+  await expect(ledger).toContainText("欠款 ¥100.00");
+  const debtCell = ledger
+    .getByRole("row")
+    .filter({ hasText: sale.number })
+    .locator('[data-label="欠款"]');
+  await expect(debtCell).toHaveText("¥100.00");
+  const debtBox = await debtCell.boundingBox();
+  expect(debtBox!.x).toBeGreaterThanOrEqual(0);
+  expect(debtBox!.x + debtBox!.width).toBeLessThanOrEqual(320);
+  await expect(
+    ledger.getByText("左右滚动表格可查看全部列；键盘可用左右方向键。", {
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await page.reload();
+  await expect(ledger).toBeVisible();
+  await ledger.getByRole("button", { name: sale.number, exact: true }).click();
+  await expect(ledger).toHaveCount(0);
+  await page.getByRole("button", { name: "登记收款", exact: true }).click();
+  const pay = page.getByRole("dialog", { name: "登记收款", exact: true });
+  await pay.getByLabel("金额 必填", { exact: true }).fill("25");
+  await chooseSelect(pay.getByLabel("收款账户 必填", { exact: true }), "cash");
+  await pay.getByLabel("操作原因 必填", { exact: true }).fill("客户对账补收");
+  await pay.getByRole("button", { name: "登记收款", exact: true }).click();
+  await expect(pay).toHaveCount(0);
+  await page.getByRole("button", { name: "返回客户对账", exact: true }).click();
+  await expect(ledger).toBeVisible();
+  await expect(ledger).toContainText("欠款 ¥75.00");
+  await ledger.getByRole("button", { name: "关闭", exact: true }).click();
+  await expect(row.locator('[data-label="净实收"]')).toHaveText("¥75.00");
+  await expect(row.locator('[data-label="欠款"]')).toHaveText("¥75.00");
+});
+
+test("客户账款仅财务权限可见，汇总权限不扩大单据权限", async ({
+  page,
+  browser,
+}) => {
+  const tag = `客户权限-${randomUUID().slice(0, 8)}`;
+  const customer = await post(page.request, "/sales/catalog", {
+    kind: "customer",
+    name: tag,
+  });
+  const material = await item(page.request, tag, "M10");
+  await movement(page.request, material.id, "receipt", "10");
+  await post(page.request, "/sales/commands", {
+    request_id: randomUUID(),
+    action: "confirm",
+    input: {
+      customer_id: customer.id,
+      type_id: "sale",
+      business_date: "2026-10-10",
+      lines: [{ item_id: material.id, quantity: "1", price: "123" }],
+    },
+  });
+  for (const scope of ["contacts", "finance", "own"] as const) {
+    const permissions = [
+      "customers.read",
+      ...(scope === "contacts" ? [] : ["finance.read"]),
+      ...(scope === "own" ? ["sales.read"] : []),
+    ];
+    const role = await post(page.request, "/roles", {
+      name: `${tag}-${scope}`,
+      permissions,
+    });
+    const username = `customer_${randomUUID().slice(0, 8)}`;
+    await post(page.request, "/users", {
+      username,
+      name: username,
+      password: "Customer-test-2026",
+      role: role.id,
+    });
+    const context = await browser.newContext({
+      baseURL: "http://127.0.0.1:4289",
+    });
+    try {
+      await post(context.request, "/login", {
+        username,
+        password: "Customer-test-2026",
+      });
+      const other = await context.newPage();
+      await other.goto("/#/customers");
+      const row = other.getByRole("row").filter({ hasText: tag });
+      if (scope === "contacts") {
+        await expect(row.locator('[data-label="欠款"]')).toHaveCount(0);
+        expect((await context.request.get("/api/sales/finance")).status()).toBe(
+          403,
+        );
+      } else {
+        await expect(row.locator('[data-label="欠款"]')).toHaveText("¥123.00");
+        if (scope === "finance") {
+          await expect(
+            row.getByRole("button", { name: /对账|本人单据/ }),
+          ).toHaveCount(0);
+          expect((await context.request.get("/api/sales")).status()).toBe(403);
+        } else {
+          await row
+            .getByRole("button", { name: "本人单据", exact: true })
+            .click();
+          const ledger = other.getByRole("dialog");
+          await expect(ledger).toContainText("当前角色仅可查看本人开出的单据");
+          await expect(ledger).toContainText("暂无可查看的单据");
+        }
+      }
+      expect(
+        (await context.request.get("/api/export/sales?format=csv")).status(),
+      ).toBe(403);
+    } finally {
+      await context.close();
+    }
+  }
+});
+
+test("单据导出覆盖全部筛选结果，金额和日期与列表一致，CSV防公式注入", async ({
+  page,
+}) => {
+  const tag = `销售导出-${randomUUID().slice(0, 8)}`;
+  const customer = await post(page.request, "/sales/catalog", {
+    kind: "customer",
+    name: `=${tag}`,
+  });
+  const material = await item(page.request, tag, "M10");
+  await movement(page.request, material.id, "receipt", "10");
+  const input = {
+    customer_id: customer.id,
+    type_id: "sale",
+    business_date: "2026-10-09",
+    lines: [{ item_id: material.id, quantity: "1", price: "10.01" }],
+  };
+  const draft = await post(page.request, "/sales/commands", {
+    request_id: randomUUID(),
+    action: "save",
+    input,
+  });
+  const sale = await post(page.request, "/sales/commands", {
+    request_id: randomUUID(),
+    action: "confirm",
+    input: {
+      ...input,
+      business_date: "2026-10-10",
+      initial_payment: { account_id: "cash", amount: "0.01" },
+    },
+  });
+  const voided = await post(page.request, "/sales/commands", {
+    request_id: randomUUID(),
+    action: "confirm",
+    input,
+  });
+  await post(page.request, "/sales/commands", {
+    request_id: randomUUID(),
+    action: "void",
+    sale_id: voided.id,
+    version: voided.version,
+    reason: "取消",
+    business_date: "2026-10-10",
+  });
+  await page.goto("/#/sales");
+  await page.getByLabel("搜索销售单").fill(tag);
+  await expect(
+    page.getByRole("table", { name: "销售单据列表" }).locator("tbody tr"),
+  ).toHaveCount(3);
+  const response = await page.request.get(
+    (await page
+      .getByRole("link", { name: "导出 CSV", exact: true })
+      .getAttribute("href"))!,
+  );
+  expect(response.ok()).toBeTruthy();
+  const csv = await response.text();
+  expect(csv).toContain(`'=${tag}`);
+  expect(csv).toContain(draft.number);
+  expect(csv).toContain(voided.number);
+  const line = csv
+    .split("\n")
+    .find((row) => row.startsWith(sale.number))!
+    .trim()
+    .split(",");
+  expect(line.slice(9, 13)).toEqual(["10.01", "10.01", "0.01", "10.00"]);
+  const draftLine = csv
+    .split("\n")
+    .find((row) => row.startsWith(draft.number))!
+    .trim()
+    .split(",");
+  expect(draftLine.slice(9, 13)).toEqual(["10.01", "0.00", "0.00", "0.00"]);
+  await page.getByLabel("业务日期从").fill("2026-10-10");
+  await expect(
+    page.getByRole("table", { name: "销售单据列表" }).locator("tbody tr"),
+  ).toHaveCount(1);
+  const filtered = await page.request.get(
+    (await page
+      .getByRole("link", { name: "导出 CSV", exact: true })
+      .getAttribute("href"))!,
+  );
+  expect(await filtered.text()).toContain(sale.number);
+  expect(await filtered.text()).not.toContain(draft.number);
+  const xlsx = await page.request.get(
+    `/api/export/sales?format=xlsx&customer_id=${customer.id}&status=posted`,
+  );
+  expect(xlsx.ok()).toBeTruthy();
+  expect(xlsx.headers()["content-type"]).toContain("spreadsheetml");
+  expect((await xlsx.body()).subarray(0, 2).toString()).toBe("PK");
+  for (let i = 0; i < 50; i++) {
+    await post(page.request, "/sales/commands", {
+      request_id: randomUUID(),
+      action: "save",
+      input,
+    });
+  }
+  const scope = `customer_id=${customer.id}&status=draft`;
+  const firstPage = await (
+    await page.request.get(`/api/sales?${scope}`)
+  ).json();
+  expect(firstPage.total).toBe(51);
+  expect(firstPage.items).toHaveLength(50);
+  const allDrafts = await page.request.get(
+    `/api/export/sales?format=csv&${scope}`,
+  );
+  expect((await allDrafts.text()).trim().split("\n")).toHaveLength(52);
+  expect(await allDrafts.text()).toContain(draft.number);
+  expect(
+    (
+      await page.request.get("/api/export/sales?from=2026-10-11&to=2026-10-10")
+    ).status(),
+  ).toBe(400);
+});
+
+test("物料页导入弹窗预览不写入、取消安全、确认后列表刷新", async ({ page }) => {
+  const tag = `导入入口-${randomUUID().slice(0, 8)}`;
+  const csv = `物料编码,物料名称,规格,类型,单位,小数位数,条码,最低库存\n${tag},${tag},M6,成品,个,3,,2\n`;
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/#/inventory");
+  await page.getByRole("button", { name: "导入物料", exact: true }).click();
+  let modal = page.getByRole("dialog", { name: "导入物料", exact: true });
+  await modal.getByLabel("选择表格文件 必填", { exact: true }).setInputFiles({
+    name: "materials.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(csv),
+  });
+  await modal
+    .getByRole("button", { name: "预览并检查文件", exact: true })
+    .click();
+  await expect(modal).toContainText("文件检查通过");
+  expect(
+    (
+      await (
+        await page.request.get(`/api/items?q=${encodeURIComponent(tag)}`)
+      ).json()
+    ).total,
+  ).toBe(0);
+  await modal.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(modal).toHaveCount(0);
+  await page.getByRole("button", { name: "导入物料", exact: true }).click();
+  modal = page.getByRole("dialog", { name: "导入物料", exact: true });
+  await modal.getByLabel("选择表格文件 必填", { exact: true }).setInputFiles({
+    name: "materials.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(csv),
+  });
+  await modal
+    .getByRole("button", { name: "预览并检查文件", exact: true })
+    .click();
+  const commit = modal.getByRole("button", {
+    name: "确认导入 1 行",
+    exact: true,
+  });
+  await expect(commit).toBeEnabled();
+  const box = await commit.boundingBox();
+  expect(box!.y + box!.height).toBeLessThanOrEqual(844);
+  await commit.click();
+  await expect(modal).toContainText("已导入 1 行数据。");
+  await modal.getByRole("button", { name: "完成", exact: true }).click();
+  await expect(page.getByRole("table", { name: "物料库存" })).toContainText(
+    tag,
+  );
+  expect(
+    (
+      await (
+        await page.request.get(`/api/items?q=${encodeURIComponent(tag)}`)
+      ).json()
+    ).total,
+  ).toBe(1);
+});
+
+test("物料搜索等待期间不允许操作旧结果，搜索完成后可修改", async ({ page }) => {
+  const tag = `搜索切换-${randomUUID().slice(0, 8)}`;
+  await item(page.request, tag, "M6");
+  // Install before mounting the app so no native debounce timer survives the fake clock.
+  await page.clock.install();
+  await page.goto("/#/inventory");
+  const edit = page.getByRole("button", { name: `修改${tag}`, exact: true });
+  await expect(edit).toBeVisible();
+  await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 1000);
+  await page.getByLabel("搜索物料", { exact: true }).fill(tag);
+  // The 200ms debounce timer is paused: stale rows must disappear before it fires.
+  await expect(edit).toHaveCount(0);
+  await page.clock.runFor(250);
+  await page.clock.resume();
+  await expect(edit).toBeVisible();
+  await edit.click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(page.getByLabel("规格 选填", { exact: true })).toHaveValue("M6");
+});

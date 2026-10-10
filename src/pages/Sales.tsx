@@ -1676,31 +1676,41 @@ function Detail({
 }
 
 function CustomerLedger({
+  user,
   customer,
   revision,
   onSelect,
   onClose,
 }: {
+  user: User;
   customer: Finance["customers"][number];
   revision: number;
   onSelect: (id: string) => void;
   onClose: () => void;
 }) {
   const [page, setPage] = useState(1);
-  const resource = useResource<{ items: Sale[] }>(
+  const resource = useResource<{ items: Sale[]; total: number }>(
     `/sales?customer_id=${encodeURIComponent(customer.id)}&page=${page}`,
     revision,
   );
   return (
     <Modal title={`${customer.name} · 单据对账`} onClose={onClose}>
       <p>
-        应收 ¥{moneyText(customer.due)} · 净实收 ¥{moneyText(customer.paid)} ·
-        欠款 ¥{moneyText(customer.debt)}
+        客户全部有效单据合计：应收 ¥{moneyText(customer.due)} · 净实收 ¥
+        {moneyText(customer.paid)} · 欠款 ¥{moneyText(customer.debt)}
       </p>
+      {!can(user, "sales.all") && (
+        <p className="muted">
+          当前角色仅可查看本人开出的单据，下表不包含其他人的单据。
+        </p>
+      )}
       {resource.error && <Notice>{resource.error}</Notice>}
       {resource.loading && <Loading />}
+      {resource.data && !resource.data.items.length && (
+        <Empty>暂无可查看的单据。</Empty>
+      )}
       <TableScroll>
-        <table aria-label="客户单据对账">
+        <table className="customer-ledger-table" aria-label="客户单据对账">
           <thead>
             <tr>
               <th>单据</th>
@@ -1714,7 +1724,7 @@ function CustomerLedger({
           <tbody>
             {resource.data?.items.map((s) => (
               <tr key={s.id}>
-                <td>
+                <td data-label="单据">
                   <Button
                     className="text-button"
                     onClick={() => onSelect(s.id)}
@@ -1722,11 +1732,17 @@ function CustomerLedger({
                     {s.number}
                   </Button>
                 </td>
-                <td>{s.business_date}</td>
-                <td>{saleStatus(s)}</td>
-                <td>{s.status === "posted" ? `¥${moneyText(s.due)}` : "—"}</td>
-                <td>{s.status === "posted" ? `¥${moneyText(s.paid)}` : "—"}</td>
-                <td>{s.status === "posted" ? `¥${moneyText(s.debt)}` : "—"}</td>
+                <td data-label="日期">{s.business_date}</td>
+                <td data-label="状态">{saleStatus(s)}</td>
+                <td data-label="应收">
+                  {s.status === "posted" ? `¥${moneyText(s.due)}` : "—"}
+                </td>
+                <td data-label="净实收">
+                  {s.status === "posted" ? `¥${moneyText(s.paid)}` : "—"}
+                </td>
+                <td data-label="欠款">
+                  {s.status === "posted" ? `¥${moneyText(s.debt)}` : "—"}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -1736,12 +1752,19 @@ function CustomerLedger({
         草稿、作废单不计入客户应收。点击单号查看明细、补收欠款或更正收退款。
       </p>
       <div className="form-actions">
-        <Button disabled={page === 1} onClick={() => setPage((p) => p - 1)}>
+        <Button
+          disabled={page === 1 || resource.loading}
+          onClick={() => setPage((p) => p - 1)}
+        >
           上一页
         </Button>
-        <span>第 {page} 页</span>
+        <span>
+          共 {resource.data?.total ?? 0} 张 · 第 {page} 页
+        </span>
         <Button
-          disabled={(resource.data?.items.length || 0) < 50}
+          disabled={
+            resource.loading || page * 50 >= (resource.data?.total ?? 0)
+          }
           onClick={() => setPage((p) => p + 1)}
         >
           下一页
@@ -1752,9 +1775,11 @@ function CustomerLedger({
 }
 
 function FinancePanel({
+  user,
   revision,
   onSelect,
 }: {
+  user: User;
   revision: number;
   onSelect: (id: string) => void;
 }) {
@@ -1833,9 +1858,13 @@ function FinancePanel({
         <div className="sale-detail-lines">
           {data.customers.map((c) => (
             <div key={c.id}>
-              <Button className="text-button" onClick={() => setCustomer(c)}>
-                {c.name}
-              </Button>
+              {can(user, "sales.read") ? (
+                <Button className="text-button" onClick={() => setCustomer(c)}>
+                  {c.name}
+                </Button>
+              ) : (
+                <strong>{c.name}</strong>
+              )}
               <div className="finance-customer-amounts">
                 <span>应收 ¥{moneyText(c.due)}</span>
                 <span>净实收 ¥{moneyText(c.paid)}</span>
@@ -1972,6 +2001,7 @@ function FinancePanel({
       </section>
       {customer && (
         <CustomerLedger
+          user={user}
           customer={
             data.customers.find((c) => c.id === customer.id) || customer
           }
@@ -2027,6 +2057,18 @@ export default function Sales({
     entry?: CatalogEntry;
   }>();
   const [local, setLocal] = useState(0);
+  const [ledgerCustomerId, setLedgerCustomerId] = useQueryValue<string>(
+    "customer_ledger",
+    "",
+  );
+  const showCustomerFinance = view === "customers" && can(user, "finance.read");
+  const customerFinance = useResource<Finance>(
+    showCustomerFinance ? "/sales/finance" : undefined,
+    revision + local,
+  );
+  const customerBalances = new Map(
+    customerFinance.data?.customers.map((c) => [c.id, c]),
+  );
   const action = useAction();
   const catalog = useResource<{ items: CatalogEntry[] }>(
     "/sales/catalog",
@@ -2075,7 +2117,7 @@ export default function Sales({
   const select = (id: string) =>
     action.run(async () => {
       setSelected(await api<Sale>(`/sales/${id}`));
-      setTab(financeView ? "finance" : "list");
+      setTab(configView ? "config" : financeView ? "finance" : "list");
     });
   useEffect(() => {
     const id = new URLSearchParams(location.search).get("sale_print");
@@ -2149,6 +2191,9 @@ export default function Sales({
       kind: visibleConfigKind as CatalogEntry["kind"],
       entry: visibleConfigKind === "company" ? configRows[0] : undefined,
     });
+  const ledgerCustomer = entries.find(
+    (c) => c.kind === "customer" && c.id === ledgerCustomerId,
+  );
   const showCatalogUsage = can(user, "sales.all") || can(user, "finance.read");
   const updateCatalog = (entry: CatalogEntry, patch: Partial<CatalogEntry>) =>
     void action.run(async () => {
@@ -2236,18 +2281,30 @@ export default function Sales({
         {!editing &&
           !financeView &&
           !configView &&
-          can(user, "sales.create") && (
-            <Button
-              className="button primary"
-              onClick={() => {
-                setSelected(undefined);
-                setEditing(true);
-                setTab("list");
-              }}
-            >
-              <Plus size={18} />
-              新建单据
-            </Button>
+          (can(user, "sales.create") || user.role === "admin") && (
+            <div className="row-actions">
+              {user.role === "admin" && !selected && tab === "list" && (
+                <a
+                  className="button"
+                  href={`/api/export/sales?format=csv&q=${encodeURIComponent(query)}&status=${encodeURIComponent(listStatus)}&from=${encodeURIComponent(listFrom)}&to=${encodeURIComponent(listTo)}`}
+                >
+                  导出 CSV
+                </a>
+              )}
+              {can(user, "sales.create") && (
+                <Button
+                  className="button primary"
+                  onClick={() => {
+                    setSelected(undefined);
+                    setEditing(true);
+                    setTab("list");
+                  }}
+                >
+                  <Plus size={18} />
+                  新建单据
+                </Button>
+              )}
+            </div>
           )}
       </div>
       <TabsList
@@ -2258,8 +2315,10 @@ export default function Sales({
         {can(user, "finance.read") && <Tab value="finance">收款与欠款</Tab>}
       </TabsList>
       <TabsPanel value={tab}>
-        {(catalog.error || action.error) && (
-          <Notice>{catalog.error || action.error}</Notice>
+        {(catalog.error || action.error || customerFinance.error) && (
+          <Notice>
+            {catalog.error || action.error || customerFinance.error}
+          </Notice>
         )}
         {editing ? (
           <SaleEditor
@@ -2280,7 +2339,13 @@ export default function Sales({
         ) : selected ? (
           <Detail
             onCatalogCreated={catalogCreated}
-            backLabel={financeView ? "返回收款" : "返回列表"}
+            backLabel={
+              view === "customers"
+                ? "返回客户对账"
+                : financeView
+                  ? "返回收款"
+                  : "返回列表"
+            }
             sale={selected}
             user={user}
             catalog={entries}
@@ -2491,6 +2556,7 @@ export default function Sales({
           </section>
         ) : tab === "finance" && can(user, "finance.read") ? (
           <FinancePanel
+            user={user}
             revision={revision + local}
             onSelect={(id) => void select(id)}
           />
@@ -2576,7 +2642,7 @@ export default function Sales({
                   ) : (
                     <TableScroll>
                       <table
-                        className="dictionary-table"
+                        className={`dictionary-table${view === "customers" ? " customer-table" : ""}`}
                         aria-label={`${configLabels[visibleConfigKind]}列表`}
                       >
                         <thead>
@@ -2593,12 +2659,16 @@ export default function Sales({
                             )}
                             {contactFields && (
                               <>
-                                <th scope="col">联系人</th>
+                                {view !== "customers" && (
+                                  <th scope="col">联系人</th>
+                                )}
                                 <th scope="col">联系电话</th>
-                                <th scope="col">地址</th>
+                                {view !== "customers" && (
+                                  <th scope="col">地址</th>
+                                )}
                               </>
                             )}
-                            <th scope="col">状态</th>
+                            {view !== "customers" && <th scope="col">状态</th>}
                             {showCatalogUsage &&
                               visibleConfigKind !== "company" && (
                                 <th scope="col" className="numeric">
@@ -2610,7 +2680,20 @@ export default function Sales({
                                 业务员
                               </th>
                             )}
-                            <th scope="col">说明</th>
+                            {showCustomerFinance && (
+                              <>
+                                <th scope="col" className="numeric">
+                                  应收合计
+                                </th>
+                                <th scope="col" className="numeric">
+                                  净实收
+                                </th>
+                                <th scope="col" className="numeric">
+                                  欠款
+                                </th>
+                              </>
+                            )}
+                            {view !== "customers" && <th scope="col">说明</th>}
                             <th scope="col" className="ledger-actions">
                               操作
                             </th>
@@ -2622,6 +2705,20 @@ export default function Sales({
                               <td className="ledger-sequence">{index + 1}</td>
                               <td className="ledger-name" data-label="名称">
                                 <strong>{c.name}</strong>
+                                {view === "customers" && (
+                                  <>
+                                    <small>
+                                      {c.data.contact || "未填写联系人"}
+                                      {!c.active && " · 已停用"}
+                                    </small>
+                                    {c.data.address && (
+                                      <small>{c.data.address}</small>
+                                    )}
+                                    {c.data.note && (
+                                      <small>{c.data.note}</small>
+                                    )}
+                                  </>
+                                )}
                               </td>
                               {c.kind === "type" && (
                                 <td data-label="要不要收款">
@@ -2656,24 +2753,30 @@ export default function Sales({
                               )}
                               {contactFields && (
                                 <>
-                                  <td data-label="联系人">
-                                    {c.data.contact || "—"}
-                                  </td>
+                                  {view !== "customers" && (
+                                    <td data-label="联系人">
+                                      {c.data.contact || "—"}
+                                    </td>
+                                  )}
                                   <td data-label="联系电话">
                                     {c.data.phone || "—"}
                                   </td>
-                                  <td data-label="地址">
-                                    {c.data.address || "—"}
-                                  </td>
+                                  {view !== "customers" && (
+                                    <td data-label="地址">
+                                      {c.data.address || "—"}
+                                    </td>
+                                  )}
                                 </>
                               )}
-                              <td data-label="状态">
-                                <span
-                                  className={`badge ${c.active ? "green" : ""}`}
-                                >
-                                  {c.active ? "启用" : "停用"}
-                                </span>
-                              </td>
+                              {view !== "customers" && (
+                                <td data-label="状态">
+                                  <span
+                                    className={`badge ${c.active ? "green" : ""}`}
+                                  >
+                                    {c.active ? "启用" : "停用"}
+                                  </span>
+                                </td>
+                              )}
                               {showCatalogUsage && c.kind !== "company" && (
                                 <td className="numeric" data-label="关联单据">
                                   {c.usage_count?.toLocaleString() ?? "统计中…"}
@@ -2684,11 +2787,50 @@ export default function Sales({
                                   {c.member_count?.toLocaleString() ?? "—"}
                                 </td>
                               )}
-                              <td className="ledger-note" data-label="说明">
-                                {c.data.note || "—"}
-                              </td>
+                              {showCustomerFinance &&
+                                (
+                                  [
+                                    ["due", "应收合计"],
+                                    ["paid", "净实收"],
+                                    ["debt", "欠款"],
+                                  ] as const
+                                ).map(([key, label]) => (
+                                  <td
+                                    key={key}
+                                    className="numeric"
+                                    data-label={label}
+                                  >
+                                    {customerFinance.loading
+                                      ? "统计中…"
+                                      : customerFinance.error
+                                        ? "未加载"
+                                        : `¥${moneyText(customerBalances.get(c.id)?.[key] ?? 0)}`}
+                                  </td>
+                                ))}
+                              {view !== "customers" && (
+                                <td className="ledger-note" data-label="说明">
+                                  {c.data.note || "—"}
+                                </td>
+                              )}
                               <td className="ledger-actions">
                                 <div className="row-actions">
+                                  {showCustomerFinance &&
+                                    can(user, "sales.read") && (
+                                      <Button
+                                        className="button ledger-edit"
+                                        disabled={
+                                          customerFinance.loading ||
+                                          !!customerFinance.error
+                                        }
+                                        onClick={() =>
+                                          setLedgerCustomerId(c.id)
+                                        }
+                                      >
+                                        {can(user, "sales.all")
+                                          ? "对账"
+                                          : "本人单据"}
+                                      </Button>
+                                    )}
                                   {can(user, `${configModule}.update`) ? (
                                     <>
                                       <Button
@@ -2765,6 +2907,30 @@ export default function Sales({
           </Tabs>
         )}
       </TabsPanel>
+      {showCustomerFinance &&
+        can(user, "sales.read") &&
+        ledgerCustomer &&
+        !selected &&
+        !editing &&
+        customerFinance.data &&
+        !customerFinance.error && (
+          <CustomerLedger
+            key={ledgerCustomer.id}
+            user={user}
+            customer={{
+              ...(customerBalances.get(ledgerCustomer.id) ?? {
+                due: 0,
+                paid: 0,
+                debt: 0,
+              }),
+              id: ledgerCustomer.id,
+              name: ledgerCustomer.name,
+            }}
+            revision={revision + local}
+            onSelect={(id) => void select(id)}
+            onClose={() => setLedgerCustomerId("")}
+          />
+        )}
       {config && (
         <ConfigForm
           user={user}

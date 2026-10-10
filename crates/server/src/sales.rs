@@ -818,29 +818,27 @@ pub struct Filter {
     pub from: Option<String>,
     pub to: Option<String>,
 }
-pub async fn list(
-    State(s): State<AppState>,
-    headers: HeaderMap,
-    Query(filter): Query<Filter>,
-) -> Result<Json<Value>> {
-    let actor = current(&s, &headers).await?;
-    let txn = s.db.begin().await?;
-    sales_access(&actor)?;
+// Counts use the search/date scope before applying the selected status.
+pub(crate) fn list_filter(
+    filter: &Filter,
+    actor: &User,
+) -> Result<(String, Vec<sea_orm::Value>, String)> {
     let q = clean(filter.q.as_deref().unwrap_or(""), "搜索", 100, false)?;
-    let customer = filter.customer_id.unwrap_or_default();
-    let page = filter.page.unwrap_or(1).clamp(1, 1000000);
-    let status = filter.status.unwrap_or_default();
+    let customer = filter.customer_id.clone().unwrap_or_default();
+    let status = filter.status.clone().unwrap_or_default();
     if !["", "draft", "posted", "voided"].contains(&status.as_str()) {
         return Err(ApiError::bad("单据状态筛选无效。"));
     }
     let from = filter
         .from
+        .clone()
         .filter(|v| !v.is_empty())
         .map(|v| date(&v))
         .transpose()?
         .unwrap_or_default();
     let to = filter
         .to
+        .clone()
         .filter(|v| !v.is_empty())
         .map(|v| date(&v))
         .transpose()?
@@ -849,7 +847,7 @@ pub async fn list(
         return Err(ApiError::bad("开始日期不能晚于结束日期。"));
     }
     let base = "(?=1 OR actor_id=?) AND (?='' OR customer_id=?) AND (?='' OR instr(data,?)>0) AND (?='' OR json_extract(data,'$.business_date')>=?) AND (?='' OR json_extract(data,'$.business_date')<=?)";
-    let mut values: Vec<sea_orm::Value> = vec![
+    let values: Vec<sea_orm::Value> = vec![
         actor.can("sales.all").into(),
         actor.id.clone().into(),
         customer.clone().into(),
@@ -861,6 +859,24 @@ pub async fn list(
         to.clone().into(),
         to.into(),
     ];
+    Ok((base.to_string(), values, status))
+}
+pub(crate) async fn balances(db: &impl ConnectionTrait, sale: &Sale) -> Result<(i64, i64)> {
+    Ok((
+        due(sale, &returned(db, &sale.id).await?),
+        paid(db, &sale.id).await?,
+    ))
+}
+pub async fn list(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Query(filter): Query<Filter>,
+) -> Result<Json<Value>> {
+    let actor = current(&s, &headers).await?;
+    let txn = s.db.begin().await?;
+    sales_access(&actor)?;
+    let page = filter.page.unwrap_or(1).clamp(1, 1000000);
+    let (base, mut values, status) = list_filter(&filter, &actor)?;
     let counts = one(&txn, &format!("SELECT COUNT(*) AS total,COUNT(CASE WHEN status='draft' THEN 1 END) AS draft,COUNT(CASE WHEN status='posted' THEN 1 END) AS posted,COUNT(CASE WHEN status='voided' THEN 1 END) AS voided FROM sales WHERE {base}"),values.clone()).await?.unwrap();
     let total = int(&counts, if status.is_empty() { "total" } else { &status });
     values.extend([
@@ -873,12 +889,11 @@ pub async fn list(
     for row in rows {
         let sale: Sale = serde_json::from_str(&text(&row, "data"))
             .map_err(|_| ApiError::bad("读取单据失败。"))?;
-        let r = returned(&txn, &sale.id).await?;
-        let p = paid(&txn, &sale.id).await?;
+        let (amount, received) = balances(&txn, &sale).await?;
         let mut v = serde_json::to_value(&sale).unwrap();
-        v["due"] = json!(due(&sale, &r));
-        v["paid"] = json!(p);
-        v["debt"] = json!(due(&sale, &r) - p);
+        v["due"] = json!(amount);
+        v["paid"] = json!(received);
+        v["debt"] = json!(amount - received);
         items.push(v);
     }
     Ok(Json(
@@ -1360,8 +1375,7 @@ pub async fn finance(
     for row in all(&txn, "SELECT data FROM sales WHERE status='posted'", vec![]).await? {
         let sale: Sale = serde_json::from_str(&text(&row, "data"))
             .map_err(|_| ApiError::bad("读取单据失败。"))?;
-        let amount = due(&sale, &returned(&txn, &sale.id).await?);
-        let received = paid(&txn, &sale.id).await?;
+        let (amount, received) = balances(&txn, &sale).await?;
         if sale.billable {
             let p = performance.entry((sale.department_id.clone(), sale.salesperson_id.clone())).or_insert(
                 json!({"department_id":sale.department_id,"department_name":sale.department_name,"salesperson_id":sale.salesperson_id,"salesperson_name":sale.salesperson_name,"count":0,"due":0,"paid":0,"debt":0})

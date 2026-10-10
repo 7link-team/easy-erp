@@ -5,6 +5,7 @@ use crate::{
     domain,
     error::{ApiError, Result},
     inventory::{self, ItemInput, Movement, MovementLine},
+    money, sales,
     state::AppState,
 };
 use axum::{
@@ -40,6 +41,9 @@ pub struct Options {
     #[serde(default)]
     #[serde(flatten)]
     filter: inventory::Filter,
+    from: Option<String>,
+    to: Option<String>,
+    customer_id: Option<String>,
 }
 fn default_format() -> String {
     "xlsx".into()
@@ -166,6 +170,83 @@ pub async fn export(
     actor.admin()?;
     let txn = s.db.begin().await?;
     let table = match mode.as_str() {
+        "sales" => {
+            let filter = sales::Filter {
+                q: options.filter.q.clone(),
+                status: options.filter.status.clone(),
+                from: options.from.clone(),
+                to: options.to.clone(),
+                customer_id: options.customer_id.clone(),
+                page: None,
+            };
+            let (clause, mut values, status) = sales::list_filter(&filter, &actor)?;
+            values.extend([status.clone().into(), status.into()]);
+            let records = all(&txn, &format!("SELECT data FROM sales WHERE {clause} AND (?='' OR status=?) ORDER BY created_at DESC,id LIMIT 50001"), values).await?;
+            if records.len() > 50_000 {
+                return Err(ApiError::bad(
+                    "单据超过 50000 张，请缩小搜索、日期或状态范围。",
+                ));
+            }
+            let mut rows = Vec::with_capacity(records.len());
+            for row in records {
+                let sale: sales::Sale = serde_json::from_str(&text(&row, "data"))
+                    .map_err(|_| ApiError::bad("读取单据失败。"))?;
+                let (amount, received) = sales::balances(&txn, &sale).await?;
+                let debt = amount - received;
+                let state = match sale.status.as_str() {
+                    "draft" => "草稿",
+                    "posted" => "已确认",
+                    "voided" => "已作废",
+                    _ => return Err(ApiError::bad("单据状态无效。")),
+                };
+                let collection = match sale.status.as_str() {
+                    "draft" => "未记账",
+                    "voided" => "已冲销",
+                    _ if !sale.billable => "不计款",
+                    _ if debt <= 0 => "已结清",
+                    _ if received > 0 => "部分收款",
+                    _ => "未收款",
+                };
+                rows.push(vec![
+                    sale.number,
+                    sale.type_name,
+                    sale.customer["name"].as_str().unwrap_or("").to_owned(),
+                    sale.business_date,
+                    state.into(),
+                    collection.into(),
+                    sale.actor_name,
+                    sale.department_name,
+                    sale.salesperson_name,
+                    money::display(sale.total),
+                    money::display(amount),
+                    money::display(received),
+                    money::display(debt),
+                    sale.note,
+                ]);
+            }
+            Table {
+                headers: [
+                    "单号",
+                    "类型",
+                    "客户",
+                    "业务日期",
+                    "单据状态",
+                    "收款状态",
+                    "开单人",
+                    "业绩部门",
+                    "部门业务员",
+                    "原单金额（元）",
+                    "当前应收（元）",
+                    "净实收（元）",
+                    "欠款（元）",
+                    "备注",
+                ]
+                .iter()
+                .map(|v| v.to_string())
+                .collect(),
+                rows,
+            }
+        }
         "items" => {
             let (clause, values, order) = inventory::item_filter(&options.filter)?;
             let rows = all(

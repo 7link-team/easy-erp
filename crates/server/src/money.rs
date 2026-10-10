@@ -1,6 +1,15 @@
 //! Decimal input and rounding use integers only; intermediates fit in i128.
 use crate::error::{ApiError, Result};
 pub const MAX_MONEY: i64 = 99_999_999_999_999;
+pub fn display(cents: i64) -> String {
+    let amount = cents.unsigned_abs();
+    format!(
+        "{}{}.{:02}",
+        if cents < 0 { "-" } else { "" },
+        amount / 100,
+        amount % 100
+    )
+}
 pub fn decimal(value: &str, places: u32) -> Result<i64> {
     let value = value.trim();
     let parts: Vec<_> = value.split('.').collect();
@@ -45,6 +54,9 @@ mod tests {
     use super::*;
     #[test]
     fn exact_decimal_and_rounding() {
+        assert_eq!(display(1), "0.01");
+        assert_eq!(display(-1), "-0.01");
+        assert_eq!(display(MAX_MONEY), "999999999999.99");
         assert_eq!(decimal("80.0000", 4).unwrap(), 800000);
         assert_eq!(line(20500, 1000000).unwrap(), 205000);
         assert_eq!(line(1000, 50).unwrap(), 1);

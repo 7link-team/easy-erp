@@ -1,3 +1,4 @@
+import TableImport from "../TableImport";
 import { useQueryValue } from "../navigation";
 import { can } from "../api";
 import { Disclosure } from "../ui";
@@ -223,6 +224,7 @@ export default function Inventory({
   const confirm = useConfirm();
   const [page, setPage] = useQueryValue<number>("inventory_page", 1);
   const [editing, setEditing] = useState<Item | "new">();
+  const [importing, setImporting] = useState(false);
   const [removing, setRemoving] = useState<Item>();
   const action = useAction();
   useEffect(() => {
@@ -248,12 +250,15 @@ export default function Inventory({
         </div>
         <div className="row-actions">
           {user.role === "admin" && (
-            <a
-              className="button"
-              href={`/api/export/items?format=csv&q=${encodeURIComponent(debounced)}&kind=${encodeURIComponent(kind)}&status=${encodeURIComponent(status)}&sort=${encodeURIComponent(sort)}`}
-            >
-              导出 CSV
-            </a>
+            <>
+              <Button onClick={() => setImporting(true)}>导入物料</Button>
+              <a
+                className="button"
+                href={`/api/export/items?format=csv&q=${encodeURIComponent(debounced)}&kind=${encodeURIComponent(kind)}&status=${encodeURIComponent(status)}&sort=${encodeURIComponent(sort)}`}
+              >
+                导出 CSV
+              </a>
+            </>
           )}
           {can(user, "items.create") && (
             <Button
@@ -333,7 +338,7 @@ export default function Inventory({
           ))}
         </div>
         {(error || action.error) && <Notice>{error || action.error}</Notice>}
-        {loading ? (
+        {loading || search !== debounced ? (
           <Loading />
         ) : !data?.items.length ? (
           <Empty>
@@ -514,6 +519,14 @@ export default function Inventory({
           </div>
         </div>
       </section>
+      {importing && (
+        <Modal title="导入物料" onClose={() => setImporting(false)}>
+          <TableImport
+            onImported={refresh}
+            onClose={() => setImporting(false)}
+          />
+        </Modal>
+      )}
       {editing && (
         <ItemForm
           item={editing === "new" ? undefined : editing}
