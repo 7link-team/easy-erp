@@ -443,7 +443,8 @@ root,filename=sys.argv[1:]
 with tempfile.TemporaryDirectory() as temp:
  path=os.path.join(temp,'old.sqlite'); source=sqlite3.connect(os.path.join(root,'inventory.sqlite')); dest=sqlite3.connect(path); source.backup(dest); source.close()
  for column in ['active','sort','note','source','last_used_at']: dest.execute('ALTER TABLE material_options DROP COLUMN '+column)
- dest.execute("DELETE FROM seaql_migrations WHERE version='material_options_meta_v1'"); dest.commit()
+ for index in ['sales_ordered','sales_owner_ordered','sales_customer_ordered','sales_status_ordered','sales_business_date','sales_reporting','returns_parent','cash_balances','cash_account_totals','cash_ordered','cash_account_ordered','cash_business_date','audit_ordered','audit_owner_ordered','audit_actions','audit_owner_actions']: dest.execute('DROP INDEX IF EXISTS '+index)
+ dest.execute("DELETE FROM seaql_migrations WHERE version IN ('material_options_meta_v1','query_indexes_v1')"); dest.commit()
  schema=[r[0] for r in dest.execute("SELECT version FROM seaql_migrations WHERE version <> 'session_idle_v1' ORDER BY version")]; dest.close(); data=open(path,'rb').read()
  with zipfile.ZipFile(os.path.join(root,'backups',filename),'w') as z: z.writestr('inventory.sqlite',data); z.writestr('manifest.json',json.dumps(dict(format=1,created_at=0,sha256=hashlib.sha256(data).hexdigest(),schema=schema)))
 `,

@@ -1,7 +1,9 @@
 # Task State
 
-## 交付检查点：全部提交推送（2026-10-11）
-用户已明确授权全部提交推送。Direct执行；当前分支feat/sales-and-receivables，现有PR #1。本次包含下文性能优化、压测脚本/报告、UI四项修复与今日单据无效筛选修复。源码、测试、文档逐项暂存；忽略目录内数据库/ZIP/截图/构建产物不提交。前轮实际测试结果保留，本轮追加E2E类型检查、两个Rust workspace格式、Python/Node语法、git diff --check通过。Self-review及提交范围验收PASS。下一步提交推送并检查该提交对应Build and release运行；云端最终结果以GitHub Actions记录为准，不用此前成功运行替代。性能未达目标与未测边界继续保留。
+## 交付检查点：全部提交推送及CI修正（2026-10-11）
+用户已明确授权全部提交推送。Direct；feat/sales-and-receivables，PR #1。全部24文件已提交推送6e720be，原本工作区干净；GitHub Actions38148280292已运行。
+该轮各平台构建/基础检查通过；Chromium148通过/1失败：dictionary-management旧五列备份fixture用新库删旧字段，漏删query_indexes_v1迁移和其16个索引，manifest含非业务迁移而被正确拒绝。WebKit同样148通过/1个相同fixture失败，无其他失败项。本地原用例同样复现失败，/tmp/erp-ci-legacy-before.log。
+修正仅涉及旧备份测试构造：删除16个后加索引和query_indexes_v1记录，保持真实旧schema与清单一致；不改产品恢复校验或任何原断言。本地修正后Chromium旧五列+无索引旧备份2项、WebKit旧五列1项全部PASS；E2E类型/Prettier/diff检查通过，日志/tmp/erp-ci-legacy-after.log、/tmp/erp-ci-legacy-webkit.log。自查与本补丁验收PASS。下一步补交推送，检查最新提交的Actions。保留前轮性能限制和未测边界。
 
 ## 当前任务：工作台样式与无效筛选补审（已完成）
 用户指出上轮漏掉今日单据仅有全部按钮。确认无条件渲染导致空数据也显示，且filter-chips无上padding贴标题线。本轮Direct：多类型才显示类型筛选；旧URL仍有筛选时保留明确清除入口；补筛选上间距。检查工作台完整区块与空/单类型/多类型/失效筛选/错误状态，相关E2E及实际截图验证。保留全部未提交改动，不提交推送。
