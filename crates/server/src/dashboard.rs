@@ -81,7 +81,6 @@ pub async fn overview(
         result["records"] = json!({"total":int(&row,"total"),"all":actor.can("records.all")});
     }
     if actor.can("finance.read") {
-        let rows = all(&txn, "SELECT data FROM sales WHERE status='posted' AND json_extract(data,'$.billable')=1 AND json_extract(data,'$.business_date')<=? ORDER BY created_at DESC,id", vec![today_text.clone().into()]).await?;
         let (mut amount, mut paid, mut comparison) = (0i64, 0i64, 0i64);
         let mut performance: BTreeMap<(String, String), Value> = BTreeMap::new();
         let (mut aged_count, mut aged_debt) = (0i64, 0i64);
@@ -97,26 +96,27 @@ pub async fn overview(
                 )
             })
             .collect();
+        let rows=all(&txn,&format!("{} SELECT business_date,department_id,salesperson_id,department_name,salesperson_name,SUM(due) AS due,SUM(paid) AS paid,SUM(CASE WHEN due>paid THEN 1 ELSE 0 END) AS debt_count,SUM(CASE WHEN due>paid THEN due-paid ELSE 0 END) AS positive_debt FROM ledger WHERE billable=1 AND business_date<=? GROUP BY business_date,department_id,salesperson_id ORDER BY business_date DESC",sales::LEDGER_CTE),vec![today_text.clone().into()]).await?;
         for row in rows {
-            let sale: sales::Sale = serde_json::from_str(&text(&row, "data"))
-                .map_err(|_| ApiError::bad("读取单据失败。"))?;
-            let (due, received) = sales::balances(&txn, &sale).await?;
-            if sale.business_date >= month_start.to_string() {
+            let business_date = text(&row, "business_date");
+            let due = int(&row, "due");
+            let received = int(&row, "paid");
+            if business_date >= month_start.to_string() {
                 amount += due;
                 paid += received;
-                let group = performance.entry((sale.department_id.clone(),sale.salesperson_id.clone())).or_insert_with(|| json!({"department":sale.department_name,"salesperson":sale.salesperson_name,"due":0}));
+                let group=performance.entry((text(&row,"department_id"),text(&row,"salesperson_id"))).or_insert_with(||json!({"department":text(&row,"department_name"),"salesperson":text(&row,"salesperson_name"),"due":0}));
                 group["due"] = json!(group["due"].as_i64().unwrap() + due);
             }
-            if sale.business_date >= previous_start.to_string()
-                && sale.business_date <= previous_to.to_string()
+            if business_date >= previous_start.to_string()
+                && business_date <= previous_to.to_string()
             {
                 comparison += due;
             }
-            if sale.business_date < aged_before && due > received {
-                aged_count += 1;
-                aged_debt += due - received;
+            if business_date < aged_before {
+                aged_count += int(&row, "debt_count");
+                aged_debt += int(&row, "positive_debt");
             }
-            if let Some(value) = daily.get_mut(&sale.business_date) {
+            if let Some(value) = daily.get_mut(&business_date) {
                 *value += due;
             }
         }
@@ -138,37 +138,53 @@ pub async fn overview(
             to: Some(today_text),
         };
         let (scope, values, _) = sales::list_filter(&filter, &actor)?;
+        // Counts include every visible state. Only posted documents contribute
+        // receivables; signed payments keep the exact existing balances rule.
+        let grouped=all(&txn,&format!(r#"WITH selected AS MATERIALIZED (SELECT id,status,data FROM sales WHERE {scope}),
+        credits AS (SELECT r.sale_id,SUM(json_extract(l.value,'$.credit')) AS credit FROM sales_returns r JOIN selected s ON s.id=r.sale_id,json_each(r.data,'$.lines') l GROUP BY r.sale_id),
+        receipts AS (SELECT c.sale_id,SUM(c.amount) AS paid FROM sales_cash c JOIN selected s ON s.id=c.sale_id GROUP BY c.sale_id)
+        SELECT json_extract(s.data,'$.type_id') AS type_id,json_extract(s.data,'$.type_name') AS type_name,COUNT(*) AS total,
+        SUM(CASE WHEN s.status='posted' THEN 1 ELSE 0 END) AS posted,
+        SUM(CASE WHEN s.status='posted' THEN json_extract(s.data,'$.total')-COALESCE(r.credit,0) ELSE 0 END) AS due,SUM(COALESCE(c.paid,0)) AS paid
+        FROM selected s LEFT JOIN credits r ON r.sale_id=s.id LEFT JOIN receipts c ON c.sale_id=s.id GROUP BY json_extract(s.data,'$.type_id')"#),values.clone()).await?;
+        let mut types = BTreeMap::<String, Value>::new();
+        let (mut all_count, mut total, mut posted, mut today_due, mut today_paid) =
+            (0i64, 0i64, 0i64, 0i64, 0i64);
+        for row in grouped {
+            let tid = text(&row, "type_id");
+            let count = int(&row, "total");
+            all_count += count;
+            types.insert(
+                tid.clone(),
+                json!({"id":tid,"name":text(&row,"type_name"),"count":count}),
+            );
+            if type_id.is_empty() || type_id == tid {
+                total += count;
+                posted += int(&row, "posted");
+                today_due += int(&row, "due");
+                today_paid += int(&row, "paid");
+            }
+        }
+        let mut detail_scope = scope;
+        let mut detail_values = values;
+        if !type_id.is_empty() {
+            detail_scope.push_str(" AND json_extract(data,'$.type_id')=?");
+            detail_values.push(type_id.into());
+        }
         let rows = all(
             &txn,
-            &format!("SELECT data FROM sales WHERE {scope} ORDER BY created_at DESC,id"),
-            values,
+            &format!(
+                "SELECT data FROM sales WHERE {detail_scope} ORDER BY created_at DESC,id LIMIT 6"
+            ),
+            detail_values,
         )
         .await?;
-        let mut types: BTreeMap<String, Value> = BTreeMap::new();
-        let mut items = Vec::new();
-        let mut total = 0;
-        let (mut today_due, mut today_paid, mut posted) = (0i64, 0i64, 0i64);
-        let all_count = rows.len();
+        let mut items = vec![];
         for row in rows {
             let sale: sales::Sale = serde_json::from_str(&text(&row, "data"))
                 .map_err(|_| ApiError::bad("读取单据失败。"))?;
-            let group = types
-                .entry(sale.type_id.clone())
-                .or_insert_with(|| json!({"id":sale.type_id,"name":sale.type_name,"count":0}));
-            group["count"] = json!(group["count"].as_i64().unwrap() + 1);
-            if !type_id.is_empty() && sale.type_id != type_id {
-                continue;
-            }
-            total += 1;
             let (due, paid) = sales::balances(&txn, &sale).await?;
-            today_due += due;
-            today_paid += paid;
-            if sale.status == "posted" {
-                posted += 1;
-            }
-            if items.len() < 6 {
-                items.push(json!({"id":sale.id,"number":sale.number,"type_name":sale.type_name,"customer":sale.customer["name"],"actor_name":sale.actor_name,"department_name":sale.department_name,"salesperson_name":sale.salesperson_name,"status":sale.status,"billable":sale.billable,"due":due,"paid":paid,"debt":due-paid}));
-            }
+            items.push(json!({"id":sale.id,"number":sale.number,"type_name":sale.type_name,"customer":sale.customer["name"],"actor_name":sale.actor_name,"department_name":sale.department_name,"salesperson_name":sale.salesperson_name,"status":sale.status,"billable":sale.billable,"due":due,"paid":paid,"debt":due-paid}));
         }
         result["sales"] = json!({"items":items,"total":total,"all_count":all_count,"due":today_due,"paid":today_paid,"debt":today_due-today_paid,"posted":posted,"types":types.into_values().collect::<Vec<_>>(),"all":actor.can("sales.all")});
     }

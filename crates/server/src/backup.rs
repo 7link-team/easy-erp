@@ -26,7 +26,8 @@ use std::{
 };
 
 const FORMAT: u32 = 1;
-const MAX_SNAPSHOT: u64 = 512 * 1024 * 1024;
+const MAX_SNAPSHOT: u64 = 16 * 1024 * 1024 * 1024;
+const SPACE_MARGIN: u64 = 256 * 1024 * 1024;
 #[derive(Serialize, Deserialize)]
 struct Manifest {
     format: u32,
@@ -97,13 +98,33 @@ async fn schemas(db: &sea_orm::DatabaseConnection) -> Result<Vec<String>> {
     // the business backup format or invalidate existing inventory backups.
     Ok(all(
         db,
-        "SELECT version FROM seaql_migrations WHERE version <> 'session_idle_v1' ORDER BY version",
+        "SELECT version FROM seaql_migrations WHERE version NOT IN ('session_idle_v1','query_indexes_v1') ORDER BY version",
         vec![],
     )
     .await?
     .iter()
     .map(|r| text(r, "version"))
     .collect())
+}
+async fn database_size(db: &sea_orm::DatabaseConnection) -> Result<u64> {
+    let pages = int(
+        &one(db, "PRAGMA page_count", vec![]).await?.unwrap(),
+        "page_count",
+    ) as u64;
+    let size = int(
+        &one(db, "PRAGMA page_size", vec![]).await?.unwrap(),
+        "page_size",
+    ) as u64;
+    Ok(pages.saturating_mul(size))
+}
+fn check_space(path: &FsPath, required: u64) -> Result<()> {
+    if fs2::available_space(path)? < required {
+        return Err(ApiError::bad(format!(
+            "磁盘空间不足，需至少 {:.1} GiB 可用空间完成备份或恢复；请释放空间后重试，已有备份不会删除。",
+            required as f64 / 1073741824.
+        )));
+    }
+    Ok(())
 }
 pub async fn create(s: &AppState, actor: &User, source: &str) -> Result<BackupInfo> {
     let _backup = s.backup_lock.lock().await;
@@ -130,6 +151,17 @@ pub async fn snapshot(
 ) -> Result<BackupInfo> {
     let dir = data_dir.join("backups");
     tokio::fs::create_dir_all(&dir).await?;
+    let started = std::time::Instant::now();
+    let estimated = database_size(db).await?;
+    if estimated > MAX_SNAPSHOT {
+        return Err(ApiError::bad(
+            "数据库超过当前 16 GiB 备份上限，请联系管理员扩容。",
+        ));
+    }
+    check_space(
+        data_dir,
+        estimated.saturating_mul(3).saturating_add(SPACE_MARGIN),
+    )?;
     let stage = tempfile::tempdir_in(&dir)?;
     let snapshot = stage.path().join("inventory.sqlite");
     execute(
@@ -140,9 +172,13 @@ pub async fn snapshot(
     .await?;
     if tokio::fs::metadata(&snapshot).await?.len() > MAX_SNAPSHOT {
         return Err(ApiError::bad(
-            "数据库（含凭证图片）超过当前 512 MB 备份上限，请联系管理员扩容。",
+            "数据库（含凭证图片）超过当前 16 GiB 备份上限，请联系管理员扩容。",
         ));
     }
+    tracing::info!(
+        elapsed_ms = started.elapsed().as_millis(),
+        "备份快照复制完成"
+    );
     let checked = validate_database(&snapshot).await?;
     let photo_count = if one(
         &checked,
@@ -166,6 +202,7 @@ pub async fn snapshot(
         0
     };
     checked.close().await?;
+    tracing::info!(elapsed_ms = started.elapsed().as_millis(), "备份校验完成");
     let created_at = now();
     let name = format!(
         "backup-{}-{}.zip",
@@ -197,7 +234,7 @@ pub async fn snapshot(
             .compression_method(zip::CompressionMethod::Stored);
         zip.start_file("manifest.json", options)?;
         zip.write_all(&serde_json::to_vec(&manifest)?)?;
-        zip.start_file("inventory.sqlite", options)?;
+        zip.start_file("inventory.sqlite", options.large_file(true))?;
         std::io::copy(&mut std::fs::File::open(snapshot)?, &mut zip)?;
         zip.finish()?.sync_all()?;
         std::fs::rename(temporary, target)?;
@@ -205,6 +242,10 @@ pub async fn snapshot(
     })
     .await
     .map_err(|_| ApiError::bad("备份任务未完成，请重试。"))??;
+    tracing::info!(
+        elapsed_ms = started.elapsed().as_millis(),
+        "备份归档发布完成"
+    );
     let info = BackupInfo {
         name: name.clone(),
         created_at,
@@ -233,7 +274,7 @@ async fn validate_database(path: &FsPath) -> Result<sea_orm::DatabaseConnection>
             "备份里的数据不完整，不能恢复，请选择其他备份。",
         ));
     }
-    let mismatches=one(&db,"SELECT COUNT(*) AS total FROM items i WHERE i.balance<>COALESCE((SELECT SUM(delta) FROM document_lines WHERE item_id=i.id),0)",vec![]).await?.unwrap();
+    let mismatches=one(&db,"SELECT COUNT(*) AS total FROM items i LEFT JOIN (SELECT item_id,SUM(delta) AS balance FROM document_lines GROUP BY item_id) l ON l.item_id=i.id WHERE i.balance<>COALESCE(l.balance,0)",vec![]).await?.unwrap();
     if int(&mismatches, "total") != 0 {
         return Err(ApiError::bad(
             "备份中的库存数量与出入库记录对不上，不能恢复，请选择其他备份。",
@@ -394,18 +435,23 @@ pub async fn download(
 ) -> Result<Response> {
     local(peer)?;
     current(&s, &headers).await?.admin()?;
-    let bytes = tokio::fs::read(archive_path(&s, &name)?).await?;
-    Ok((
-        [
-            (header::CONTENT_TYPE, "application/zip".to_string()),
-            (
-                header::CONTENT_DISPOSITION,
-                format!("attachment; filename=\"{name}\""),
-            ),
-        ],
-        bytes,
-    )
-        .into_response())
+    let mut service = tower_http::services::ServeFile::new(archive_path(&s, &name)?);
+    let request = axum::http::Request::builder()
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let mut response = service.try_call(request).await?.into_response();
+    if !response.status().is_success() {
+        return Err(ApiError::missing());
+    }
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        header::HeaderValue::from_static("application/zip"),
+    );
+    response.headers_mut().insert(
+        header::CONTENT_DISPOSITION,
+        format!("attachment; filename=\"{name}\"").parse().unwrap(),
+    );
+    Ok(response)
 }
 #[derive(Deserialize)]
 pub struct Restore {
@@ -430,6 +476,8 @@ pub async fn restore(
             "请填写“恢复全部数据”确认，恢复后将退出所有账号。",
         ));
     }
+    let live_size = database_size(&s.db).await?;
+    let space_path = s.data_dir.clone();
     let original = archive_path(&s, &input.name)?;
     let stage = tempfile::tempdir_in(&s.data_dir)?;
     let snapshot = stage.path().join("restore.sqlite");
@@ -445,10 +493,20 @@ pub async fn restore(
             if file.size() > MAX_SNAPSHOT {
                 return Err(ApiError::bad("备份超过当前恢复大小限制。"));
             }
-            std::io::copy(
-                &mut file.take(MAX_SNAPSHOT + 1),
-                &mut std::fs::File::create(&dest)?,
+            let expected = file.size();
+            check_space(
+                &space_path,
+                live_size
+                    .saturating_mul(4)
+                    .saturating_add(expected.saturating_mul(2))
+                    .saturating_add(SPACE_MARGIN),
             )?;
+            let mut output = std::fs::File::create(&dest)?;
+            let copied = std::io::copy(&mut file.take(MAX_SNAPSHOT + 1), &mut output)?;
+            if copied > MAX_SNAPSHOT || copied != expected {
+                return Err(ApiError::bad("备份数据库大小不一致或超过恢复上限。"));
+            }
+            output.sync_all()?;
         }
         if file_hash(&dest)? != manifest.sha256 {
             return Err(ApiError::bad(

@@ -1058,8 +1058,8 @@ button { transition: background-color var(--dur-1) var(--ease), border-color var
 .sale-list-sheet > .search > svg { left: calc(var(--s-4) + 12px); }
 .ledger-sheet > .pagination, .sale-list-sheet > .form-actions { margin: 0; padding: var(--s-3) var(--s-4); border-top: 1px solid var(--line-1); }
 .ledger-sheet > .table-hint, .ledger-sheet > .notice { margin: var(--s-3) var(--s-4); }
-.ledger-heading > div { min-width: 0; flex: 1; }
-.ledger-heading > div p { text-align: left; margin-top: var(--s-2); }
+.ledger-heading > div { min-width: 0; flex: 1 1 180px; }
+.ledger-heading > div p { min-width: 0; text-align: left; margin-top: var(--s-2); }
 @media (max-width: 760px) {
   .table-wrap .sale-list-table, .sale-list-table tbody { display: block; min-width: 0; width: 100%; }
   .sale-list-table thead { display: none; }
@@ -1254,6 +1254,7 @@ button { transition: background-color var(--dur-1) var(--ease), border-color var
 .today-sales-table small { display: block; margin-top: 4px; }
 .today-sales-table td:nth-child(2) { max-width: 300px; overflow-wrap: anywhere; }
 .today-sales .section-title { flex-wrap: wrap; }
+.today-sales > .filter-chips { padding-top: var(--s-4); }
 .home-ledger-note { padding: 12px 16px; margin: 0; color: var(--ink-3); font-size: var(--t-12); }
 @media (max-width: 1000px) {
   .business-band-grid { grid-template-columns: minmax(0,1fr); gap: 24px; }
@@ -1306,6 +1307,8 @@ button { transition: background-color var(--dur-1) var(--ease), border-color var
 .sidebar-about { display: flex; gap: 6px; align-items: center; margin-top: 6px; min-height: 36px; }
 .finance-section, #finance-cash-entries { scroll-margin-top: 76px; }
 .finance-section > .section-title { flex-wrap: wrap; }
+.finance-section > .filter-chips,
+.finance-section > .section-title > .filter-chips { padding: 0; border: 0; }
 .backup-table { min-width: 960px; }
 .backup-table td:first-child { min-width: 230px; }
 .backup-table .backup-path { min-width: 220px; max-width: 360px; overflow-wrap: anywhere; }

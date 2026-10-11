@@ -11,7 +11,45 @@ impl MigratorTrait for Migrator {
             Box::new(MaterialOptions),
             Box::new(Roles),
             Box::new(MaterialOptionMetadata),
+            Box::new(QueryIndexes),
         ]
+    }
+}
+
+// Read-path indexes only: deliberately excluded from the business backup schema.
+struct QueryIndexes;
+impl MigrationName for QueryIndexes {
+    fn name(&self) -> &str {
+        "query_indexes_v1"
+    }
+}
+#[async_trait::async_trait]
+impl MigrationTrait for QueryIndexes {
+    async fn up(&self, m: &SchemaManager) -> std::result::Result<(), DbErr> {
+        for sql in [
+            "CREATE INDEX sales_ordered ON sales(created_at DESC,id ASC,status)",
+            "CREATE INDEX sales_owner_ordered ON sales(actor_id,created_at DESC,id ASC,status)",
+            "CREATE INDEX sales_customer_ordered ON sales(customer_id,created_at DESC,id ASC,status)",
+            "CREATE INDEX sales_status_ordered ON sales(status,created_at DESC,id ASC)",
+            "CREATE INDEX sales_business_date ON sales(json_extract(data,'$.business_date'),created_at DESC,id ASC)",
+            "CREATE INDEX sales_reporting ON sales(status,json_extract(data,'$.business_date'),id,customer_id,json_extract(data,'$.total'),json_extract(data,'$.billable'),COALESCE(json_extract(data,'$.department_id'),''),COALESCE(json_extract(data,'$.department_name'),''),COALESCE(json_extract(data,'$.salesperson_id'),''),COALESCE(json_extract(data,'$.salesperson_name'),''),json_extract(data,'$.customer.name'))",
+            "CREATE INDEX returns_parent ON sales_returns(sale_id,created_at)",
+            "CREATE INDEX cash_balances ON sales_cash(sale_id,amount)",
+            "CREATE INDEX cash_account_totals ON sales_cash(account_id,business_date,amount,created_at,account_name)",
+            "CREATE INDEX cash_ordered ON sales_cash(created_at DESC,id ASC)",
+            "CREATE INDEX cash_account_ordered ON sales_cash(account_id,created_at DESC,id ASC)",
+            "CREATE INDEX cash_business_date ON sales_cash(business_date,account_id,amount)",
+            "CREATE INDEX audit_ordered ON audit(created_at DESC,id ASC)",
+            "CREATE INDEX audit_owner_ordered ON audit(actor_id,created_at DESC,id ASC)",
+            "CREATE INDEX audit_actions ON audit(action)",
+            "CREATE INDEX audit_owner_actions ON audit(actor_id,action)",
+        ] {
+            m.get_connection().execute_unprepared(sql).await?;
+        }
+        Ok(())
+    }
+    async fn down(&self, _: &SchemaManager) -> std::result::Result<(), DbErr> {
+        Err(DbErr::Custom("性能索引无需自动回退".into()))
     }
 }
 

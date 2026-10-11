@@ -665,7 +665,21 @@ pub(crate) fn document_filter(
 pub(crate) fn audit_filter(filter: &Filter, actor: &User) -> Result<(String, Vec<sea_orm::Value>)> {
     let q = clean(filter.q.as_deref().unwrap_or(""), "搜索内容", 100, false)?;
     let action = clean(filter.kind.as_deref().unwrap_or(""), "操作类型", 100, false)?;
-    Ok(("(?=1 OR actor_id=?) AND (?='' OR instr(actor_name,?)>0 OR instr(action,?)>0 OR instr(details,?)>0 OR instr(object_id,?)>0) AND (?='' OR action=?)".into(), vec![actor.can("records.all").into(), actor.id.clone().into(),q.clone().into(),q.clone().into(),q.clone().into(),q.clone().into(),q.into(),action.clone().into(),action.into()]))
+    let mut clauses = vec!["1=1"];
+    let mut values = vec![];
+    if !actor.can("records.all") {
+        clauses.push("actor_id=?");
+        values.push(actor.id.clone().into());
+    }
+    if !q.is_empty() {
+        clauses.push("(instr(actor_name,?)>0 OR instr(action,?)>0 OR instr(details,?)>0 OR instr(object_id,?)>0)");
+        values.extend((0..4).map(|_| q.clone().into()));
+    }
+    if !action.is_empty() {
+        clauses.push("action=?");
+        values.push(action.into());
+    }
+    Ok((clauses.join(" AND "), values))
 }
 pub async fn documents(
     State(s): State<AppState>,
@@ -850,15 +864,20 @@ pub async fn audits(
     )
     .await?
     .unwrap();
+    let (action_scope, action_values) = if actor.can("records.all") {
+        ("1=1", vec![])
+    } else {
+        ("actor_id=?", vec![actor.id.clone().into()])
+    };
     let actions = all(
         &s.db,
-        "SELECT DISTINCT action FROM audit WHERE (?=1 OR actor_id=?) ORDER BY action",
-        vec![actor.can("records.all").into(), actor.id.clone().into()],
+        &format!("SELECT DISTINCT action FROM audit WHERE {action_scope} ORDER BY action"),
+        action_values,
     )
     .await?;
     let mut paged = values;
     paged.push(offset.into());
     Ok(Json(
-        json!({"items":all(&s.db,&format!("SELECT * FROM audit WHERE {clause} ORDER BY created_at DESC,id LIMIT 50 OFFSET ?"),paged).await?.into_iter().map(audit_json).collect::<Vec<_>>(),"total":int(&count,"total"),"actions":actions.iter().map(|row|text(row,"action")).collect::<Vec<_>>()}),
+        json!({"items":all(&s.db,&format!("SELECT a.* FROM (SELECT id,created_at FROM audit WHERE {clause} ORDER BY created_at DESC,id LIMIT 50 OFFSET ?) page JOIN audit a ON a.id=page.id ORDER BY page.created_at DESC,page.id"),paged).await?.into_iter().map(audit_json).collect::<Vec<_>>(),"total":int(&count,"total"),"actions":actions.iter().map(|row|text(row,"action")).collect::<Vec<_>>()}),
     ))
 }

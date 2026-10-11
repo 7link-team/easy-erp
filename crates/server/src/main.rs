@@ -60,6 +60,7 @@ struct Config {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| "easy_erp_server=info,tower_http=info".into()),
@@ -252,6 +253,7 @@ async fn main() -> anyhow::Result<()> {
             axum::routing::delete(sales::remove_catalog),
         )
         .route("/api/sales/finance", get(sales::finance))
+        .route("/api/sales/cash", get(sales::cash_ledger))
         .route("/api/sales/adjustments", get(sales::adjustments))
         .route("/api/sales/{id}", get(sales::get))
         .route("/api/sales/{id}/revisions/{version}", get(sales::revision))

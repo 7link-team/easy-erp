@@ -43,6 +43,7 @@ import {
   type Sale,
   type SaleInput,
   type Finance,
+  type CashLedger,
 } from "../sales";
 import SalesPrint from "./SalesPrint";
 import "../sales.css";
@@ -791,7 +792,7 @@ function SaleEditor({
                     key={l.item_id}
                     data-item-id={l.item_id}
                   >
-                    <div className="sale-line-title">
+                    <div className="document-line-title">
                       <Field label="物料" required>
                         {(p) => materialPicker(p, l.item_id, name)}
                       </Field>
@@ -845,9 +846,9 @@ function SaleEditor({
                         hint="元，最多 4 位小数"
                       />
                     )}
-                    <div className="sale-line-actions">
+                    <div className="document-line-actions">
                       {billable && (
-                        <div className="sale-line-amount">
+                        <div className="document-line-amount">
                           金额：
                           {amounts
                             ? `¥${moneyText(amounts.amounts[i])}`
@@ -855,7 +856,7 @@ function SaleEditor({
                         </div>
                       )}
                       <Button
-                        className="button small sale-line-delete"
+                        className="button small document-line-delete"
                         aria-label={`移除${name}`}
                         onClick={() =>
                           change(
@@ -872,8 +873,8 @@ function SaleEditor({
                 );
               })}
               {pendingLine && (
-                <div className="sale-line document-line sale-line-pending">
-                  <div className="sale-line-title">
+                <div className="sale-line document-line sale-line-pending document-line-pending">
+                  <div className="document-line-title">
                     <Field label="物料" required>
                       {(p) => materialPicker(p)}
                     </Field>
@@ -888,10 +889,10 @@ function SaleEditor({
                       )}
                     </Field>
                   )}
-                  <div className="sale-line-actions">
+                  <div className="document-line-actions">
                     {" "}
                     <Button
-                      className="button small sale-line-delete"
+                      className="button small document-line-delete"
                       aria-label="移除空行"
                       onClick={() => {
                         setPendingLine(false);
@@ -1848,7 +1849,7 @@ function FinancePanel({
     "all",
   );
   const resource = useResource<Finance>(
-    `/sales/finance?performance_period=${encodeURIComponent(performancePeriod)}`,
+    `/sales/finance?entries=false&performance_period=${encodeURIComponent(performancePeriod)}`,
     revision,
   );
   const [performanceDepartment, setPerformanceDepartment] =
@@ -1860,6 +1861,48 @@ function FinancePanel({
   const [account, setAccount] = useQueryValue<string>("finance_account", "");
   const [start, setStart] = useQueryValue<string>("finance_from", "");
   const [end, setEnd] = useQueryValue<string>("finance_to", "");
+  const [cashPage, setCashPage] = useQueryValue<number>("finance_cash_page", 1);
+  const invalidDates = !!start && !!end && start > end;
+  const cashQuery = new URLSearchParams({
+    account_id: account,
+    from: start,
+    to: end,
+  });
+  const cash = useResource<CashLedger>(
+    invalidDates ? undefined : `/sales/cash?${cashQuery}&page=${cashPage}`,
+    revision,
+  );
+  const cashExport = useAction();
+  const cashData =
+    !cash.loading &&
+    !cash.error &&
+    cash.data?.requested.account_id === account &&
+    cash.data.requested.from === start &&
+    cash.data.requested.to === end &&
+    cash.data.requested.page === cashPage
+      ? cash.data
+      : undefined;
+  useEffect(() => {
+    if (cashData && cashPage !== cashData.page) setCashPage(cashData.page);
+  }, [cashData, cashPage, setCashPage]);
+  const exportCash = () =>
+    cashExport.run(async () => {
+      const response = await fetch(`/api/export/cash?format=csv&${cashQuery}`, {
+        headers: { "X-ERP-Request": "1" },
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "导出失败，请重试。");
+      }
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "销售收款对账.csv";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
   const data = resource.data;
   const customers = (data?.customers ?? [])
     .filter(
@@ -1918,13 +1961,7 @@ function FinancePanel({
   }, [data, section, navigationIndex]);
   if (resource.error) return <Notice>{resource.error}</Notice>;
   if (!data) return <Loading />;
-  const invalidDates = !!start && !!end && start > end;
-  const entries = data.entries.filter(
-    (e) =>
-      (!account || e.account_id === account) &&
-      (!start || e.business_date >= start) &&
-      (!end || e.business_date <= end),
-  );
+  const entries = cashData?.items ?? [];
   const selectedId = (id: string) => id || "__unassigned__";
   const matches = (selected: string, actual: string) =>
     !selected || selected === selectedId(actual);
@@ -1974,18 +2011,8 @@ function FinancePanel({
     }),
     { count: 0, due: 0, paid: 0, debt: 0 },
   );
-  const accounts = data.accounts
-    .filter((a) => !account || a.id === account)
-    .map((a) => {
-      const cash = entries.filter((e) => e.account_id === a.id);
-      return {
-        ...a,
-        received: cash.reduce((sum, e) => sum + Math.max(e.amount, 0), 0),
-        refunded: cash.reduce((sum, e) => sum + Math.max(-e.amount, 0), 0),
-        net: cash.reduce((sum, e) => sum + e.amount, 0),
-      };
-    });
-  const total = entries.reduce((a, e) => a + e.amount, 0);
+  const accounts = cashData?.accounts ?? [];
+  const total = cashData?.net ?? 0;
   const receivedTotal = accounts.reduce((sum, a) => sum + a.received, 0);
   const refundedTotal = accounts.reduce((sum, a) => sum + a.refunded, 0);
   const download = (
@@ -2280,6 +2307,7 @@ function FinancePanel({
               start === data.monthly.from && end === data.monthly.to
             }
             onClick={() => {
+              setCashPage(1);
               setStart(data.monthly.from);
               setEnd(data.monthly.to);
             }}
@@ -2290,6 +2318,7 @@ function FinancePanel({
             className="filter-chip"
             aria-pressed={!start && !end}
             onClick={() => {
+              setCashPage(1);
               setStart("");
               setEnd("");
             }}
@@ -2303,7 +2332,10 @@ function FinancePanel({
               <Select
                 {...p}
                 value={account}
-                onChange={(e) => setAccount(e.target.value)}
+                onChange={(e) => {
+                  setCashPage(1);
+                  setAccount(e.target.value);
+                }}
               >
                 <option value="">全部账户</option>
                 {data.accounts.map((a) => (
@@ -2318,17 +2350,27 @@ function FinancePanel({
             label="开始日期"
             type="date"
             value={start}
-            onChange={setStart}
+            onChange={(value) => {
+              setCashPage(1);
+              setStart(value);
+            }}
           />
           <TextField
             label="结束日期"
             type="date"
             value={end}
-            onChange={setEnd}
+            onChange={(value) => {
+              setCashPage(1);
+              setEnd(value);
+            }}
           />
         </div>
         {invalidDates ? (
           <Notice>开始日期不能晚于结束日期，请调整日期后查看。</Notice>
+        ) : cash.error ? (
+          <Notice>{cash.error}</Notice>
+        ) : !cashData ? (
+          <Loading />
         ) : (
           <>
             <h3>账户汇总（{start || end ? "筛选期间" : "全部日期"}）</h3>
@@ -2407,6 +2449,7 @@ function FinancePanel({
                         <Button
                           className="button small"
                           onClick={() => {
+                            setCashPage(1);
                             setAccount(a.id);
                             requestAnimationFrame(() => {
                               const heading = document.getElementById(
@@ -2458,27 +2501,13 @@ function FinancePanel({
               <strong>筛选净收款：¥{moneyText(total)}</strong>
               <Button
                 className="button"
-                onClick={() =>
-                  download(
-                    [
-                      ["单号", "日期", "账户", "金额（元）", "经办人", "备注"],
-                      ...entries.map((e) => [
-                        e.number,
-                        e.business_date,
-                        e.account_name,
-                        (e.amount / 100).toFixed(2),
-                        e.actor_name,
-                        e.note,
-                      ]),
-                    ],
-                    "销售收款对账.csv",
-                    [3],
-                  )
-                }
+                disabled={cashExport.busy}
+                onClick={exportCash}
               >
-                导出对账 CSV
+                {cashExport.busy ? "正在导出…" : "导出对账 CSV"}
               </Button>
             </div>
+            {cashExport.error && <Notice>{cashExport.error}</Notice>}
             <TableScroll>
               <table>
                 <thead>
@@ -2486,7 +2515,7 @@ function FinancePanel({
                     <th>单号</th>
                     <th>日期</th>
                     <th>账户</th>
-                    <th>收款 / 退款</th>
+                    <th className="numeric">收款 / 退款</th>
                     <th>经办人</th>
                   </tr>
                 </thead>
@@ -2503,13 +2532,35 @@ function FinancePanel({
                       </td>
                       <td>{e.business_date}</td>
                       <td>{e.account_name}</td>
-                      <td>¥{moneyText(e.amount)}</td>
+                      <td className="numeric">¥{moneyText(e.amount)}</td>
                       <td>{e.actor_name}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </TableScroll>
+            {!entries.length && <Empty>没有符合条件的收退款流水。</Empty>}
+            <nav className="pagination" aria-label="账户流水分页">
+              <span role="status">
+                共 {cashData.total.toLocaleString()} 条 · 第 {cashData.page} 页
+              </span>
+              <div>
+                <Button
+                  className="button small"
+                  disabled={cashData.page <= 1}
+                  onClick={() => setCashPage(cashData.page - 1)}
+                >
+                  上一页
+                </Button>
+                <Button
+                  className="button small"
+                  disabled={cashData.page * 50 >= cashData.total}
+                  onClick={() => setCashPage(cashData.page + 1)}
+                >
+                  下一页
+                </Button>
+              </div>
+            </nav>
           </>
         )}
       </section>
@@ -2598,10 +2649,10 @@ function FinancePanel({
                 <tr>
                   <th>部门</th>
                   <th>业务员</th>
-                  <th>单数</th>
-                  <th>业绩金额</th>
-                  <th>净实收</th>
-                  <th>欠款</th>
+                  <th className="numeric">单数</th>
+                  <th className="numeric">业绩金额</th>
+                  <th className="numeric">净实收</th>
+                  <th className="numeric">欠款</th>
                 </tr>
               </thead>
               <tbody>
@@ -2609,10 +2660,10 @@ function FinancePanel({
                   <tr key={`${p.department_id}:${p.salesperson_id}`}>
                     <td>{p.department_name || "未指定"}</td>
                     <td>{p.salesperson_name || "未指定"}</td>
-                    <td>{p.count}</td>
-                    <td>¥{moneyText(p.due)}</td>
-                    <td>¥{moneyText(p.paid)}</td>
-                    <td>¥{moneyText(p.debt)}</td>
+                    <td className="numeric">{p.count}</td>
+                    <td className="numeric">¥{moneyText(p.due)}</td>
+                    <td className="numeric">¥{moneyText(p.paid)}</td>
+                    <td className="numeric">¥{moneyText(p.debt)}</td>
                   </tr>
                 ))}
                 {!performance.length && (
@@ -2624,10 +2675,10 @@ function FinancePanel({
               <tfoot>
                 <tr>
                   <td colSpan={2}>筛选合计</td>
-                  <td>{performanceTotal.count}</td>
-                  <td>¥{moneyText(performanceTotal.due)}</td>
-                  <td>¥{moneyText(performanceTotal.paid)}</td>
-                  <td>¥{moneyText(performanceTotal.debt)}</td>
+                  <td className="numeric">{performanceTotal.count}</td>
+                  <td className="numeric">¥{moneyText(performanceTotal.due)}</td>
+                  <td className="numeric">¥{moneyText(performanceTotal.paid)}</td>
+                  <td className="numeric">¥{moneyText(performanceTotal.debt)}</td>
                 </tr>
               </tfoot>
             </table>
@@ -2889,7 +2940,7 @@ export default function Sales({
   );
   const showCustomerFinance = view === "customers" && can(user, "finance.read");
   const customerFinance = useResource<Finance>(
-    showCustomerFinance ? "/sales/finance" : undefined,
+    showCustomerFinance ? "/sales/finance?entries=false" : undefined,
     revision + local,
   );
   const customerBalances = new Map(
@@ -2897,12 +2948,14 @@ export default function Sales({
   );
   const action = useAction();
   const catalog = useResource<{ items: CatalogEntry[] }>(
-    "/sales/catalog",
+    view === "catalog" || view === "customers"
+      ? "/sales/catalog"
+      : "/sales/catalog?options=true",
     revision + local,
   );
   const catalogFinance = useResource<Finance>(
     view === "catalog" && can(user, "finance.read")
-      ? "/sales/finance"
+      ? "/sales/finance?entries=false"
       : undefined,
     revision + local,
   );

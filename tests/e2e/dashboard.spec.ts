@@ -468,3 +468,57 @@ test("工作台初次汇总加载期间不让新增展示带移走正在点击�
   await page.getByRole("link", { name: /我要入库/ }).click();
   await expect(page.getByLabel("来源 选填", { exact: true })).toBeVisible();
 });
+
+test("今日类型筛选仅在有选择时出现，旧链接可清除且按钮不贴标题线", async ({
+  page,
+}, testInfo) => {
+  const baseline = await overview(page.request);
+  let types: { id: string; name: string; count: number }[] = [];
+  await page.route("**/api/dashboard?**", (route) =>
+    route.fulfill({
+      json: {
+        ...baseline,
+        sales: { ...baseline.sales, types },
+      },
+    }),
+  );
+  const filters = page.getByRole("group", { name: "今日单据类型" });
+  const loaded = page.locator(".today-sales .home-ledger-note");
+  await page.goto("/#/home");
+  await expect(loaded).toBeVisible();
+  await expect(filters).toHaveCount(0);
+  types = [{ id: "sale", name: "销售单", count: 1 }];
+  await page.reload();
+  await expect(loaded).toBeVisible();
+  await expect(filters).toHaveCount(0);
+  types.push({ id: "sample", name: "样品单", count: 1 });
+  await page.reload();
+  await expect(filters.getByRole("button")).toHaveCount(3);
+  for (const width of [1280, 390, 320]) {
+    await page.setViewportSize({ width, height: 800 });
+    await filters.scrollIntoViewIfNeeded();
+    const gap = await filters.evaluate((el) => {
+      const heading = el.previousElementSibling!.getBoundingClientRect();
+      const button = el.querySelector("button")!.getBoundingClientRect();
+      return button.top - heading.bottom;
+    });
+    expect(gap).toBeGreaterThanOrEqual(12);
+    await page.locator(".today-sales").screenshot({
+      path: testInfo.outputPath(`today-filters-${width}.png`),
+    });
+  }
+  await filters.getByRole("button", { name: "样品单 1", exact: true }).click();
+  await expect(page).toHaveURL(/home_type=sample/);
+  await expect(
+    filters.getByRole("button", { name: "样品单 1" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  // A saved URL must remain recoverable when that type no longer has documents today.
+  types = [];
+  await page.reload();
+  await expect(filters.getByRole("button")).toHaveCount(1);
+  await filters
+    .getByRole("button", { name: "清除类型筛选", exact: true })
+    .click();
+  await expect(page).not.toHaveURL(/home_type=/);
+  await expect(filters).toHaveCount(0);
+});

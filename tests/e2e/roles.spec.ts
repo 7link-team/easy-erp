@@ -301,6 +301,8 @@ test("单据范围与收退款权限独立，作废退款不能绕过授权", as
       "/documents",
       "/sales",
       "/sales/finance",
+      "/sales/cash",
+      "/export/cash?format=csv",
     ])
       expect((await client.get(`/api${path}`)).status()).toBe(403);
     expect(

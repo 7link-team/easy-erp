@@ -44,6 +44,7 @@ pub struct Options {
     from: Option<String>,
     to: Option<String>,
     customer_id: Option<String>,
+    account_id: Option<String>,
 }
 fn default_format() -> String {
     "xlsx".into()
@@ -302,6 +303,7 @@ async fn render(table: Table, format: &str, name: &str) -> Result<Response> {
         return Err(ApiError::bad("请选择 Excel 或 CSV 格式。"));
     }
     let excel = format == "xlsx";
+    let signed_cash_amount = name.starts_with("cash-");
     let bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
         if excel {
             let mut workbook = rust_xlsxwriter::Workbook::new();
@@ -325,14 +327,22 @@ async fn render(table: Table, format: &str, name: &str) -> Result<Response> {
                 .save_to_buffer()
                 .map_err(|_| ApiError::bad("生成表格失败。"))
         } else {
-            let mut writer = csv::Writer::from_writer(vec![0xef, 0xbb, 0xbf]);
+            let mut writer = csv::WriterBuilder::new()
+                .quote_style(if signed_cash_amount {
+                    csv::QuoteStyle::Always
+                } else {
+                    csv::QuoteStyle::Necessary
+                })
+                .from_writer(vec![0xef, 0xbb, 0xbf]);
             writer
                 .write_record(&table.headers)
                 .map_err(|_| ApiError::bad("生成 CSV 失败。"))?;
             for row in table.rows {
                 writer
-                    .write_record(row.iter().map(|v| {
-                        if v.starts_with(['=', '+', '-', '@', '\t', '\r']) {
+                    .write_record(row.iter().enumerate().map(|(column, v)| {
+                        if !(signed_cash_amount && column == 3)
+                            && v.starts_with(['=', '+', '-', '@', '\t', '\r'])
+                        {
                             format!("'{v}")
                         } else {
                             v.clone()
@@ -374,10 +384,47 @@ pub async fn export(
     Query(options): Query<Options>,
 ) -> Result<Response> {
     let actor = current(&s, &headers).await?;
-    authorize(&actor, &mode, "read")?;
+    if mode == "cash" {
+        actor.require("finance.read")?;
+    } else {
+        authorize(&actor, &mode, "read")?;
+    }
     let txn = s.db.begin().await?;
     let table = match mode.as_str() {
         mode if reference_module(mode).is_some() => export_reference(&txn, mode, &options).await?,
+        "cash" => {
+            let filter = sales::CashFilter {
+                account_id: options.account_id.clone(),
+                from: options.from.clone(),
+                to: options.to.clone(),
+                page: None,
+            };
+            let (clause, values) = sales::cash_filter(&filter)?;
+            let count=one(&txn,&format!("SELECT COUNT(*) AS total FROM sales_cash c JOIN sales s ON s.id=c.sale_id WHERE {clause}"),values).await?.unwrap();
+            if int(&count, "total") > 50_000 {
+                return Err(ApiError::bad("流水超过 50000 条，请缩小账户或日期范围。"));
+            }
+            let entries = sales::cash_entries(&txn, &filter, Some(50_000)).await?;
+            Table {
+                headers: ["单号", "日期", "账户", "金额（元）", "经办人", "备注"]
+                    .iter()
+                    .map(|v| v.to_string())
+                    .collect(),
+                rows: entries
+                    .into_iter()
+                    .map(|v| {
+                        vec![
+                            v["number"].as_str().unwrap_or("").to_owned(),
+                            v["business_date"].as_str().unwrap_or("").to_owned(),
+                            v["account_name"].as_str().unwrap_or("").to_owned(),
+                            money::display(v["amount"].as_i64().unwrap()),
+                            v["actor_name"].as_str().unwrap_or("").to_owned(),
+                            v["note"].as_str().unwrap_or("").to_owned(),
+                        ]
+                    })
+                    .collect(),
+            }
+        }
         "sales" => {
             let filter = sales::Filter {
                 q: options.filter.q.clone(),
@@ -389,6 +436,20 @@ pub async fn export(
             };
             let (clause, mut values, status) = sales::list_filter(&filter, &actor)?;
             values.extend([status.clone().into(), status.into()]);
+            let count = one(
+                &txn,
+                &format!(
+                    "SELECT COUNT(*) AS total FROM sales WHERE {clause} AND (?='' OR status=?)"
+                ),
+                values.clone(),
+            )
+            .await?
+            .unwrap();
+            if int(&count, "total") > 50_000 {
+                return Err(ApiError::bad(
+                    "单据超过 50000 张，请缩小搜索、日期或状态范围。",
+                ));
+            }
             let records = all(&txn, &format!("SELECT data FROM sales WHERE {clause} AND (?='' OR status=?) ORDER BY created_at DESC,id LIMIT 50001"), values).await?;
             if records.len() > 50_000 {
                 return Err(ApiError::bad(

@@ -173,27 +173,34 @@ async fn entry(db: &impl ConnectionTrait, eid: &str, kind: &str) -> Result<Value
 }
 // Include historical snapshots when deciding whether a catalog entry can be deleted.
 // Counting distinct sale IDs avoids double-counting revisions of the same document.
-async fn catalog_references(db: &impl ConnectionTrait) -> Result<HashMap<String, i64>> {
+fn catalog_reference_sources() -> String {
     let mut sources = Vec::new();
-    for (table, sale_id, prefix) in [
-        ("sales", "id", "$."),
-        ("sales_revisions", "sale_id", "$.before."),
-        ("sales_revisions", "sale_id", "$.after."),
+    for (table, sale_id, prefixes) in [
+        ("sales", "id", &["$."][..]),
+        ("sales_revisions", "sale_id", &["$.before.", "$.after."][..]),
     ] {
-        for field in [
-            "type_id",
-            "customer_id",
-            "department_id",
-            "salesperson_id",
-            "initial_payment.account_id",
-        ] {
-            sources.push(format!(
-                "SELECT {sale_id} AS sale_id,json_extract(data,'{prefix}{field}') AS ref FROM {table}"
-            ));
-        }
+        let fields = prefixes
+            .iter()
+            .flat_map(|prefix| {
+                [
+                    "type_id",
+                    "customer_id",
+                    "department_id",
+                    "salesperson_id",
+                    "initial_payment.account_id",
+                ]
+                .iter()
+                .map(move |field| format!("json_extract(source.data,'{prefix}{field}')"))
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        sources.push(format!("SELECT source.{sale_id} AS sale_id,ref.value AS ref FROM {table} source,json_each(json_array({fields})) ref"));
     }
     sources.push("SELECT sale_id,account_id AS ref FROM sales_cash".into());
-    let rows = all(db, &format!("SELECT ref,COUNT(DISTINCT sale_id) AS total FROM ({}) WHERE ref IS NOT NULL AND ref<>'' GROUP BY ref", sources.join(" UNION ALL ")), vec![]).await?;
+    sources.join(" UNION ALL ")
+}
+async fn catalog_references(db: &impl ConnectionTrait) -> Result<HashMap<String, i64>> {
+    let rows=all(db,&format!("SELECT ref,COUNT(DISTINCT sale_id) AS total FROM ({}) WHERE ref IS NOT NULL AND ref<>'' GROUP BY ref",catalog_reference_sources()),vec![]).await?;
     Ok(rows
         .iter()
         .map(|r| (text(r, "ref"), int(r, "total")))
@@ -202,6 +209,7 @@ async fn catalog_references(db: &impl ConnectionTrait) -> Result<HashMap<String,
 
 #[derive(Deserialize)]
 pub struct CatalogFilter {
+    options: Option<bool>,
     q: Option<String>,
     kind: Option<String>,
 }
@@ -218,7 +226,23 @@ pub async fn catalog(
         vec![],
     )
     .await?;
-    let references = catalog_references(&s.db).await?;
+    let lightweight = filter.options.unwrap_or(false);
+    let references = if lightweight {
+        HashMap::new()
+    } else {
+        catalog_references(&s.db).await?
+    };
+    let mut members_by_department = HashMap::<String, usize>::new();
+    for row in &rows {
+        if text(row, "kind") == "salesperson" {
+            let data = parsed(&text(row, "data"))?;
+            if let Some(department) = data["department_id"].as_str() {
+                *members_by_department
+                    .entry(department.to_owned())
+                    .or_default() += 1;
+            }
+        }
+    }
     let mut items = vec![];
     for r in &rows {
         let permission = match text(&r, "kind").as_str() {
@@ -245,21 +269,18 @@ pub async fn catalog(
                 continue;
             }
             let used = references.get(&text(r, "id")).copied().unwrap_or(0);
-            let members = rows
-                .iter()
-                .filter(|member| {
-                    text(member, "kind") == "salesperson"
-                        && parsed(&text(member, "data"))
-                            .ok()
-                            .is_some_and(|data| data["department_id"] == text(r, "id"))
-                })
-                .count();
-            value["can_delete"] = json!(text(r, "kind") != "company" && used == 0 && members == 0);
-            value["usage_count"] = if actor.can("sales.all") || actor.can("finance.read") {
-                json!(used)
-            } else {
-                Value::Null
-            };
+            let members = members_by_department
+                .get(&text(r, "id"))
+                .copied()
+                .unwrap_or(0);
+            value["can_delete"] =
+                json!(!lightweight && text(r, "kind") != "company" && used == 0 && members == 0);
+            value["usage_count"] =
+                if !lightweight && (actor.can("sales.all") || actor.can("finance.read")) {
+                    json!(used)
+                } else {
+                    Value::Null
+                };
             if text(r, "kind") == "department" {
                 value["member_count"] = json!(members);
             }
@@ -627,6 +648,17 @@ struct ReturnRecord {
     lines: Vec<Returned>,
     credit: i64,
 }
+fn accumulate_return(map: &mut HashMap<String, Returned>, record: ReturnRecord) {
+    for line in record.lines {
+        let entry = map.entry(line.item_id.clone()).or_insert(Returned {
+            item_id: line.item_id,
+            quantity: 0,
+            credit: 0,
+        });
+        entry.quantity += line.quantity;
+        entry.credit += line.credit;
+    }
+}
 async fn returned(db: &impl ConnectionTrait, sid: &str) -> Result<HashMap<String, Returned>> {
     let mut map: HashMap<String, Returned> = HashMap::new();
     for r in all(
@@ -638,15 +670,7 @@ async fn returned(db: &impl ConnectionTrait, sid: &str) -> Result<HashMap<String
     {
         let record: ReturnRecord =
             serde_json::from_str(&text(&r, "data")).map_err(|_| ApiError::bad("退货记录损坏。"))?;
-        for line in record.lines {
-            let entry = map.entry(line.item_id.clone()).or_insert(Returned {
-                item_id: line.item_id,
-                quantity: 0,
-                credit: 0,
-            });
-            entry.quantity += line.quantity;
-            entry.credit += line.credit;
-        }
+        accumulate_return(&mut map, record);
     }
     Ok(map)
 }
@@ -695,13 +719,20 @@ pub async fn remove_catalog(
     if int(&row, "version") != input.version {
         return Err(ApiError::conflict("资料已修改，请刷新后重试。"));
     }
-    let used = catalog_references(&txn)
-        .await?
-        .get(&eid)
-        .copied()
-        .unwrap_or(0);
+    // Deletion needs existence only. Stop at the first historical reference;
+    // never build every customer's usage map while holding the write lock.
+    let used = one(
+        &txn,
+        &format!(
+            "SELECT 1 FROM ({}) WHERE ref=? LIMIT 1",
+            catalog_reference_sources()
+        ),
+        vec![eid.clone().into()],
+    )
+    .await?
+    .is_some();
     let members = one(&txn, "SELECT id FROM sales_catalog WHERE kind='salesperson' AND json_extract(data,'$.department_id')=? LIMIT 1", vec![eid.clone().into()]).await?.is_some();
-    if used > 0 || members {
+    if used || members {
         return Err(ApiError::conflict(
             "资料已有单据或业务员关联，请改为停用；历史记录会继续保留。",
         ));
@@ -910,20 +941,29 @@ pub(crate) fn list_filter(
     if !from.is_empty() && !to.is_empty() && from > to {
         return Err(ApiError::bad("开始日期不能晚于结束日期。"));
     }
-    let base = "(?=1 OR actor_id=?) AND (?='' OR customer_id=?) AND (?='' OR instr(data,?)>0) AND (?='' OR json_extract(data,'$.business_date')>=?) AND (?='' OR json_extract(data,'$.business_date')<=?)";
-    let values: Vec<sea_orm::Value> = vec![
-        actor.can("sales.all").into(),
-        actor.id.clone().into(),
-        customer.clone().into(),
-        customer.into(),
-        q.clone().into(),
-        q.into(),
-        from.clone().into(),
-        from.into(),
-        to.clone().into(),
-        to.into(),
-    ];
-    Ok((base.to_string(), values, status))
+    let mut clauses = vec!["1=1"];
+    let mut values: Vec<sea_orm::Value> = vec![];
+    if !actor.can("sales.all") {
+        clauses.push("actor_id=?");
+        values.push(actor.id.clone().into());
+    }
+    if !customer.is_empty() {
+        clauses.push("customer_id=?");
+        values.push(customer.into());
+    }
+    if !q.is_empty() {
+        clauses.push("instr(data,?)>0");
+        values.push(q.into());
+    }
+    if !from.is_empty() {
+        clauses.push("json_extract(data,'$.business_date')>=?");
+        values.push(from.into());
+    }
+    if !to.is_empty() {
+        clauses.push("json_extract(data,'$.business_date')<=?");
+        values.push(to.into());
+    }
+    Ok((clauses.join(" AND "), values, status))
 }
 pub(crate) async fn balances(db: &impl ConnectionTrait, sale: &Sale) -> Result<(i64, i64)> {
     Ok((
@@ -931,6 +971,24 @@ pub(crate) async fn balances(db: &impl ConnectionTrait, sale: &Sale) -> Result<(
         paid(db, &sale.id).await?,
     ))
 }
+// This projection reads immutable document snapshots and signed cash/return rows.
+// It is shared by finance and the workbench, within each caller's read transaction.
+pub(crate) const LEDGER_CTE: &str = r#"WITH
+cash_totals AS MATERIALIZED (SELECT sale_id,SUM(amount) AS paid FROM sales_cash GROUP BY sale_id),
+return_totals AS MATERIALIZED (SELECT r.sale_id,SUM(json_extract(l.value,'$.credit')) AS credit FROM sales_returns r,json_each(r.data,'$.lines') l GROUP BY r.sale_id),
+ledger AS MATERIALIZED (
+ SELECT s.id,s.customer_id,json_extract(s.data,'$.customer.name') AS customer_name,
+ json_extract(s.data,'$.business_date') AS business_date,json_extract(s.data,'$.billable') AS billable,
+ COALESCE(json_extract(s.data,'$.department_id'),'') AS department_id,
+ COALESCE(json_extract(s.data,'$.department_name'),'') AS department_name,
+ COALESCE(json_extract(s.data,'$.salesperson_id'),'') AS salesperson_id,
+ COALESCE(json_extract(s.data,'$.salesperson_name'),'') AS salesperson_name,
+ json_extract(s.data,'$.total')-COALESCE(r.credit,0) AS due,COALESCE(c.paid,0) AS paid
+ FROM sales s INDEXED BY sales_reporting
+ LEFT JOIN return_totals r ON r.sale_id=s.id LEFT JOIN cash_totals c ON c.sale_id=s.id
+ WHERE s.status='posted'
+) "#;
+
 pub async fn list(
     State(s): State<AppState>,
     headers: HeaderMap,
@@ -943,12 +1001,13 @@ pub async fn list(
     let (base, mut values, status) = list_filter(&filter, &actor)?;
     let counts = one(&txn, &format!("SELECT COUNT(*) AS total,COUNT(CASE WHEN status='draft' THEN 1 END) AS draft,COUNT(CASE WHEN status='posted' THEN 1 END) AS posted,COUNT(CASE WHEN status='voided' THEN 1 END) AS voided FROM sales WHERE {base}"),values.clone()).await?.unwrap();
     let total = int(&counts, if status.is_empty() { "total" } else { &status });
-    values.extend([
-        status.clone().into(),
-        status.into(),
-        ((page - 1) * 50).into(),
-    ]);
-    let rows=all(&txn,&format!("SELECT data FROM sales WHERE {base} AND (?='' OR status=?) ORDER BY created_at DESC,id LIMIT 50 OFFSET ?"), values).await?;
+    let mut scope = base;
+    if !status.is_empty() {
+        scope.push_str(" AND status=?");
+        values.push(status.into());
+    }
+    values.push(((page - 1) * 50).into());
+    let rows=all(&txn,&format!("SELECT s.data FROM (SELECT id,created_at FROM sales WHERE {scope} ORDER BY created_at DESC,id LIMIT 50 OFFSET ?) page JOIN sales s ON s.id=page.id ORDER BY page.created_at DESC,page.id"), values).await?;
     let mut items = vec![];
     for row in rows {
         let sale: Sale = serde_json::from_str(&text(&row, "data"))
@@ -1488,8 +1547,131 @@ pub async fn command(
     Ok(Json(result))
 }
 
+#[derive(Deserialize, Default)]
+pub struct CashFilter {
+    pub account_id: Option<String>,
+    pub from: Option<String>,
+    pub to: Option<String>,
+    pub page: Option<i64>,
+}
+pub(crate) fn cash_filter(filter: &CashFilter) -> Result<(String, Vec<sea_orm::Value>)> {
+    let account = clean(
+        filter.account_id.as_deref().unwrap_or(""),
+        "收款账户",
+        100,
+        false,
+    )?;
+    let from = filter
+        .from
+        .as_deref()
+        .filter(|v| !v.is_empty())
+        .map(date)
+        .transpose()?
+        .unwrap_or_default();
+    let to = filter
+        .to
+        .as_deref()
+        .filter(|v| !v.is_empty())
+        .map(date)
+        .transpose()?
+        .unwrap_or_default();
+    if !from.is_empty() && !to.is_empty() && from > to {
+        return Err(ApiError::bad("开始日期不能晚于结束日期。"));
+    }
+    let mut clauses = vec!["1=1"];
+    let mut values = vec![];
+    if !account.is_empty() {
+        clauses.push("c.account_id=?");
+        values.push(account.into());
+    }
+    if !from.is_empty() {
+        clauses.push("c.business_date>=?");
+        values.push(from.into());
+    }
+    if !to.is_empty() {
+        clauses.push("c.business_date<=?");
+        values.push(to.into());
+    }
+    Ok((clauses.join(" AND "), values))
+}
+pub(crate) async fn cash_entries(
+    db: &impl ConnectionTrait,
+    filter: &CashFilter,
+    limit: Option<i64>,
+) -> Result<Vec<Value>> {
+    let (scope, mut values) = cash_filter(filter)?;
+    let mut sql = format!(
+        "SELECT c.*,json_extract(s.data,'$.number') AS number FROM sales_cash c JOIN sales s ON s.id=c.sale_id WHERE {scope} ORDER BY c.created_at DESC,c.id"
+    );
+    if let Some(limit) = limit {
+        sql.push_str(" LIMIT ? OFFSET ?");
+        values.extend([
+            limit.into(),
+            ((filter.page.unwrap_or(1).clamp(1, 1_000_000) - 1) * limit).into(),
+        ]);
+    }
+    Ok(all(db,&sql,values).await?.iter().map(|r|json!({"id":text(r,"id"),"sale_id":text(r,"sale_id"),"number":text(r,"number"),"account_id":text(r,"account_id"),"account_name":text(r,"account_name"),"amount":int(r,"amount"),"actor_name":text(r,"actor_name"),"business_date":text(r,"business_date"),"note":text(r,"note"),"reversal_of":text(r,"reversal_of")})).collect())
+}
+async fn cash_accounts(
+    db: &impl ConnectionTrait,
+    filter: &CashFilter,
+) -> Result<(Vec<Value>, i64)> {
+    let (scope, values) = cash_filter(filter)?;
+    let mut accounts = HashMap::<String, Value>::new();
+    let account = filter.account_id.as_deref().unwrap_or("");
+    for row in all(
+        db,
+        "SELECT id,name,active,data FROM sales_catalog WHERE kind='account' AND (?='' OR id=?)",
+        vec![account.into(), account.into()],
+    )
+    .await?
+    {
+        let data = parsed(&text(&row, "data"))?;
+        accounts.insert(text(&row,"id"),json!({"id":text(&row,"id"),"name":text(&row,"name"),"active":int(&row,"active")==1,"account_type":data["account_type"].as_str().unwrap_or(""),"received":0,"refunded":0,"net":0}));
+    }
+    let rows=all(db,&format!("SELECT c.account_id,c.account_name,MAX(c.created_at) AS latest,COUNT(*) AS count,SUM(MAX(c.amount,0)) AS received,SUM(MAX(-c.amount,0)) AS refunded,SUM(c.amount) AS net FROM sales_cash c WHERE {scope} GROUP BY c.account_id"),values).await?;
+    let mut total = 0;
+    for row in rows {
+        let aid = text(&row, "account_id");
+        total += int(&row, "count");
+        let value = accounts
+            .entry(aid.clone())
+            .or_insert_with(|| json!({"id":aid,"name":text(&row,"account_name")}));
+        for key in ["received", "refunded", "net"] {
+            value[key] = json!(int(&row, key));
+        }
+    }
+    let mut accounts: Vec<_> = accounts.into_values().collect();
+    accounts.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
+    Ok((accounts, total))
+}
+pub async fn cash_ledger(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Query(filter): Query<CashFilter>,
+) -> Result<Json<Value>> {
+    current(&s, &headers).await?.require("finance.read")?;
+    let txn = s.db.begin().await?;
+    let requested = json!({"account_id":filter.account_id.as_deref().unwrap_or(""),"from":filter.from.as_deref().unwrap_or(""),"to":filter.to.as_deref().unwrap_or(""),"page":filter.page.unwrap_or(1)});
+    let (accounts, total) = cash_accounts(&txn, &filter).await?;
+    let page = filter
+        .page
+        .unwrap_or(1)
+        .clamp(1, ((total + 49) / 50).max(1));
+    let filter = CashFilter {
+        page: Some(page),
+        ..filter
+    };
+    let items = cash_entries(&txn, &filter, Some(50)).await?;
+    let net: i64 = accounts.iter().map(|a| a["net"].as_i64().unwrap()).sum();
+    Ok(Json(
+        json!({"items":items,"accounts":accounts,"total":total,"page":page,"net":net,"requested":requested}),
+    ))
+}
+
 #[derive(Deserialize)]
 pub struct FinanceFilter {
+    entries: Option<bool>,
     q: Option<String>,
     performance_period: Option<String>,
 }
@@ -1531,66 +1713,71 @@ pub async fn finance(
     let mut performance_choices: HashMap<(String, String), Value> = HashMap::new();
     let mut total = 0;
     let mut net_paid = 0;
-    for row in all(&txn, "SELECT data FROM sales WHERE status='posted'", vec![]).await? {
-        let sale: Sale = serde_json::from_str(&text(&row, "data"))
-            .map_err(|_| ApiError::bad("读取单据失败。"))?;
-        let (amount, received) = balances(&txn, &sale).await?;
-        if sale.billable {
-            performance_choices.entry((sale.department_id.clone(),sale.salesperson_id.clone())).or_insert_with(||json!({"department_id":sale.department_id,"department_name":sale.department_name,"salesperson_id":sale.salesperson_id,"salesperson_name":sale.salesperson_name}));
-        }
-        if sale.billable && sale.business_date >= month && sale.business_date <= today {
-            *monthly_departments
-                .entry(sale.department_id.clone())
-                .or_default() += amount;
-            *monthly_salespeople
-                .entry(sale.salesperson_id.clone())
-                .or_default() += amount;
-            let returns = returned(&txn, &sale.id).await?;
-            for line in &sale.lines {
-                let net = line.allocated - returns.get(&line.item_id).map_or(0, |r| r.credit);
-                if let Some(kind) = &line.kind {
-                    category_names
-                        .entry(crate::options::key(kind))
-                        .or_insert_with(|| kind.clone());
-                    *monthly_categories
-                        .entry(crate::options::key(kind))
-                        .or_default() += net;
+    let grouped = all(&txn, &format!(r#"{LEDGER_CTE}
+SELECT 'customer' AS dimension,customer_id AS id1,'' AS id2,customer_name AS name1,'' AS name2,
+ COUNT(*) AS count,SUM(due) AS due,SUM(paid) AS paid,COALESCE(MIN(CASE WHEN due>paid THEN business_date END),'') AS oldest
+ FROM ledger GROUP BY customer_id
+UNION ALL SELECT 'performance',department_id,salesperson_id,department_name,salesperson_name,COUNT(*),SUM(due),SUM(paid),''
+ FROM ledger WHERE billable=1 AND (?='' OR business_date BETWEEN ? AND ?) GROUP BY department_id,salesperson_id
+UNION ALL SELECT 'choices',department_id,salesperson_id,department_name,salesperson_name,0,0,0,''
+ FROM ledger WHERE billable=1 GROUP BY department_id,salesperson_id
+UNION ALL SELECT 'monthly',department_id,salesperson_id,'','',0,SUM(due),0,''
+ FROM ledger WHERE billable=1 AND business_date BETWEEN ? AND ? GROUP BY department_id,salesperson_id"#),
+ vec![from.clone().unwrap_or_default().into(),from.clone().unwrap_or_default().into(),today.clone().into(),month.clone().into(),today.clone().into()]).await?;
+    for row in grouped {
+        let id1 = text(&row, "id1");
+        let id2 = text(&row, "id2");
+        let amount = int(&row, "due");
+        let received = int(&row, "paid");
+        match text(&row, "dimension").as_str() {
+            "customer" => {
+                total += amount;
+                net_paid += received;
+                let oldest = text(&row, "oldest");
+                let days = if oldest.is_empty() {
+                    None
                 } else {
-                    unclassified += net;
-                }
+                    Some(
+                        as_of
+                            .signed_duration_since(
+                                NaiveDate::parse_from_str(&oldest, "%Y-%m-%d")
+                                    .map_err(|_| ApiError::bad("读取单据业务日期失败。"))?,
+                            )
+                            .num_days()
+                            .max(0),
+                    )
+                };
+                customers.insert(id1.clone(),json!({"id":id1,"name":text(&row,"name1"),"due":amount,"paid":received,"debt":amount-received,"count":int(&row,"count"),"oldest_debt_date":if oldest.is_empty(){None}else{Some(oldest)},"debt_days":days}));
             }
+            "performance" => {
+                performance.insert((id1.clone(),id2.clone()),json!({"department_id":id1,"department_name":text(&row,"name1"),"salesperson_id":id2,"salesperson_name":text(&row,"name2"),"count":int(&row,"count"),"due":amount,"paid":received,"debt":amount-received}));
+            }
+            "choices" => {
+                performance_choices.insert((id1.clone(),id2.clone()),json!({"department_id":id1,"department_name":text(&row,"name1"),"salesperson_id":id2,"salesperson_name":text(&row,"name2")}));
+            }
+            "monthly" => {
+                *monthly_departments.entry(id1).or_default() += amount;
+                *monthly_salespeople.entry(id2).or_default() += amount;
+            }
+            _ => unreachable!(),
         }
-        if sale.billable
-            && from
-                .as_ref()
-                .is_none_or(|start| sale.business_date >= *start && sale.business_date <= today)
-        {
-            let p = performance.entry((sale.department_id.clone(), sale.salesperson_id.clone())).or_insert(
-                json!({"department_id":sale.department_id,"department_name":sale.department_name,"salesperson_id":sale.salesperson_id,"salesperson_name":sale.salesperson_name,"count":0,"due":0,"paid":0,"debt":0})
-            );
-            p["count"] = json!(p["count"].as_i64().unwrap() + 1);
-            p["due"] = json!(p["due"].as_i64().unwrap() + amount);
-            p["paid"] = json!(p["paid"].as_i64().unwrap() + received);
-            p["debt"] = json!(p["due"].as_i64().unwrap() - p["paid"].as_i64().unwrap());
-        }
-        total += amount;
-        net_paid += received;
-        let c = customers.entry(sale.customer_id.clone()).or_insert(
-            json!({"id":sale.customer_id,"name":sale.customer["name"],"due":0,"paid":0,"debt":0,"count":0,"oldest_debt_date":null,"debt_days":null}),
-        );
-        c["count"] = json!(c["count"].as_i64().unwrap() + 1);
-        c["due"] = json!(c["due"].as_i64().unwrap() + amount);
-        c["paid"] = json!(c["paid"].as_i64().unwrap() + received);
-        c["debt"] = json!(c["due"].as_i64().unwrap() - c["paid"].as_i64().unwrap());
-        if amount > received
-            && c["oldest_debt_date"]
-                .as_str()
-                .is_none_or(|oldest| sale.business_date.as_str() < oldest)
-        {
-            let day = NaiveDate::parse_from_str(&sale.business_date, "%Y-%m-%d")
-                .map_err(|_| ApiError::bad("读取单据业务日期失败。"))?;
-            c["oldest_debt_date"] = json!(sale.business_date);
-            c["debt_days"] = json!(as_of.signed_duration_since(day).num_days().max(0));
+    }
+    // Expand only this month's lines; normalize historical category names in Rust.
+    let categories=all(&txn,r#"WITH credits AS MATERIALIZED (
+ SELECT r.sale_id,json_extract(l.value,'$.item_id') AS item_id,SUM(json_extract(l.value,'$.credit')) AS credit
+ FROM sales_returns r,json_each(r.data,'$.lines') l GROUP BY r.sale_id,item_id)
+ SELECT json_extract(l.value,'$.kind') AS kind,SUM(json_extract(l.value,'$.allocated')-COALESCE(c.credit,0)) AS amount
+ FROM sales s,json_each(s.data,'$.lines') l LEFT JOIN credits c ON c.sale_id=s.id AND c.item_id=json_extract(l.value,'$.item_id')
+ WHERE s.status='posted' AND json_extract(s.data,'$.billable')=1 AND json_extract(s.data,'$.business_date') BETWEEN ? AND ?
+ GROUP BY json_extract(l.value,'$.kind')"#,vec![month.clone().into(),today.clone().into()]).await?;
+    for row in categories {
+        let kind: Option<String> = row.try_get("", "kind").map_err(ApiError::from)?;
+        if let Some(kind) = kind {
+            let key = crate::options::key(&kind);
+            category_names.entry(key.clone()).or_insert(kind);
+            *monthly_categories.entry(key).or_default() += int(&row, "amount");
+        } else {
+            unclassified += int(&row, "amount");
         }
     }
     // Include people without sales so they can be selected and shown as zero.
@@ -1623,39 +1810,21 @@ pub async fn finance(
         }
     }
     let q = clean(filter.q.as_deref().unwrap_or(""), "搜索", 100, false)?;
-    let cash_rows=all(&txn,"SELECT c.*,s.data AS sale_data FROM sales_cash c JOIN sales s ON s.id=c.sale_id WHERE (?='' OR c.account_id=?) ORDER BY c.created_at DESC,c.id",vec![q.clone().into(),q.clone().into()]).await?;
-    let mut accounts: HashMap<String, Value> = HashMap::new();
-    for row in all(
-        &txn,
-        "SELECT id,name,active,data FROM sales_catalog WHERE kind='account' AND (?='' OR id=?)",
-        vec![q.clone().into(), q.into()],
-    )
-    .await?
-    {
-        let data = parsed(&text(&row, "data"))?;
-        accounts.insert(text(&row,"id"),json!({"id":text(&row,"id"),"name":text(&row,"name"),"active":int(&row,"active")==1,"account_type":data["account_type"].as_str().unwrap_or(""),"received":0,"refunded":0,"net":0}));
-    }
-    let mut entries = vec![];
-    for row in cash_rows {
-        let amount = int(&row, "amount");
-        let aid = text(&row, "account_id");
-        let cash_date = text(&row, "business_date");
-        if cash_date >= month && cash_date <= today {
-            *monthly_accounts.entry(aid.clone()).or_default() += amount;
-        }
-        let a = accounts.entry(aid.clone()).or_insert(
-            json!({"id":aid,"name":text(&row,"account_name"),"received":0,"refunded":0,"net":0}),
-        );
-        if amount >= 0 {
-            a["received"] = json!(a["received"].as_i64().unwrap() + amount);
-        } else {
-            a["refunded"] = json!(a["refunded"].as_i64().unwrap() - amount);
-        }
-        a["net"] = json!(a["net"].as_i64().unwrap() + amount);
-        entries.push(json!({"id":text(&row,"id"),"sale_id":text(&row,"sale_id"),"number":parsed(&text(&row,"sale_data"))?["number"],"account_id":text(&row,"account_id"),"account_name":text(&row,"account_name"),"amount":amount,"actor_name":text(&row,"actor_name"),"business_date":text(&row,"business_date"),"note":text(&row,"note"),"reversal_of":text(&row,"reversal_of")}));
+    let cash_filter = CashFilter {
+        account_id: Some(q.clone()),
+        ..CashFilter::default()
+    };
+    let (accounts, _) = cash_accounts(&txn, &cash_filter).await?;
+    let entries = if filter.entries.unwrap_or(true) {
+        cash_entries(&txn, &cash_filter, None).await?
+    } else {
+        vec![]
+    };
+    for row in all(&txn,"SELECT c.account_id,SUM(c.amount) AS amount FROM sales_cash c WHERE c.business_date BETWEEN ? AND ? AND (?='' OR c.account_id=?) GROUP BY c.account_id",vec![month.clone().into(),today.clone().into(),q.clone().into(),q.into()]).await? {
+        monthly_accounts.insert(text(&row,"account_id"),int(&row,"amount"));
     }
     Ok(Json(
-        json!({"period":{"value":period,"from":from,"to":if period=="all" {None} else {Some(&today)}},"monthly":{"from":month,"to":today,"accounts":monthly_accounts,"departments":monthly_departments,"salespeople":monthly_salespeople,"categories":monthly_categories,"category_names":category_names,"unclassified":unclassified},"due":total,"paid":net_paid,"debt":total-net_paid,"performance_choices":performance_choices.into_values().collect::<Vec<_>>(),"performance":performance.into_values().collect::<Vec<_>>(),"customers":customers.into_values().collect::<Vec<_>>(),"accounts":accounts.into_values().collect::<Vec<_>>(),"entries":entries}),
+        json!({"period":{"value":period,"from":from,"to":if period=="all" {None} else {Some(&today)}},"monthly":{"from":month,"to":today,"accounts":monthly_accounts,"departments":monthly_departments,"salespeople":monthly_salespeople,"categories":monthly_categories,"category_names":category_names,"unclassified":unclassified},"due":total,"paid":net_paid,"debt":total-net_paid,"performance_choices":performance_choices.into_values().collect::<Vec<_>>(),"performance":performance.into_values().collect::<Vec<_>>(),"customers":customers.into_values().collect::<Vec<_>>(),"accounts":accounts,"entries":entries}),
     ))
 }
 
@@ -1838,88 +2007,135 @@ pub async fn validate_backup(db: &impl ConnectionTrait) -> Result<()> {
         return Ok(());
     }
     let invalid = || ApiError::bad("备份中的销售、收款或退货数据不一致，不能恢复。");
-    for row in all(db, "SELECT * FROM sales", vec![]).await? {
-        let sale: Sale = serde_json::from_str(&text(&row, "data")).map_err(|_| invalid())?;
-        if sale.id != text(&row, "id")
-            || sale.actor_id != text(&row, "actor_id")
-            || sale.customer_id != text(&row, "customer_id")
-            || sale.status != text(&row, "status")
-            || sale.version != int(&row, "version")
-            || !["draft", "posted", "voided"].contains(&sale.status.as_str())
-            || sale.lines.is_empty()
-            || sale.lines.len() > 100
-            || sale.discount_rate < 0
-            || sale.discount_rate > 10000
-            || sale.rounding < 0
+    // SQLite permits NULL in a non-integer primary key; neither NULL nor the
+    // empty cursor sentinel may escape the batched validation below.
+    if one(
+        db,
+        "SELECT 1 FROM sales WHERE id IS NULL OR id='' LIMIT 1",
+        vec![],
+    )
+    .await?
+    .is_some()
+    {
+        return Err(invalid());
+    }
+
+    let catalog: HashSet<(String, String)> = all(db, "SELECT id,kind FROM sales_catalog", vec![])
+        .await?
+        .iter()
+        .map(|r| (text(r, "id"), text(r, "kind")))
+        .collect();
+    let mut after = String::new();
+    loop {
+        let rows = all(
+            db,
+            "SELECT * FROM sales WHERE id>? ORDER BY id LIMIT 500",
+            vec![after.clone().into()],
+        )
+        .await?;
+        if rows.is_empty() {
+            break;
+        }
+        after = text(rows.last().unwrap(), "id");
+        let placeholders = vec!["?"; rows.len()].join(",");
+        let ids: Vec<sea_orm::Value> = rows.iter().map(|r| text(r, "id").into()).collect();
+        let mut batch_returns = HashMap::<String, HashMap<String, Returned>>::new();
+        for row in all(
+            db,
+            &format!("SELECT sale_id,data FROM sales_returns WHERE sale_id IN ({placeholders})"),
+            ids.clone(),
+        )
+        .await?
         {
-            return Err(invalid());
+            let record: ReturnRecord =
+                serde_json::from_str(&text(&row, "data")).map_err(|_| invalid())?;
+            accumulate_return(
+                batch_returns.entry(text(&row, "sale_id")).or_default(),
+                record,
+            );
         }
-        if sale.department_id.is_empty() != sale.salesperson_id.is_empty() {
-            return Err(invalid());
-        }
-        if !sale.department_id.is_empty() {
-            for (eid, kind) in [
-                (&sale.department_id, "department"),
-                (&sale.salesperson_id, "salesperson"),
-            ] {
-                if one(
-                    db,
-                    "SELECT id FROM sales_catalog WHERE id=? AND kind=?",
-                    vec![eid.clone().into(), kind.into()],
-                )
-                .await?
-                .is_none()
+        let batch_paid:HashMap<String,i64>=all(db,&format!("SELECT sale_id,SUM(amount) AS paid FROM sales_cash WHERE sale_id IN ({placeholders}) GROUP BY sale_id"),ids).await?.iter().map(|r|(text(r,"sale_id"),int(r,"paid"))).collect();
+        for row in rows {
+            let sale: Sale = serde_json::from_str(&text(&row, "data")).map_err(|_| invalid())?;
+            if sale.id != text(&row, "id")
+                || sale.actor_id != text(&row, "actor_id")
+                || sale.customer_id != text(&row, "customer_id")
+                || sale.status != text(&row, "status")
+                || sale.version != int(&row, "version")
+                || !["draft", "posted", "voided"].contains(&sale.status.as_str())
+                || sale.lines.is_empty()
+                || sale.lines.len() > 100
+                || sale.discount_rate < 0
+                || sale.discount_rate > 10000
+                || sale.rounding < 0
+            {
+                return Err(invalid());
+            }
+            if sale.department_id.is_empty() != sale.salesperson_id.is_empty() {
+                return Err(invalid());
+            }
+            if !sale.department_id.is_empty() {
+                for (eid, kind) in [
+                    (&sale.department_id, "department"),
+                    (&sale.salesperson_id, "salesperson"),
+                ] {
+                    if !catalog.contains(&(eid.clone(), kind.to_string())) {
+                        return Err(invalid());
+                    }
+                }
+            }
+            let mut seen = HashSet::new();
+            let mut subtotal = 0i64;
+            let mut allocation = 0i64;
+            for l in &sale.lines {
+                if !seen.insert(&l.item_id)
+                    || l.quantity <= 0
+                    || l.quantity > domain::MAX_QUANTITY
+                    || l.price < 0
+                    || l.price > money::MAX_MONEY
+                    || l.amount < 0
+                    || l.allocated < 0
+                    || money::line(l.quantity, l.price)? != l.amount
+                    || (!sale.billable && l.price != 0)
+                {
+                    return Err(invalid());
+                }
+                subtotal = subtotal
+                    .checked_add(l.amount)
+                    .filter(|v| *v <= money::MAX_MONEY)
+                    .ok_or_else(invalid)?;
+                allocation = allocation.checked_add(l.allocated).ok_or_else(invalid)?;
+            }
+            let discounted = money::rounded(subtotal as i128 * sale.discount_rate as i128, 10000)?;
+            if sale.subtotal != subtotal
+                || sale.discount != subtotal - discounted
+                || sale.rounding > discounted
+                || sale.total != discounted - sale.rounding
+                || allocation != sale.total
+            {
+                return Err(invalid());
+            }
+            let returns = batch_returns.remove(&sale.id).unwrap_or_default();
+            for (iid, r) in &returns {
+                let l = sale
+                    .lines
+                    .iter()
+                    .find(|l| &l.item_id == iid)
+                    .ok_or_else(invalid)?;
+                if r.quantity < 0
+                    || r.quantity > l.quantity
+                    || r.credit < 0
+                    || r.credit > l.allocated
                 {
                     return Err(invalid());
                 }
             }
-        }
-        let mut seen = HashSet::new();
-        let mut subtotal = 0i64;
-        let mut allocation = 0i64;
-        for l in &sale.lines {
-            if !seen.insert(&l.item_id)
-                || l.quantity <= 0
-                || l.quantity > domain::MAX_QUANTITY
-                || l.price < 0
-                || l.price > money::MAX_MONEY
-                || l.amount < 0
-                || l.allocated < 0
-                || money::line(l.quantity, l.price)? != l.amount
-                || (!sale.billable && l.price != 0)
+            let paid = batch_paid.get(&sale.id).copied().unwrap_or(0);
+            let due = due(&sale, &returns);
+            if due < 0 || paid < 0 || paid > due || (sale.status == "draft" && !returns.is_empty())
             {
                 return Err(invalid());
             }
-            subtotal = subtotal
-                .checked_add(l.amount)
-                .filter(|v| *v <= money::MAX_MONEY)
-                .ok_or_else(invalid)?;
-            allocation = allocation.checked_add(l.allocated).ok_or_else(invalid)?;
-        }
-        let discounted = money::rounded(subtotal as i128 * sale.discount_rate as i128, 10000)?;
-        if sale.subtotal != subtotal
-            || sale.discount != subtotal - discounted
-            || sale.rounding > discounted
-            || sale.total != discounted - sale.rounding
-            || allocation != sale.total
-        {
-            return Err(invalid());
-        }
-        let returns = returned(db, &sale.id).await?;
-        for (iid, r) in &returns {
-            let l = sale
-                .lines
-                .iter()
-                .find(|l| &l.item_id == iid)
-                .ok_or_else(invalid)?;
-            if r.quantity < 0 || r.quantity > l.quantity || r.credit < 0 || r.credit > l.allocated {
-                return Err(invalid());
-            }
-        }
-        let paid = paid(db, &sale.id).await?;
-        let due = due(&sale, &returns);
-        if due < 0 || paid < 0 || paid > due || (sale.status == "draft" && !returns.is_empty()) {
-            return Err(invalid());
         }
     }
     for sql in [

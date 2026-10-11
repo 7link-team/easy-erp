@@ -159,6 +159,14 @@ export interface Finance {
   }[];
   entries: (CashEntry & { sale_id: string; number: string })[];
 }
+export interface CashLedger {
+  requested: { account_id: string; from: string; to: string; page: number };
+  items: Finance["entries"];
+  accounts: Finance["accounts"];
+  total: number;
+  page: number;
+  net: number;
+}
 export function correctablePayments(sale: Sale) {
   return sale.payments.filter(
     (entry) =>

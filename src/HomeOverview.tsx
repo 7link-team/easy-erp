@@ -288,6 +288,7 @@ export function TodaySales({
   const { data, loading, error, type, setType } = overview;
   if (!can(user, "sales.read")) return null;
   const sales = data?.sales;
+  const hasTypeChoices = (sales?.types.length ?? 0) > 1;
   return (
     <section className="panel ledger-sheet today-sales">
       <div className="ledger-heading section-title">
@@ -311,25 +312,29 @@ export function TodaySales({
           </PageLink>
         )}
       </div>
-      <div className="filter-chips" role="group" aria-label="今日单据类型">
-        <Button
-          className="filter-chip"
-          aria-pressed={!type}
-          onClick={() => setType("")}
-        >
-          全部 <span>{sales?.all_count ?? "…"}</span>
-        </Button>
-        {sales?.types.map((t) => (
+      {sales && !error && (hasTypeChoices || type) && (
+        <div className="filter-chips" role="group" aria-label="今日单据类型">
           <Button
-            key={t.id}
             className="filter-chip"
-            aria-pressed={type === t.id}
-            onClick={() => setType(t.id)}
+            aria-pressed={hasTypeChoices ? !type : undefined}
+            onClick={() => setType("")}
           >
-            {t.name} <span>{t.count}</span>
+            {hasTypeChoices ? "全部" : "清除类型筛选"}
+            {hasTypeChoices && <span>{sales.all_count}</span>}
           </Button>
-        ))}
-      </div>
+          {hasTypeChoices &&
+            sales.types.map((t) => (
+              <Button
+                key={t.id}
+                className="filter-chip"
+                aria-pressed={type === t.id}
+                onClick={() => setType(t.id)}
+              >
+                {t.name} <span>{t.count}</span>
+              </Button>
+            ))}
+        </div>
+      )}
       {loading ? (
         <Loading />
       ) : error ? (
