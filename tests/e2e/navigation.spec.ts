@@ -38,22 +38,22 @@ test("14项业务菜单名称顺序、退货合并单据、开单直达及关于
     "备份",
   ]);
   await expect(
-    nav.getByRole("button", { name: "退货", exact: true }),
+    nav.getByRole("link", { name: "退货", exact: true }),
   ).toHaveCount(0);
   await expect(
-    nav.getByRole("button", { name: "版本", exact: true }),
+    nav.getByRole("link", { name: "版本", exact: true }),
   ).toHaveCount(0);
   await expect(
-    nav.getByRole("button", { name: "规范", exact: true }),
+    nav.getByRole("link", { name: "规范", exact: true }),
   ).toHaveCount(0);
-  await nav.getByRole("button", { name: "开单", exact: true }).click();
+  await nav.getByRole("link", { name: "开单", exact: true }).click();
   await expect(page).toHaveURL(/#\/invoice$/);
   await expect(
     page.getByRole("heading", { name: "新建单据", exact: true }),
   ).toBeVisible();
   await page.getByLabel("备注 选填", { exact: true }).fill("导航取消后仍保留");
   const before = page.url();
-  await nav.getByRole("button", { name: "单据", exact: true }).click();
+  await nav.getByRole("link", { name: "单据", exact: true }).click();
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "取消", exact: true })
@@ -62,7 +62,7 @@ test("14项业务菜单名称顺序、退货合并单据、开单直达及关于
   await expect(page.getByLabel("备注 选填", { exact: true })).toHaveValue(
     "导航取消后仍保留",
   );
-  await nav.getByRole("button", { name: "单据", exact: true }).click();
+  await nav.getByRole("link", { name: "单据", exact: true }).click();
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "确认离开", exact: true })
@@ -74,7 +74,7 @@ test("14项业务菜单名称顺序、退货合并单据、开单直达及关于
   await expect(
     page.getByRole("button", { name: "新建单据", exact: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "关于", exact: true }).click();
+  await page.getByRole("link", { name: "关于", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "版本", exact: true }),
   ).toBeVisible();
@@ -94,14 +94,14 @@ test("财务三个菜单定位同页分区、保留筛选、刷新与返回定�
   const accounts = page.getByRole("region", { name: "账户流水", exact: true });
   await expect(accounts).toBeFocused();
   await expect(
-    nav.getByRole("button", { name: "账户", exact: true }),
+    nav.getByRole("link", { name: "账户", exact: true }),
   ).toHaveAttribute("aria-current", "page");
   const from = accounts.getByLabel("开始日期", { exact: false });
   await from.fill("2026-10-01");
   await page
     .locator(".finance-panel")
     .evaluate((el) => el.setAttribute("data-preserved", "yes"));
-  await nav.getByRole("button", { name: "业绩", exact: true }).click();
+  await nav.getByRole("link", { name: "业绩", exact: true }).click();
   await expect(
     page.getByRole("region", { name: "部门业绩", exact: true }),
   ).toBeFocused();
@@ -110,16 +110,16 @@ test("财务三个菜单定位同页分区、保留筛选、刷新与返回定�
     "yes",
   );
   await expect(from).toHaveValue("2026-10-01");
-  await nav.getByRole("button", { name: "收款", exact: true }).click();
+  await nav.getByRole("link", { name: "收款", exact: true }).click();
   await expect(
     page.getByRole("region", { name: "客户欠款", exact: true }),
   ).toBeFocused();
-  await nav.getByRole("button", { name: "账户", exact: true }).click();
+  await nav.getByRole("link", { name: "账户", exact: true }).click();
   await expect(accounts).toBeFocused();
   await expect(from).toHaveValue("2026-10-01");
   await page.reload();
   await expect(accounts).toBeFocused();
-  await nav.getByRole("button", { name: "业绩", exact: true }).click();
+  await nav.getByRole("link", { name: "业绩", exact: true }).click();
   await page.goBack();
   await expect(accounts).toBeFocused();
   await expect(
@@ -154,7 +154,7 @@ test("出入库独立入口复用收发表单，手机更多和关于可达", as
     await page.getByRole("button", { name: "更多", exact: true }).click();
     await page
       .getByRole("navigation", { name: "更多功能" })
-      .getByRole("button", { name, exact: true })
+      .getByRole("link", { name, exact: true })
       .click();
     await expect(page.getByRole("dialog")).toHaveCount(0);
     expect(
@@ -170,11 +170,11 @@ test("出入库独立入口复用收发表单，手机更多和关于可达", as
   await expect(
     page
       .getByRole("navigation", { name: "更多功能" })
-      .getByRole("button", { name: "退货", exact: true }),
+      .getByRole("link", { name: "退货", exact: true }),
   ).toHaveCount(0);
   await page
     .getByRole("dialog")
-    .getByRole("button", { name: "关于", exact: true })
+    .getByRole("link", { name: "关于", exact: true })
     .click();
   await expect(
     page.getByRole("heading", { name: "版本", exact: true }),
@@ -298,7 +298,7 @@ test("单据尾列查看、编辑草稿、修订及只读权限，手机操作�
     await expect(
       p
         .getByRole("navigation")
-        .getByRole("button", { name: "开单", exact: true }),
+        .getByRole("link", { name: "开单", exact: true }),
     ).toHaveCount(0);
     await p.goto("http://127.0.0.1:4289/#/invoice");
     await expect(p.getByRole("alert")).toContainText("没有此页面的查看权限");
@@ -381,4 +381,47 @@ test("退货筛选后搜索单据和工作台链接进入单据列表，返回�
   await expect(
     records.getByRole("button", { name: "作废记录", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
+});
+
+test("菜单原生链接支持新标签、保留最新筛选，跳过导航不改变当前页面", async ({
+  page,
+  context,
+}) => {
+  await page.goto("/#/accounts");
+  const accounts = page.getByRole("region", { name: "账户流水", exact: true });
+  await accounts.getByLabel("开始日期", { exact: false }).fill("2026-09-01");
+  const link = page
+    .getByRole("navigation", { name: "主要导航" })
+    .getByRole("link", { name: "业绩", exact: true });
+  await expect(link).toHaveAttribute("href", /2026-09-01/);
+  const popupPromise = context.waitForEvent("page");
+  await link.click({
+    modifiers: [process.platform === "darwin" ? "Meta" : "Control"],
+  });
+  const popup = await popupPromise;
+  await popup.bringToFront();
+  await popup.waitForLoadState("domcontentloaded");
+  // Chromium can report a pending hash navigation after this native tab has
+  // loaded. Poll its actual visible content, URL and field value together.
+  await expect
+    .poll(async () => ({
+      visible: await popup
+        .getByRole("region", { name: "部门业绩", exact: true })
+        .isVisible(),
+      url: new URL(popup.url()).hash,
+      date: await popup
+        .getByRole("region", { name: "账户流水", exact: true })
+        .getByLabel("开始日期", { exact: false })
+        .inputValue(),
+    }))
+    .toEqual({ visible: true, url: "#/performance", date: "2026-09-01" });
+  await expect(page).toHaveURL(/#\/accounts$/);
+  await popup.close();
+  const url = page.url();
+  const skip = page.getByRole("link", { name: "跳到主要内容" });
+  await skip.focus();
+  await skip.press("Enter");
+  await expect(page.locator("main")).toBeFocused();
+  expect(page.url()).toBe(url);
+  await expect(accounts).toBeVisible();
 });

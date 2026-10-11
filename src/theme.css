@@ -1210,7 +1210,7 @@ button { transition: background-color var(--dur-1) var(--ease), border-color var
   .adjustments-table .numeric::before { content: attr(data-label); display: block; margin-bottom: 4px; color: var(--ink-3); font-size: var(--t-11); }
 }
 
-.home-link { text-decoration: none; }
+.page-link { text-decoration: none; }
 /* Workbench: the financial band is the single dark focal area from v2. */
 .business-band { background: var(--grad-band); color: var(--on-band); border-radius: var(--r-sheet); margin-bottom: var(--s-4); padding: var(--s-6); overflow-wrap: anywhere; }
 .business-band-grid { display: grid; grid-template-columns: minmax(0,1.2fr) minmax(0,1fr); gap: var(--s-6); align-items: end; }

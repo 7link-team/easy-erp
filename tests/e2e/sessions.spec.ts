@@ -22,7 +22,7 @@ test("填写表单时交互自动续期，闲置页面不保活", async ({ page 
   await page.getByLabel("登录账号", { exact: false }).fill("manager");
   await page.getByLabel("登录密码", { exact: false }).fill("Factory-test-2026");
   await page.getByRole("button", { name: "登录", exact: true }).click();
-  await page.getByRole("button", { name: /我要入库/ }).click();
+  await page.getByRole("link", { name: /我要入库/ }).click();
   const input = page.getByRole("textbox", { name: "来源 选填", exact: true });
   await input.fill("正在填写的收货单");
   const cookie = (await page.context().cookies()).find(

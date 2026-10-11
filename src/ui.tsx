@@ -41,7 +41,7 @@ export function Disclosure({
         aria-controls={id}
         onClick={() => setOpen(!open)}
       >
-        <ChevronDown size={17} />
+        <ChevronDown aria-hidden="true" size={17} />
         {title}
       </Button>
       <div id={id} hidden={!open}>
@@ -270,7 +270,7 @@ export function Checkbox({
       }
     >
       <CheckboxPrimitive.Indicator>
-        <Check size={15} strokeWidth={3} />
+        <Check aria-hidden="true" size={15} strokeWidth={3} />
       </CheckboxPrimitive.Indicator>
     </CheckboxPrimitive.Root>
   );
@@ -475,6 +475,11 @@ export function ComboBox({
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const listId = useId();
+  const list = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (open && active >= 0)
+      list.current?.children[active]?.scrollIntoView({ block: "nearest" });
+  }, [open, active]);
   const clearError = useContext(ClearValidationContext);
   const selected = options.find((o) => o.value === value);
   const shown = selected
@@ -516,6 +521,7 @@ export function ComboBox({
           setActive(-1);
         }}
         onKeyDown={(e) => {
+          if (e.nativeEvent.isComposing) return;
           if (e.key === "ArrowDown" || e.key === "ArrowUp") {
             e.preventDefault();
             setOpen(true);
@@ -552,10 +558,11 @@ export function ComboBox({
           setActive(-1);
         }}
       >
-        <ChevronDown size={17} />
+        <ChevronDown aria-hidden="true" size={17} />
       </Button>
       {open && (
         <div
+          ref={list}
           className="ui-combobox-list"
           role="listbox"
           id={listId}
@@ -569,7 +576,7 @@ export function ComboBox({
               tabIndex={-1}
               data-value={o.value}
               id={`${listId}-${i}`}
-              aria-selected={active === i || o.value === value}
+              aria-selected={active >= 0 ? active === i : o.value === value}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => choose(o.value)}
             >

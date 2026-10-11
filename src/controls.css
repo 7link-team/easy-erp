@@ -478,6 +478,7 @@ a.button {
   z-index: 80;
   max-height: 240px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--paper-0);
   border: 1px solid var(--border);
   border-radius: 8px;

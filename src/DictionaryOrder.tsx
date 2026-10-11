@@ -104,7 +104,7 @@ export function useDictionaryOrder(
             }}
             onDragEnd={() => setDragged("")}
           >
-            <GripVertical size={16} />
+            <GripVertical aria-hidden="true" size={16} />
           </span>
           <span className="dictionary-position">{index + 1}</span>
           <Button

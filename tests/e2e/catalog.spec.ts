@@ -84,7 +84,7 @@ test("手输物料选项去重，候选改删不修改业务，单位记录保�
   ).items[0];
   await page
     .getByRole("navigation")
-    .getByRole("button", { name: "基础资料", exact: true })
+    .getByRole("link", { name: "基础资料", exact: true })
     .click();
   await page.getByRole("tab", { name: "常用规格", exact: true }).click();
   const entry = page.getByRole("row").filter({ hasText: names.spec });
@@ -200,7 +200,7 @@ test("库存开单带入物料，单据类型手输新增去重并保留历史�
   const customer = await c.json();
   await page
     .getByRole("navigation")
-    .getByRole("button", { name: "客户", exact: true })
+    .getByRole("link", { name: "客户", exact: true })
     .click();
   await expect(page).toHaveURL(/#\/customers$/);
   await expect(page.getByText(customer.name, { exact: true })).toBeVisible();

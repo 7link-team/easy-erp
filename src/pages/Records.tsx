@@ -185,6 +185,7 @@ export default function Records({
           {tab === "audit" && (
             <Select
               aria-label="筛选操作类型"
+              name="audit-kind"
               value={auditKind}
               onChange={(e) => {
                 setAuditKind(e.target.value);

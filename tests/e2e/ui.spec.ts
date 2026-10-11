@@ -97,9 +97,9 @@ test("侧栏标题固定，工作台开单入口与其他操作统一排列", as
   expect((await brand.boundingBox())!.y).toBe(titlePosition);
   await expect(brand).toBeInViewport();
   await expect(
-    menu.getByRole("button", { name: "备份", exact: true }),
+    menu.getByRole("link", { name: "备份", exact: true }),
   ).toBeInViewport();
-  const actions = page.locator(".task-grid").getByRole("button");
+  const actions = page.locator(".task-grid").getByRole("link");
   await expect(actions).toHaveCount(4);
   const desktop = await actions.evaluateAll((els) =>
     els.map((el) => el.getBoundingClientRect().top),
@@ -113,7 +113,7 @@ test("侧栏标题固定，工作台开单入口与其他操作统一排列", as
   expect(mobile[2]).toBe(mobile[3]);
   expect(mobile[2]).toBeGreaterThan(mobile[0]);
   await fits(page);
-  await page.getByRole("button", { name: /开单发货/ }).click();
+  await page.getByRole("link", { name: /开单发货/ }).click();
   await expect(
     page.getByRole("heading", { name: "新建单据", exact: true }),
   ).toBeVisible();
@@ -142,7 +142,7 @@ test("收发多物料局部滚动，确认按钮始终可见", async ({ page }) 
   for (const direction of ["入库", "出库"]) {
     await page.goto("/");
     await page
-      .getByRole("button", { name: new RegExp(`我要${direction}`) })
+      .getByRole("link", { name: new RegExp(`我要${direction}`) })
       .click();
     for (let i = 0; i < 9; i++) {
       await page.getByRole("button", { name: "添加一行", exact: true }).click();
@@ -229,7 +229,7 @@ test("统一控件尺寸、中文行内校验、下拉键盘操作", async ({ pa
   await login(page);
   await page
     .getByRole("navigation")
-    .getByRole("button", { name: "物料", exact: true })
+    .getByRole("link", { name: "物料", exact: true })
     .click();
   await page.getByRole("button", { name: "添加物料", exact: true }).click();
   const dialog = page.getByRole("dialog");
@@ -375,7 +375,7 @@ test("Web 地址选择与中文文件选择器", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page
     .getByRole("navigation")
-    .getByRole("button", { name: "备份", exact: true })
+    .getByRole("link", { name: "备份", exact: true })
     .click();
   await expect(page.getByText("未选择文件", { exact: true })).toBeVisible();
   await expect(page.getByText("选择文件", { exact: true })).toBeVisible();
@@ -442,11 +442,11 @@ for (const viewport of [
         await page.getByRole("button", { name: "更多", exact: true }).click();
       }
       if (name === "关于")
-        await page.getByRole("button", { name, exact: true }).click();
+        await page.getByRole("link", { name, exact: true }).click();
       else
         await page
           .getByRole("navigation")
-          .getByRole("button", { name, exact: true })
+          .getByRole("link", { name, exact: true })
           .click();
       await expect(page.locator("main h1:visible")).toBeVisible();
       await fits(page);
@@ -486,7 +486,7 @@ for (const viewport of [
           await page.getByRole("button", { name: "更多", exact: true }).click();
         await page
           .getByRole("navigation")
-          .getByRole("button", { name: "基础资料", exact: true })
+          .getByRole("link", { name: "基础资料", exact: true })
           .click();
         const configTabs = page.getByRole("tablist", {
           name: "销售配置栏目",
@@ -579,10 +579,10 @@ for (const viewport of [
     }
     await page
       .getByRole("navigation")
-      .getByRole("button", { name: "工作台", exact: true })
+      .getByRole("link", { name: "工作台", exact: true })
       .click();
     for (const action of ["我要入库", "我要出库"]) {
-      await page.getByRole("button", { name: new RegExp(action) }).click();
+      await page.getByRole("link", { name: new RegExp(action) }).click();
       await fits(page);
       await page.getByLabel(/关于(来源|领用人)/).click();
       await expect(page.getByRole("note")).toBeInViewport();
@@ -601,20 +601,23 @@ test("手机底部导航固定、更多入口、返回保护与刷新定位", as
   await page.emulateMedia({ reducedMotion: "reduce" });
   await login(page);
   const nav = page.getByRole("navigation", { name: "主要导航" });
-  await expect(nav.getByRole("button")).toHaveCount(5);
+  await expect(nav.getByRole("link")).toHaveCount(4);
+  await expect(
+    nav.getByRole("button", { name: "更多", exact: true }),
+  ).toHaveCount(1);
   expect((await nav.boundingBox())!.height).toBeLessThan(80);
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
   await expect(nav).toBeInViewport();
   await nav.getByRole("button", { name: "更多", exact: true }).click();
   await page
     .getByRole("navigation", { name: "更多功能" })
-    .getByRole("button", { name: "备份" })
+    .getByRole("link", { name: "备份" })
     .click();
   await expect(page).toHaveURL(/#\/settings$/);
   await page.reload();
   await expect(page.locator("main h1")).toContainText("备份");
-  await nav.getByRole("button", { name: "工作台" }).click();
-  await page.getByRole("button", { name: /我要入库/ }).click();
+  await nav.getByRole("link", { name: "工作台" }).click();
+  await page.getByRole("link", { name: /我要入库/ }).click();
   await page
     .getByRole("textbox", { name: "来源 选填", exact: true })
     .fill("保留的草稿");
@@ -652,7 +655,7 @@ test("手机物料列表不横滑即可入库，底栏不遮挡操作", async ({
   expect(created.ok()).toBeTruthy();
   await page
     .getByRole("navigation", { name: "主要导航" })
-    .getByRole("button", { name: "物料", exact: true })
+    .getByRole("link", { name: "物料", exact: true })
     .click();
   const searchResults = page.waitForResponse(
     (response) =>
@@ -696,12 +699,12 @@ test("全站栏目选中样式一致、侧栏分区与普通页面打印", async
   await expect(
     navigation
       .getByRole("group", { name: "销售" })
-      .getByRole("button", { name: "开单", exact: true }),
+      .getByRole("link", { name: "开单", exact: true }),
   ).toBeVisible();
   await expect(
     navigation
       .getByRole("group", { name: "设置" })
-      .getByRole("button", { name: "备份", exact: true }),
+      .getByRole("link", { name: "备份", exact: true }),
   ).toBeVisible();
   for (const width of [1280, 375]) {
     await page.setViewportSize({ width, height: 800 });
@@ -816,7 +819,7 @@ test("普通开单人的配置栏目只提供客户并能快速建档", async ({
     await expect(
       worker
         .getByRole("navigation")
-        .getByRole("button", { name: "收款", exact: true }),
+        .getByRole("link", { name: "收款", exact: true }),
     ).toHaveCount(0);
     expect((await worker.request.get("/api/sales/finance")).status()).toBe(403);
     await worker.goto("/#/sales");
@@ -886,5 +889,79 @@ test("长表单弹窗标题与操作区常显，取消不保存", async ({ page 
     });
     await dialog.getByRole("button", { name: "取消", exact: true }).click();
     await expect(dialog).toHaveCount(0);
+  }
+});
+
+test("长字典方向键滚动跟随、单一选中与中文输入不误选", async ({ page }) => {
+  await login(page);
+  await page.route("**/api/material-options*", (route) =>
+    route.fulfill({
+      json: {
+        items: Array.from({ length: 18 }, (_, index) => ({
+          id: `keyboard-${index}`,
+          field: "kind",
+          name: `键盘候选${String(index + 1).padStart(2, "0")}`,
+          active: true,
+        })),
+      },
+    }),
+  );
+  await page.goto("/#/inventory");
+  await page.getByRole("button", { name: "添加物料", exact: true }).click();
+  const combo = page.getByRole("combobox", {
+    name: "物料类型 选填",
+    exact: true,
+  });
+  await combo.fill("");
+  await expect(page.getByRole("option")).toHaveCount(18);
+  for (let i = 0; i < 12; i++) await combo.press("ArrowDown");
+  const list = page.getByRole("listbox", { name: "候选选项", exact: true });
+  const active = list.getByRole("option", { selected: true });
+  await expect(active).toHaveCount(1);
+  await expect(active).toHaveText("键盘候选12");
+  await expect
+    .poll(() =>
+      list.evaluate((el) => {
+        const selected = el.querySelector('[aria-selected="true"]')!;
+        const option = selected.getBoundingClientRect(),
+          menu = el.getBoundingClientRect();
+        return option.top >= menu.top && option.bottom <= menu.bottom;
+      }),
+    )
+    .toBe(true);
+  await combo.press("Enter");
+  await expect(combo).toHaveValue("键盘候选12");
+  await combo.press("ArrowDown");
+  await expect(list.getByRole("option", { selected: true })).toHaveCount(1);
+  await combo.dispatchEvent("keydown", { key: "Enter", isComposing: true });
+  await expect(combo).toHaveValue("键盘候选12");
+  await expect(list).toBeVisible();
+  await combo.press("Escape");
+  await expect(list).toHaveCount(0);
+  await expect(combo).toBeFocused();
+});
+
+test("触屏新增物料不自动聚焦输入框", async ({ browser }) => {
+  const context = await browser.newContext({
+    baseURL: "http://127.0.0.1:4289",
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    isMobile: true,
+  });
+  try {
+    const page = await context.newPage();
+    await login(page);
+    await page.goto("/#/inventory");
+    await page.getByRole("button", { name: "添加物料", exact: true }).click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await expect(
+      page.getByLabel("物料名称", { exact: false }),
+    ).not.toBeFocused();
+    await expect(
+      page.getByRole("button", { name: "关闭", exact: true }),
+    ).toBeFocused();
+    await fits(page);
+  } finally {
+    await context.close();
   }
 });

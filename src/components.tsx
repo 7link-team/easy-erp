@@ -6,8 +6,10 @@ import {
   useRef,
   useState,
   useContext,
+  useSyncExternalStore,
   type ReactNode,
   type FormEvent,
+  type AnchorHTMLAttributes,
 } from "react";
 import {
   HelpCircle,
@@ -19,7 +21,56 @@ import {
 import { api, errorText } from "./api";
 import { ValidationContext } from "./ui";
 import * as Popover from "@radix-ui/react-popover";
+import { pageAddress, type Navigate, type Page } from "./navigation";
 export { Modal } from "./ui";
+
+const subscribeQuery = (notify: () => void) => {
+  window.addEventListener("erp:querychange", notify);
+  window.addEventListener("popstate", notify);
+  return () => {
+    window.removeEventListener("erp:querychange", notify);
+    window.removeEventListener("popstate", notify);
+  };
+};
+const querySnapshot = () => location.search;
+
+export function PageLink({
+  page,
+  query,
+  navigate,
+  className = "",
+  onClick,
+  ...props
+}: Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "href"> & {
+  page: Page;
+  query?: Record<string, string>;
+  navigate: Navigate;
+}) {
+  useSyncExternalStore(subscribeQuery, querySnapshot);
+  return (
+    <a
+      {...props}
+      href={pageAddress(page, query)}
+      className={`ui-button page-link ${className}`}
+      onClick={(event) => {
+        if (
+          event.defaultPrevented ||
+          event.button !== 0 ||
+          event.metaKey ||
+          event.ctrlKey ||
+          event.shiftKey ||
+          event.altKey ||
+          (props.target && props.target !== "_self")
+        )
+          return;
+        onClick?.(event);
+        if (event.defaultPrevented) return;
+        event.preventDefault();
+        void navigate(page, undefined, query);
+      }}
+    />
+  );
+}
 
 export function TableScroll({ children }: { children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -77,7 +128,7 @@ export function Help({
     <Popover.Root>
       <Popover.Trigger asChild>
         <Button className="ui-help-trigger" aria-label={`关于${title}`}>
-          <HelpCircle size={17} />
+          <HelpCircle aria-hidden="true" size={17} />
           <span>填写说明</span>
         </Button>
       </Popover.Trigger>
@@ -108,6 +159,7 @@ export function Field({
   required?: boolean;
   children: (props: {
     id: string;
+    name: string;
     required?: boolean;
     "aria-describedby"?: string;
     "aria-invalid"?: boolean;
@@ -133,6 +185,7 @@ export function Field({
       </div>
       {children({
         id,
+        name: label,
         required,
         "aria-invalid": !!message || undefined,
         "aria-describedby":
@@ -171,7 +224,11 @@ export function Notice({
       className={`notice ${success ? "success" : "error"}`}
       role={success ? "status" : "alert"}
     >
-      {success ? <CheckCircle2 size={20} /> : <AlertCircle size={20} />}
+      {success ? (
+        <CheckCircle2 aria-hidden="true" size={20} />
+      ) : (
+        <AlertCircle aria-hidden="true" size={20} />
+      )}
       <div>{children}</div>
     </div>
   );
@@ -179,7 +236,7 @@ export function Notice({
 export function Loading() {
   return (
     <div className="empty" role="status">
-      <LoaderCircle className="spin" size={24} /> 正在读取…
+      <LoaderCircle aria-hidden="true" className="spin" size={24} /> 正在读取…
     </div>
   );
 }
@@ -195,7 +252,7 @@ export function Submit({
 }) {
   return (
     <Button className="button primary" type="submit" disabled={busy}>
-      {busy && <LoaderCircle size={18} className="spin" />}
+      {busy && <LoaderCircle aria-hidden="true" size={18} className="spin" />}
       {busy ? "正在保存…" : children}
     </Button>
   );

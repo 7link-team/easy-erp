@@ -84,7 +84,7 @@ test("角色弹窗维护、账号分配和模块 CRUD 在界面与 API 一致", 
     await expect(
       worker
         .getByRole("navigation")
-        .getByRole("button", { name: "人员", exact: true }),
+        .getByRole("link", { name: "人员", exact: true }),
     ).toHaveCount(0);
     const item = await post(context.request, "/items", {
       name: `权限物料-${username}`,

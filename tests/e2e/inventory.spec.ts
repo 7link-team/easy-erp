@@ -29,7 +29,7 @@ test.describe.serial("真实主机与浏览器的库存闭环", () => {
 
     await page
       .getByRole("navigation")
-      .getByRole("button", { name: "物料", exact: true })
+      .getByRole("link", { name: "物料", exact: true })
       .click();
     await page.getByRole("button", { name: "添加物料", exact: true }).click();
     await page.getByLabel("物料名称", { exact: false }).fill("镀锌螺丝");
@@ -58,7 +58,7 @@ test.describe.serial("真实主机与浏览器的库存闭环", () => {
     await expect(page.getByText("本次操作完成后的库存：100 个")).toBeVisible();
     await expect(page.getByText("预计", { exact: false })).toHaveCount(0);
     await page.getByRole("button", { name: "返回工作台" }).click();
-    await page.getByRole("button", { name: /我要出库/ }).click();
+    await page.getByRole("link", { name: /我要出库/ }).click();
     await page.getByRole("button", { name: "添加一行", exact: true }).click();
     await page
       .getByRole("button", { name: "选择镀锌螺丝", exact: true })
@@ -75,7 +75,7 @@ test.describe.serial("真实主机与浏览器的库存闭环", () => {
 
     await page
       .getByRole("navigation")
-      .getByRole("button", { name: "记录", exact: true })
+      .getByRole("link", { name: "记录", exact: true })
       .click();
     await page.getByRole("button", { name: /领用出库.*镀锌螺丝/ }).click();
     await expect(page.getByRole("dialog")).toContainText("张师傅");
@@ -88,7 +88,7 @@ test.describe.serial("真实主机与浏览器的库存闭环", () => {
 
     await page
       .getByRole("navigation")
-      .getByRole("button", { name: "清点", exact: true })
+      .getByRole("link", { name: "清点", exact: true })
       .click();
     await page.getByRole("button", { name: "开始清点", exact: true }).click();
     await expect(page.getByRole("dialog")).toContainText("当前库存 100 个");
@@ -123,7 +123,7 @@ test.describe.serial("真实主机与浏览器的库存闭环", () => {
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await page
       .getByRole("navigation")
-      .getByRole("button", { name: "物料", exact: true })
+      .getByRole("link", { name: "物料", exact: true })
       .click();
     await expect(
       page.getByRole("cell", { name: "98 个", exact: true }),
@@ -187,7 +187,7 @@ test.describe.serial("真实主机与浏览器的库存闭环", () => {
 
     await page
       .getByRole("navigation")
-      .getByRole("button", { name: "人员" })
+      .getByRole("link", { name: "人员" })
       .click();
     await page.getByRole("button", { name: "添加人员账号" }).click();
     await page.getByLabel("姓名", { exact: false }).fill("张师傅");
@@ -215,7 +215,7 @@ test.describe.serial("真实主机与浏览器的库存闭环", () => {
       .fill("Worker-test-2026");
     await worker.getByRole("button", { name: "登录", exact: true }).click();
     await expect(worker.getByRole("heading", { name: /张师傅/ })).toBeVisible();
-    await expect(worker.getByRole("button", { name: "人员" })).toHaveCount(0);
+    await expect(worker.getByRole("link", { name: "人员" })).toHaveCount(0);
     const forbidden = await worker.request.post("/api/items", {
       headers,
       data: { name: "不能新增", kind: "其他", unit: "个", precision: 0 },
@@ -244,7 +244,7 @@ test.describe.serial("真实主机与浏览器的库存闭环", () => {
     await page.getByRole("button", { name: "登录", exact: true }).click();
     await page
       .getByRole("navigation")
-      .getByRole("button", { name: "备份" })
+      .getByRole("link", { name: "备份" })
       .click();
     await page.getByLabel("选择表格文件", { exact: false }).setInputFiles({
       name: "物料.csv",

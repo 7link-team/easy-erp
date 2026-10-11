@@ -1,50 +1,11 @@
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { Button } from "./ui";
 import { Empty, Loading, Notice, TableScroll, useResource } from "./components";
 import { can, type User } from "./api";
 import { moneyText } from "./sales";
-import {
-  useQueryValue,
-  pageAddress,
-  type Navigate,
-  type Page,
-} from "./navigation";
-
-function HomeLink({
-  page,
-  query,
-  navigate,
-  className,
-  children,
-}: {
-  page: Page;
-  query?: Record<string, string>;
-  navigate: Navigate;
-  className: string;
-  children: ReactNode;
-}) {
-  return (
-    <a
-      href={pageAddress(page, query)}
-      className={`ui-button home-link ${className}`}
-      onClick={(event) => {
-        if (
-          event.button !== 0 ||
-          event.metaKey ||
-          event.ctrlKey ||
-          event.shiftKey ||
-          event.altKey
-        )
-          return;
-        event.preventDefault();
-        void navigate(page, undefined, query);
-      }}
-    >
-      {children}
-    </a>
-  );
-}
+import { useQueryValue, type Navigate } from "./navigation";
+import { PageLink } from "./components";
 
 interface Overview {
   today: string;
@@ -222,7 +183,7 @@ export function HomeMetrics({
         <div className="home-ledger" aria-label="库存与清点概况">
           {data.inventory && (
             <>
-              <HomeLink
+              <PageLink
                 className="home-ledger-cell"
                 page="inventory"
                 navigate={navigate}
@@ -243,8 +204,8 @@ export function HomeMetrics({
                   有库存 {data.inventory.stocked.toLocaleString()} 种
                 </small>
                 <ChevronRight size={16} aria-hidden="true" />
-              </HomeLink>
-              <HomeLink
+              </PageLink>
+              <PageLink
                 className="home-ledger-cell"
                 page="inventory"
                 navigate={navigate}
@@ -265,11 +226,11 @@ export function HomeMetrics({
                   当前零库存 {data.inventory.zero.toLocaleString()} 种
                 </small>
                 <ChevronRight size={16} aria-hidden="true" />
-              </HomeLink>
+              </PageLink>
             </>
           )}
           {data.records && (
-            <HomeLink
+            <PageLink
               className="home-ledger-cell"
               page="records"
               navigate={navigate}
@@ -283,10 +244,10 @@ export function HomeMetrics({
               </strong>
               <small>含销售与调整 · 主机时区 {data.time_zone}</small>
               <ChevronRight size={16} aria-hidden="true" />
-            </HomeLink>
+            </PageLink>
           )}
           {data.stocktake && data.inventory && (
-            <HomeLink
+            <PageLink
               className="home-ledger-cell"
               page="stocktakes"
               navigate={navigate}
@@ -307,7 +268,7 @@ export function HomeMetrics({
                 value={data.stocktake.counted}
               />
               <ChevronRight size={16} aria-hidden="true" />
-            </HomeLink>
+            </PageLink>
           )}
         </div>
       )}
@@ -332,7 +293,7 @@ export function TodaySales({
       <div className="ledger-heading section-title">
         <h2>{sales?.all ? "今日单据" : "本人今日单据"}</h2>
         {data && (
-          <HomeLink
+          <PageLink
             className="text-button"
             page="sales"
             navigate={navigate}
@@ -347,7 +308,7 @@ export function TodaySales({
             }}
           >
             查看今日全部单据 →
-          </HomeLink>
+          </PageLink>
         )}
       </div>
       <div className="filter-chips" role="group" aria-label="今日单据类型">
@@ -393,7 +354,7 @@ export function TodaySales({
               {sales.items.map((sale) => (
                 <tr key={sale.id}>
                   <td>
-                    <HomeLink
+                    <PageLink
                       className="record-link"
                       page="sales"
                       navigate={navigate}
@@ -403,7 +364,7 @@ export function TodaySales({
                       <small>
                         {sale.type_name} · {sale.actor_name}
                       </small>
-                    </HomeLink>
+                    </PageLink>
                   </td>
                   <td data-label="客户 / 业绩归属">
                     <strong>{sale.customer}</strong>
@@ -438,14 +399,14 @@ export function TodaySales({
                     </span>
                   </td>
                   <td className="document-row-actions" data-label="操作">
-                    <HomeLink
+                    <PageLink
                       className="button small"
                       page="sales"
                       navigate={navigate}
                       query={{ sale_open: sale.id, sale_print: "" }}
                     >
                       查看
-                    </HomeLink>
+                    </PageLink>
                   </td>
                 </tr>
               ))}
@@ -507,7 +468,7 @@ export function HomeFollowUp({
           </div>
           {!hasReminders && <Empty>当前可查看范围内暂无待处理提醒。</Empty>}
           {!!data.inventory?.zero && (
-            <HomeLink
+            <PageLink
               className="home-reminder"
               page="inventory"
               navigate={navigate}
@@ -521,10 +482,10 @@ export function HomeFollowUp({
               <strong>{data.inventory.zero} 种物料库存为零</strong>
               <small>查看物料，按实际到货登记入库。</small>
               <ChevronRight size={16} aria-hidden="true" />
-            </HomeLink>
+            </PageLink>
           )}
           {!!data.aged_debt?.count && (
-            <HomeLink
+            <PageLink
               className="home-reminder"
               page="finance"
               navigate={navigate}
@@ -536,10 +497,10 @@ export function HomeFollowUp({
                 当前合计 ¥{moneyText(data.aged_debt.debt)} · 从业务日期计算
               </small>
               <ChevronRight size={16} aria-hidden="true" />
-            </HomeLink>
+            </PageLink>
           )}
           {remaining > 0 && (
-            <HomeLink
+            <PageLink
               className="home-reminder"
               page="stocktakes"
               navigate={navigate}
@@ -547,7 +508,7 @@ export function HomeFollowUp({
               <strong>本月还有 {remaining} 种物料未完成清点</strong>
               <small>仅统计已确认的清点，同一物料重复清点算一次。</small>
               <ChevronRight size={16} aria-hidden="true" />
-            </HomeLink>
+            </PageLink>
           )}
         </section>
       )}

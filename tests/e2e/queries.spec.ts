@@ -859,7 +859,7 @@ test("退货作废汇总保留历史应收和实际退款，原单往返保留�
   await page.goto("/#/home");
   await page
     .getByRole("navigation", { name: "主要导航" })
-    .getByRole("button", { name: "单据", exact: true })
+    .getByRole("link", { name: "单据", exact: true })
     .click();
   const filters = page.getByRole("group", { name: "单据记录筛选" });
   await page.getByLabel("搜索销售单").fill(tag);
@@ -939,7 +939,7 @@ test("退货作废汇总保留历史应收和实际退款，原单往返保留�
   await expect(
     page
       .getByRole("navigation", { name: "主要导航" })
-      .getByRole("button", { name: "单据", exact: true }),
+      .getByRole("link", { name: "单据", exact: true }),
   ).toHaveAttribute("aria-current", "page");
 });
 
@@ -1135,7 +1135,7 @@ test("退货作废汇总按原单归属隔离，未授权角色不能访问", as
         await expect(
           other
             .getByRole("navigation", { name: "主要导航" })
-            .getByRole("button", { name: "单据", exact: true }),
+            .getByRole("link", { name: "单据", exact: true }),
         ).toHaveCount(0);
       }
     } finally {

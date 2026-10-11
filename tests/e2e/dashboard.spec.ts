@@ -239,7 +239,7 @@ test("工作台真实月度账款、每日金额、业绩、60天提醒与今日
   const savedUrl = page.url();
   const home = page
     .getByRole("navigation", { name: "主要导航" })
-    .getByRole("button", { name: "工作台", exact: true });
+    .getByRole("link", { name: "工作台", exact: true });
   await home.click();
   await page
     .getByRole("dialog")
@@ -441,7 +441,7 @@ test("工作台汇总失败不显示虚假的零数据，刷新后恢复", async
     0,
   );
   await expect(page.locator(".home-ledger-cell")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: /我要入库/ })).toBeVisible();
+  await expect(page.getByRole("link", { name: /我要入库/ })).toBeVisible();
   await page.unroute("**/api/dashboard?**");
   await page.getByRole("button", { name: "刷新数据", exact: true }).click();
   await expect(
@@ -463,8 +463,8 @@ test("工作台初次汇总加载期间不让新增展示带移走正在点击�
   });
   await page.goto("/#/home");
   await expect(page.getByRole("heading", { name: /的工作台/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: /我要入库/ })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: /我要入库/ })).toHaveCount(0);
   release();
-  await page.getByRole("button", { name: /我要入库/ }).click();
+  await page.getByRole("link", { name: /我要入库/ }).click();
   await expect(page.getByLabel("来源 选填", { exact: true })).toBeVisible();
 });

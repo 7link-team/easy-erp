@@ -342,6 +342,7 @@ export default function MaterialOptions({
             </Field>
             <label className="checkbox">
               <Checkbox
+                name="option-active"
                 checked={active}
                 disabled={!can(user, "options.update")}
                 onChange={(e) => setActive(e.target.checked)}

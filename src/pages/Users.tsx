@@ -120,6 +120,7 @@ function RoleEditor({
                   .map((p) => (
                     <label className="checkbox" key={p.id}>
                       <Checkbox
+                        name={`permission-${p.id}`}
                         checked={permissions.includes(p.id)}
                         onChange={(e) => toggle(p.id, e.target.checked)}
                         aria-label={`${module}：${p.label}`}
@@ -433,6 +434,7 @@ export default function Users({
                   <legend>账号状态</legend>
                   <label className="checkbox">
                     <Checkbox
+                      name="user-active"
                       checked={active}
                       onChange={(e) => setActive(e.target.checked)}
                     />

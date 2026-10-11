@@ -64,6 +64,7 @@ import {
 } from "./api";
 import {
   Field,
+  PageLink,
   Modal,
   Loading,
   Notice,
@@ -164,7 +165,7 @@ function Login({
     <div className="login-page">
       <section className="login-intro">
         <div className="brand">
-          <Boxes size={30} />
+          <Boxes aria-hidden="true" size={30} />
           <span>库存管理</span>
         </div>
         <h1>
@@ -179,10 +180,11 @@ function Login({
         </p>
         <div className="login-points">
           <span>
-            <ShieldCheck size={20} /> 独立账号 · 操作有记录
+            <ShieldCheck aria-hidden="true" size={20} /> 独立账号 · 操作有记录
           </span>
           <span>
-            <Boxes size={20} /> 同一网络内共用 · 数据保存在自己的电脑
+            <Boxes aria-hidden="true" size={20} /> 同一网络内共用 ·
+            数据保存在自己的电脑
           </span>
         </div>
       </section>
@@ -275,13 +277,18 @@ function Login({
                   onClick={() => setShow((s) => !s)}
                   aria-label={show ? "隐藏密码" : "显示密码"}
                 >
-                  {show ? <EyeOff size={19} /> : <Eye size={19} />}
+                  {show ? (
+                    <EyeOff aria-hidden="true" size={19} />
+                  ) : (
+                    <Eye aria-hidden="true" size={19} />
+                  )}
                 </Button>
               </div>
             )}
           </Field>
           <label className="checkbox">
             <Checkbox
+              name="remember-login"
               checked={remember}
               onChange={(e) => setRemember(e.target.checked)}
             />
@@ -323,7 +330,7 @@ function Home({
         </div>
         <div className="row-actions">
           <Button className="button" onClick={() => setWebAccess(true)}>
-            <ExternalLink size={17} />在 Web 中打开
+            <ExternalLink aria-hidden="true" size={17} />在 Web 中打开
           </Button>
           <span className="date-label">
             {new Intl.DateTimeFormat("zh-CN", {
@@ -343,56 +350,58 @@ function Home({
       {(overview.data || !overview.loading) && (
         <div className="task-grid">
           {(can(user, "sales.create") || can(user, "sales.read")) && (
-            <Button
+            <PageLink
               className="task-card sales-entry"
-              onClick={() =>
-                navigate(can(user, "sales.create") ? "invoice" : "sales")
-              }
+              page={can(user, "sales.create") ? "invoice" : "sales"}
+              navigate={navigate}
             >
               <span className="task-icon">
-                <ReceiptText size={28} />
+                <ReceiptText aria-hidden="true" size={28} />
               </span>
               <strong>
                 {can(user, "sales.create") ? "开单发货" : "查看单据"}
               </strong>
               <span>多物料开单、登记收款</span>
-            </Button>
+            </PageLink>
           )}
           {can(user, "movement.in") && (
-            <Button
+            <PageLink
               className="task-card inbound"
-              onClick={() => navigate("in")}
+              page="in"
+              navigate={navigate}
             >
               <span className="task-icon">
-                <ArrowDownToLine size={28} />
+                <ArrowDownToLine aria-hidden="true" size={28} />
               </span>
               <strong>我要入库</strong>
               <span>收货、完工、退回</span>
-            </Button>
+            </PageLink>
           )}
           {can(user, "movement.out") && (
-            <Button
+            <PageLink
               className="task-card outbound"
-              onClick={() => navigate("out")}
+              page="out"
+              navigate={navigate}
             >
               <span className="task-icon">
-                <ArrowUpFromLine size={28} />
+                <ArrowUpFromLine aria-hidden="true" size={28} />
               </span>
               <strong>我要出库</strong>
               <span>领料、发货</span>
-            </Button>
+            </PageLink>
           )}
           {can(user, "items.read") && (
-            <Button
+            <PageLink
               className="task-card lookup"
-              onClick={() => navigate("inventory")}
+              page="inventory"
+              navigate={navigate}
             >
               <span className="task-icon">
-                <PackageSearch size={28} />
+                <PackageSearch aria-hidden="true" size={28} />
               </span>
               <strong>查库存</strong>
               <span>找物料、看数量</span>
-            </Button>
+            </PageLink>
           )}
         </div>
       )}
@@ -407,12 +416,13 @@ function Home({
               <h2>
                 {can(user, "records.all") ? "最近的出入库" : "我最近的出入库"}
               </h2>
-              <Button
+              <PageLink
                 className="text-button"
-                onClick={() => navigate("records")}
+                page="records"
+                navigate={navigate}
               >
                 查看全部 →
-              </Button>
+              </PageLink>
             </div>
             {error && <Notice>{error}</Notice>}
             {data?.items.length ? (
@@ -633,12 +643,6 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
     page === "updates" ||
     (page === "in" && can(user, "movement.in")) ||
     (page === "out" && can(user, "movement.out"));
-  const openMenu = (target: Page) =>
-    navigate(
-      target,
-      undefined,
-      ["finance", "accounts", "performance"].includes(target) ? {} : undefined,
-    );
   return (
     <div className="app-shell" data-flow={page === "in" || page === "out"}>
       {browserError && (
@@ -646,12 +650,19 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
           <Notice>{browserError}</Notice>
         </Modal>
       )}
-      <a className="skip-link" href="#main">
+      <a
+        className="skip-link"
+        href="#main"
+        onClick={(event) => {
+          event.preventDefault();
+          document.getElementById("main")?.focus();
+        }}
+      >
         跳到主要内容
       </a>
       <aside className="sidebar">
         <div className="brand">
-          <Boxes size={27} />
+          <Boxes aria-hidden="true" size={27} />
           <span>库存管理</span>
         </div>
         <nav aria-label="主要导航">
@@ -693,15 +704,21 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
                 {nav
                   .filter(({ id }) => group.ids.includes(id))
                   .map(({ id, label, icon: Icon }) => (
-                    <Button
+                    <PageLink
                       key={id}
                       className={`${activePage === id ? "nav-item active" : "nav-item"} ${secondary.includes(id) ? "secondary-nav" : ""}`}
-                      onClick={() => void openMenu(id as Page)}
+                      page={id as Page}
+                      query={
+                        ["finance", "accounts", "performance"].includes(id)
+                          ? {}
+                          : undefined
+                      }
+                      navigate={navigate}
                       aria-current={activePage === id ? "page" : undefined}
                     >
-                      <Icon size={21} />
+                      <Icon aria-hidden="true" size={21} />
                       <span>{label}</span>
-                    </Button>
+                    </PageLink>
                   ))}
               </div>
             ))}
@@ -711,30 +728,31 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
             aria-expanded={moreOpen}
             onClick={() => setMoreOpen(true)}
           >
-            <MoreHorizontal size={21} />
+            <MoreHorizontal aria-hidden="true" size={21} />
             <span>更多</span>
           </Button>
         </nav>
         <div className="sidebar-bottom">
-          <ShieldCheck size={18} />
+          <ShieldCheck aria-hidden="true" size={18} />
           <span>
             数据保存在库存服务所在设备
             <br />
             <small>每次操作都会自动留痕</small>
-            <Button
+            <PageLink
               className="text-button sidebar-about"
-              onClick={() => void navigate("updates")}
+              page="updates"
+              navigate={navigate}
             >
               <Info size={15} aria-hidden="true" />
               关于
-            </Button>
+            </PageLink>
           </span>
         </div>
       </aside>
       <div className="workspace">
         <header className="topbar">
           <span className="mobile-brand">
-            <Boxes size={22} />
+            <Boxes aria-hidden="true" size={22} />
             库存管理
           </span>
           <span className="connection">
@@ -768,9 +786,9 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
               }
             >
               {display.theme === "dark" ? (
-                <Sun size={18} />
+                <Sun aria-hidden="true" size={18} />
               ) : (
-                <Moon size={18} />
+                <Moon aria-hidden="true" size={18} />
               )}
             </Button>
             <NativeTools pageOpen={page === "updates"} />
@@ -779,7 +797,7 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
               onClick={refresh}
               aria-label="刷新数据"
             >
-              <RefreshCw size={19} />
+              <RefreshCw aria-hidden="true" size={19} />
             </Button>
             <span className="user-avatar">{user.name.slice(0, 1)}</span>
             <span className="account-name">
@@ -795,7 +813,7 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
                 })
               }
             >
-              <LogOut size={16} />
+              <LogOut aria-hidden="true" size={16} />
               退出登录
             </Button>
           </div>
@@ -953,30 +971,33 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
             {nav
               .filter((item) => secondary.includes(item.id))
               .map(({ id, label, icon: Icon }) => (
-                <Button
+                <PageLink
                   className="more-menu-item"
                   key={id}
-                  onClick={() => {
-                    setMoreOpen(false);
-                    void openMenu(id as Page);
-                  }}
+                  page={id as Page}
+                  query={
+                    ["finance", "accounts", "performance"].includes(id)
+                      ? {}
+                      : undefined
+                  }
+                  navigate={navigate}
+                  onClick={() => setMoreOpen(false)}
                 >
-                  <Icon size={22} />
+                  <Icon aria-hidden="true" size={22} />
                   <span>{label}</span>
-                  <ChevronRight size={18} />
-                </Button>
+                  <ChevronRight aria-hidden="true" size={18} />
+                </PageLink>
               ))}
           </nav>
-          <Button
+          <PageLink
             className="button"
-            onClick={() => {
-              setMoreOpen(false);
-              void navigate("updates");
-            }}
+            page="updates"
+            navigate={navigate}
+            onClick={() => setMoreOpen(false)}
           >
             <Info size={18} aria-hidden="true" />
             关于
-          </Button>
+          </PageLink>
           {logout.error && <Notice>{logout.error}</Notice>}
           <Button
             className="button mobile-signout"
@@ -990,7 +1011,7 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
               })
             }
           >
-            <LogOut size={18} />
+            <LogOut aria-hidden="true" size={18} />
             {logout.busy ? "正在退出…" : "退出登录"}
           </Button>
         </Modal>

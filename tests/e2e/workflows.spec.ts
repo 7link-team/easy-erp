@@ -99,10 +99,7 @@ test("物料分页前后切换与搜索重置页码", async ({ page }) => {
   await dialog.getByRole("button", { name: "关闭", exact: true }).click();
 });
 const navigate = (page: Page, name: string) =>
-  page
-    .getByRole("navigation")
-    .getByRole("button", { name, exact: true })
-    .click();
+  page.getByRole("navigation").getByRole("link", { name, exact: true }).click();
 
 test("断网提交保留表单，重试成功且只入账一次", async ({ page }) => {
   const created = await page.request.post("/api/items", {
@@ -110,7 +107,7 @@ test("断网提交保留表单，重试成功且只入账一次", async ({ page 
     data: { name: "网络恢复验收", kind: "其他", unit: "个", precision: 0 },
   });
   expect(created.ok()).toBeTruthy();
-  await page.getByRole("button", { name: /我要入库/ }).click();
+  await page.getByRole("link", { name: /我要入库/ }).click();
   await page.getByRole("button", { name: "添加一行", exact: true }).click();
   await page.getByLabel("查找要收发的物料").fill("网络恢复验收");
   await page
@@ -220,7 +217,7 @@ test("全部收发用途、数量限制、移除物料、连续登记、记录�
     const incoming = delta > 0;
     await navigate(page, "工作台");
     await page
-      .getByRole("button", { name: incoming ? /我要入库/ : /我要出库/ })
+      .getByRole("link", { name: incoming ? /我要入库/ : /我要出库/ })
       .click();
     const results = page.waitForResponse((response) => {
       const url = new URL(response.url());
@@ -481,9 +478,7 @@ test("查看员权限、角色更改、停用、重置密码与退出登录", as
       ).status(),
     ).toBe(200);
     await viewer.reload();
-    await expect(
-      viewer.getByRole("button", { name: /我要入库/ }),
-    ).toBeVisible();
+    await expect(viewer.getByRole("link", { name: /我要入库/ })).toBeVisible();
     await viewer.getByRole("button", { name: "退出登录", exact: true }).click();
     await expect(
       viewer.getByRole("heading", { name: "登录库存管理" }),

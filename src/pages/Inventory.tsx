@@ -91,7 +91,7 @@ export function ItemForm({
               onChange={(e) => setName(e.target.value)}
               required
               maxLength={100}
-              autoFocus
+              autoFocus={window.matchMedia("(pointer: fine)").matches}
             />
           )}
         </Field>
@@ -159,6 +159,7 @@ export function ItemForm({
               <Input
                 {...p}
                 maxLength={64}
+                spellCheck={false}
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
               />
@@ -169,6 +170,7 @@ export function ItemForm({
               <Input
                 {...p}
                 maxLength={128}
+                spellCheck={false}
                 value={barcode}
                 onChange={(e) => setBarcode(e.target.value)}
               />
@@ -271,7 +273,7 @@ export default function Inventory({
               className="button primary"
               onClick={() => setEditing("new")}
             >
-              <Plus size={19} />
+              <Plus aria-hidden="true" size={19} />
               添加物料
             </Button>
           )}
@@ -280,7 +282,7 @@ export default function Inventory({
       <section className="panel ledger-sheet inventory-sheet">
         <div className="filters">
           <label className="search">
-            <Search size={20} />
+            <Search aria-hidden="true" size={20} />
             <Input
               aria-label="搜索物料"
               name="inventory-search"
@@ -296,6 +298,7 @@ export default function Inventory({
           </label>
           <Select
             aria-label="筛选物料类型"
+            name="inventory-kind"
             value={kind}
             onChange={(e) => {
               setKind(e.target.value);
@@ -309,6 +312,7 @@ export default function Inventory({
           </Select>
           <Select
             aria-label="物料排序"
+            name="inventory-sort"
             value={sort}
             onChange={(e) => {
               setSort(e.target.value);
@@ -453,7 +457,7 @@ export default function Inventory({
                             disabled={item.counting}
                             onClick={() => move("in", item)}
                           >
-                            <ArrowDownToLine size={16} />
+                            <ArrowDownToLine aria-hidden="true" size={16} />
                             入库
                           </Button>
                         )}
@@ -468,7 +472,7 @@ export default function Inventory({
                             }
                             onClick={() => move("out", item)}
                           >
-                            <ArrowUpFromLine size={16} />
+                            <ArrowUpFromLine aria-hidden="true" size={16} />
                             出库
                           </Button>
                         )}
@@ -483,7 +487,7 @@ export default function Inventory({
                             }
                             onClick={() => openSale(item)}
                           >
-                            <ReceiptText size={16} />
+                            <ReceiptText aria-hidden="true" size={16} />
                             开单出库
                           </Button>
                         )}
@@ -493,7 +497,7 @@ export default function Inventory({
                             onClick={() => setEditing(item)}
                             aria-label={`修改${item.name}`}
                           >
-                            <Pencil size={17} />
+                            <Pencil aria-hidden="true" size={17} />
                           </Button>
                         )}
                         {!item.active && can(user, "items.update") && (

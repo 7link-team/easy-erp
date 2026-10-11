@@ -28,7 +28,7 @@ test("误建物料删除确认、保留审计；历史库存和普通账号不�
   const id = await create("误建删除验收");
   await page
     .getByRole("navigation")
-    .getByRole("button", { name: "物料", exact: true })
+    .getByRole("link", { name: "物料", exact: true })
     .click();
   const row = page.getByRole("row").filter({ hasText: "误建删除验收" });
   await row.getByRole("button", { name: "删除", exact: true }).click();

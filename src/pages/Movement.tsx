@@ -123,7 +123,7 @@ export default function Movement({
   if (result)
     return (
       <section className="panel complete">
-        <CheckCircle2 size={52} />
+        <CheckCircle2 aria-hidden="true" size={52} />
         <h1>{incoming ? "入库" : "出库"}已完成</h1>
         <p>记录号：{result.number}</p>
         {result.lines.map((line) => (

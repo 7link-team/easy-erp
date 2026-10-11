@@ -279,6 +279,7 @@ function ConfigForm({
           <>
             <label className="checkbox">
               <Checkbox
+                name="document-billable"
                 checked={billable}
                 onChange={(e) => setBillable(e.target.checked)}
               />
@@ -300,6 +301,7 @@ function ConfigForm({
         {kind !== "company" && (
           <label className="checkbox">
             <Checkbox
+              name="catalog-active"
               checked={active}
               onChange={(e) => setActive(e.target.checked)}
             />
@@ -1359,6 +1361,7 @@ function Detail({
     new URLSearchParams(location.search).get("sale_print") === sale.id,
   );
   const [operation, setOperation] = useState("");
+  const confirm = useConfirm();
   const [snapshot, setSnapshot] = useState<{
     before: Sale | null;
     after: Sale;
@@ -1400,7 +1403,7 @@ function Detail({
       </div>
       <div className="form-actions">
         <Button className="button" onClick={() => setPrint(true)}>
-          <Printer size={17} />
+          <Printer aria-hidden="true" size={17} />
           打印预览
         </Button>
         {sale.status !== "voided" &&
@@ -1537,20 +1540,36 @@ function Detail({
               <img
                 src={`/api/sales/attachments/${a.id}`}
                 alt={`签字凭证，上传人 ${a.actor_name}`}
+                width={240}
+                height={160}
+                loading="lazy"
               />
             </a>
             {!a.active && <small>已移除 · 历史凭证</small>}
             {can(user, "sales.attachment_delete") && a.active && (
               <Button
                 className="button"
-                onClick={() =>
-                  action.run(async () => {
+                disabled={action.busy}
+                onClick={async (event) => {
+                  // Safari does not focus buttons on pointer clicks by default.
+                  event.currentTarget.focus();
+                  if (
+                    !(await confirm({
+                      title: "移除凭证？",
+                      description:
+                        "移除后将不再作为本单的当前凭证，历史记录仍保留。",
+                      confirmLabel: "确认移除",
+                      danger: true,
+                    }))
+                  )
+                    return;
+                  await action.run(async () => {
                     await api(`/sales/attachments/${a.id}`, {
                       method: "DELETE",
                     });
                     await refresh();
-                  })
-                }
+                  });
+                }}
               >
                 移除凭证
               </Button>
@@ -3182,7 +3201,7 @@ export default function Sales({
                     setTab("list");
                   }}
                 >
-                  <Plus size={18} />
+                  <Plus aria-hidden="true" size={18} />
                   新建单据
                 </Button>
               )}
@@ -3281,7 +3300,7 @@ export default function Sales({
           <section className="panel ledger-sheet sale-list-sheet">
             <div className="filters sale-filters">
               <label className="search">
-                <Search size={18} />
+                <Search aria-hidden="true" size={18} />
                 <Input
                   aria-label="搜索销售单"
                   name="sales-search"

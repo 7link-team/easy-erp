@@ -169,6 +169,7 @@ export function useQueryValue<T extends string | number>(
     const next = `${location.pathname}${query ? `?${query}` : ""}${location.hash}`;
     if (next !== `${location.pathname}${location.search}${location.hash}`) {
       history.replaceState(history.state, "", next);
+      window.dispatchEvent(new Event("erp:querychange"));
     }
   }, [key, value, fallback]);
   useEffect(() => {

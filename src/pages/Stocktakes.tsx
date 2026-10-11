@@ -205,6 +205,7 @@ export default function Stocktakes({
               {available.map((i) => (
                 <label key={i.id} className="checkbox">
                   <Checkbox
+                    name={`stocktake-item-${i.id}`}
                     disabled={
                       choosing ||
                       action.busy ||

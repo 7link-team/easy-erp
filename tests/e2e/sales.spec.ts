@@ -1003,7 +1003,7 @@ test("账户筛选对账与 CSV 退款保持数值", async ({ request, page }) =
   await page
     .getByRole("navigation", { name: "主要导航" })
     .getByRole("group", { name: "财务" })
-    .getByRole("button", { name: "收款", exact: true })
+    .getByRole("link", { name: "收款", exact: true })
     .click();
   await expect(page).toHaveURL(/#\/finance$/);
   await expect(
@@ -1957,4 +1957,46 @@ test("开单收款权限：无收款权限可全部欠款，直接 API 收款被
   } finally {
     await context.close();
   }
+});
+
+test("凭证移除先确认，取消保留当前凭证，确认后保留历史及欠款", async ({
+  page,
+  request,
+}) => {
+  const { input } = await fixture(request);
+  const sale = await command(request, { action: "confirm", input });
+  const png = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC",
+    "base64",
+  );
+  const uploaded = await request.post(`/api/sales/${sale.id}/attachments`, {
+    headers,
+    multipart: {
+      file: { name: "签字.png", mimeType: "image/png", buffer: png },
+    },
+  });
+  expect(uploaded.ok()).toBeTruthy();
+  await page.goto(`/?sale_open=${sale.id}#/sales`);
+  const remove = page.getByRole("button", { name: "移除凭证", exact: true });
+  const image = page.getByRole("img", { name: /签字凭证/ });
+  await expect(image).toHaveAttribute("width", "240");
+  await expect(image).toHaveAttribute("height", "160");
+  await remove.click();
+  const dialog = page.getByRole("dialog", { name: "移除凭证？", exact: true });
+  await expect(dialog).toContainText("历史记录仍保留");
+  await dialog.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(remove).toBeFocused();
+  let latest = await (await request.get(`/api/sales/${sale.id}`)).json();
+  expect(latest.attachments[0].active).toBe(true);
+  await remove.click();
+  await dialog.getByRole("button", { name: "确认移除", exact: true }).click();
+  await expect(
+    page.getByText("已移除 · 历史凭证", { exact: true }),
+  ).toBeVisible();
+  await expect(remove).toHaveCount(0);
+  await expect(image).toBeVisible();
+  latest = await (await request.get(`/api/sales/${sale.id}`)).json();
+  expect(latest.attachments).toHaveLength(1);
+  expect(latest.attachments[0].active).toBe(false);
+  expect(latest.debt).toBe(sale.debt);
 });
