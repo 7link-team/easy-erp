@@ -4,7 +4,7 @@
 用户要求最后核对客户需求，Claude CLI也检查一次，问题修复后全部提交推送，并完成GitHub Actions测试。
 
 ## Current Phase / Step
-ACCEPTANCE：本地验证与独立复核通过，准备提交全部交付改动并推送；必须跟进最终提交的完整GitHub Actions至成功，不能只触发就结束。
+ACCEPTANCE：本地验证与独立复核通过，bb0ba22已全部提交推送；查询测试输入方式修正后准备补交；必须跟进最终提交的完整GitHub Actions至成功，不能只触发就结束。
 
 ## Completed / Verification
 - 原需求及1.jpg/2.jpg与销售事务、整数金额、权限、照片和打印直接核对，13项软件需求均有实现/回归。客户不要求的成本、均价、目标和优惠经营汇总不加入。
@@ -19,14 +19,14 @@ ACCEPTANCE：本地验证与独立复核通过，准备提交全部交付改动�
 实体打印机/相机/手机软键盘及iOS真机未实测，浏览器自动化不替代现场验收。
 
 ## Confirmed Constraints / Workspace
-分支feat/sales-and-receivables，提交前HEAD5e8f71b。用户本轮全部提交包含两个已有根目录导出txt删除，已核对旧会话导出/无引用；显式逐文件stage。无生成报告/数据库/构建产物入库。
+分支feat/sales-and-receivables，当前HEAD/origin为bb0ba22。用户本轮全部提交包含两个已有根目录导出txt删除，已核对旧会话导出/无引用；显式逐文件stage。无生成报告/数据库/构建产物入库。
 Direct执行，另调用用户点名的Claude CLI只读审查，无子代理。PR#1保持草稿，不合并、不发Release。14菜单、财务同页定位、去重复入口沿用。所有回复以CLAUDE.md规定前缀开始。
 5173代理4280；当前后端PID65294/session60101，data-dir /tmp/erp-live。保留其他5500/4290/8912服务和数据库。
 
 ## Remaining / Next Action
-1. 显式提交sales.rs、两份E2E、decisions/task-state/需求复核及两份txt删除，推送；更新PR说明。
+1. bb0ba22已完成全部提交（含txt删除）及PR更新。补交queries.spec.ts键盘输入与需求复核/task-state，再跟进新HEAD的整轮Actions。
 2. 找到这次HEAD的完整Actions运行，跟进所有适用job至成功；如真实失败修复/重验/再推送，基础设施故障重跑失败job。
 3. 最终报告提交、独立审查修复、CI实际结果/链接和现场设备边界。Git/CI与/tmp日志是提交后验收依据；避免仅为记录CI成功新增文档提交而留下未经验证的新HEAD。
 
 ## Last Checkpoint
-2026-10-11：本地及Claude复核完成，等待提交和最终云端验收。
+2026-10-11：bb0ba22首轮云端10个job成功、Chromium145 PASS，WebKit144 PASS/1 FAIL：queries.spec.ts单据搜索fill返回成功但输入框为空/无筛选请求。截图trace在tmp/final-ci-webkit-evidence，日志/tmp/erp-final-ci-failed.log；原用例本地重复5 PASS，底层原因未确认，不声称产品搜索缺陷修复。该用例改为点击后pressSequentially并增加值保留断言，原业务断言均保留，无重试/加时。最终WebKit完整查询15 PASS（4.2分钟），Chrome同用例1 PASS（17.2秒）。类型/格式/diff通过；仅测试和文档变化，无产品构建变化。补交后必须验证新HEAD全套CI。

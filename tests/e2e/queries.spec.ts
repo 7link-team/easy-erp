@@ -232,7 +232,10 @@ test("单据状态与收款状态分开、日期筛选、刷新保留与权限�
     400,
   );
   await page.goto("/#/sales");
-  await page.getByLabel("搜索销售单").fill(tag);
+  const search = page.getByLabel("搜索销售单");
+  await search.click();
+  await search.pressSequentially(tag);
+  await expect(search).toHaveValue(tag);
   const table = page.getByRole("table", { name: "销售单据列表" });
   await expect(table.locator("tbody tr")).toHaveCount(3);
   await page
