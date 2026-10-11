@@ -75,7 +75,7 @@ test.describe.serial("真实主机与浏览器的库存闭环", () => {
 
     await page
       .getByRole("navigation")
-      .getByRole("link", { name: "记录", exact: true })
+      .getByRole("link", { name: "出入库", exact: true })
       .click();
     await page.getByRole("button", { name: /领用出库.*镀锌螺丝/ }).click();
     await expect(page.getByRole("dialog")).toContainText("张师傅");

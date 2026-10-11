@@ -497,7 +497,10 @@ async fn prepare(
     if rate > 10000 {
         return Err(ApiError::bad("折扣率须在 0–100% 之间。"));
     }
-    if !actor.can("sales.discount") && (rate != 10000 || rounding != 0) {
+    let discount_changed = old.map_or(rate != 10000 || rounding != 0, |sale| {
+        rate != sale.discount_rate || rounding != sale.rounding
+    });
+    if discount_changed && !actor.can("sales.discount") {
         return Err(ApiError::forbidden());
     }
     if !billable && (rate != 10000 || rounding != 0) {

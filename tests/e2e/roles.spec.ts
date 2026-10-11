@@ -500,3 +500,125 @@ test("清点填写与确认分权，资料维护权限不能跨模块使用", as
     await client.dispose();
   }
 });
+
+test("无优惠权限可保留既有折扣抹零，草稿确认和修订不能擅自改动优惠", async ({
+  request,
+  page,
+}) => {
+  const material = await post(request, "/items", {
+    name: `优惠分权-${randomUUID().slice(0, 8)}`,
+    unit: "个",
+    kind: "成品",
+  });
+  await post(request, "/movements", {
+    request_id: randomUUID(),
+    kind: "receipt",
+    lines: [{ item_id: material.id, quantity: "20" }],
+  });
+  const customer = await post(request, "/sales/catalog", {
+    kind: "customer",
+    name: `优惠客户-${randomUUID().slice(0, 8)}`,
+  });
+  const input = {
+    type_id: "sale",
+    customer_id: customer.id,
+    business_date: "2026-10-11",
+    discount_rate: "90",
+    rounding: "5",
+    lines: [{ item_id: material.id, quantity: "2", price: "100" }],
+  };
+  let sale = await post(request, "/sales/commands", {
+    request_id: randomUUID(),
+    action: "save",
+    input,
+  });
+  const editorRole = await role(request, [
+    "sales.read",
+    "sales.all",
+    "sales.create",
+    "sales.confirm",
+    "sales.revise",
+    "items.read",
+    "customers.read",
+    "catalog.read",
+  ]);
+  const editor = await account(request, editorRole.id);
+  await post(page.request, "/login", editor);
+  await page.goto(`/?sale_open=${sale.id}#/sales`);
+  const submit = async (label: string) => {
+    const response = page.waitForResponse(
+      (r) =>
+        r.url().endsWith("/api/sales/commands") &&
+        r.request().method() === "POST",
+    );
+    await page.getByRole("button", { name: label, exact: true }).click();
+    const result = await response;
+    expect(result.ok(), await result.text()).toBeTruthy();
+    sale = await result.json();
+    await expect(page.locator(".document-editor")).toHaveCount(0);
+  };
+  await page.getByRole("button", { name: "编辑草稿", exact: true }).click();
+  await expect(page.getByLabel("折扣率 %", { exact: false })).toHaveCount(0);
+  await page.getByLabel("备注 选填", { exact: true }).fill("仅补充备注");
+  await submit("保存草稿");
+  expect(sale.total).toBe(17500);
+  expect(sale.status).toBe("draft");
+  await page.getByRole("button", { name: "编辑草稿", exact: true }).click();
+  await submit("确认开单并扣库存");
+  expect([sale.status, sale.due, sale.paid, sale.debt]).toEqual([
+    "posted",
+    17500,
+    0,
+    17500,
+  ]);
+  await page.getByRole("button", { name: "修订单据", exact: true }).click();
+  await page.getByLabel("备注 选填", { exact: true }).fill("修订备注保留优惠");
+  await page.getByLabel("修订原因", { exact: false }).fill("补充送货说明");
+  await submit("保存修订");
+  expect([sale.discount_rate, sale.rounding, sale.due, sale.debt]).toEqual([
+    9000, 500, 17500, 17500,
+  ]);
+  const version = sale.version;
+  for (const change of [
+    { discount_rate: "80" },
+    { discount_rate: "100" },
+    { rounding: "6" },
+    { rounding: "0" },
+    { discount_rate: "100", rounding: "0" },
+  ]) {
+    const response = await page.request.post("/api/sales/commands", {
+      headers,
+      data: {
+        request_id: randomUUID(),
+        action: "revise",
+        sale_id: sale.id,
+        version,
+        reason: "无权改优惠",
+        input: { ...input, ...change },
+      },
+    });
+    expect(response.status()).toBe(403);
+  }
+  const newDiscount = await page.request.post("/api/sales/commands", {
+    headers,
+    data: { request_id: randomUUID(), action: "confirm", input },
+  });
+  expect(newDiscount.status()).toBe(403);
+  const unchanged = await (await request.get(`/api/sales/${sale.id}`)).json();
+  expect([
+    unchanged.version,
+    unchanged.discount_rate,
+    unchanged.rounding,
+    unchanged.due,
+  ]).toEqual([version, 9000, 500, 17500]);
+  expect(
+    (await (await request.get(`/api/items?ids=${material.id}`)).json()).items[0]
+      .balance,
+  ).toBe(18000);
+  const normal = await post(page.request, "/sales/commands", {
+    request_id: randomUUID(),
+    action: "confirm",
+    input: { ...input, discount_rate: "100", rounding: "0" },
+  });
+  expect(normal.due).toBe(20000);
+});
