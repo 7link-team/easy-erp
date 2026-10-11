@@ -1,17 +1,6 @@
 import { useQueryValue } from "../navigation";
 import { can } from "../api";
-import {
-  Disclosure,
-  Button,
-  Input,
-  Select,
-  Form,
-  Textarea,
-  Tabs,
-  TabsList,
-  Tab,
-  TabsPanel,
-} from "../ui";
+import { Disclosure, Button, Input, Select, Form, Textarea } from "../ui";
 import { useEffect, useState } from "react";
 import { Search } from "lucide-react";
 import { AuditDetails } from "../AuditDetails";
@@ -50,9 +39,7 @@ export default function Records({
   mode?: "records" | "movement";
   onMove?: (direction: "in" | "out") => void;
 }) {
-  const [tabValue, setTab] = useQueryValue<string>(`${mode}_tab`, "documents");
-  const tab =
-    mode === "records" && tabValue === "audit" ? "audit" : "documents";
+  const tab = mode === "movement" ? "documents" : "audit";
   const [page, setPage] = useQueryValue<number>(`${mode}_page`, 1);
   const [search, setSearch] = useQueryValue<string>(`${mode}_q`, "");
   const [query, setQuery] = useState(search);
@@ -89,13 +76,7 @@ export default function Records({
     revision,
   );
   return (
-    <Tabs
-      value={tab}
-      onValueChange={(value) => {
-        setTab(value as "documents" | "audit");
-        setPage(1);
-      }}
-    >
+    <div>
       <div className="page-heading">
         <div>
           <h1>{mode === "movement" ? "出入库" : "记录"}</h1>
@@ -103,8 +84,8 @@ export default function Records({
             {mode === "movement"
               ? "登记到货、领用、退回与其他库存收发，核对每笔库存变化。"
               : can(user, "records.all")
-                ? "查看每笔收发和人员操作，历史记录始终保留。"
-                : "查看自己登记的收发和操作记录。"}
+                ? "查看人员操作及修改详情，历史记录始终保留。"
+                : "查看自己的操作及修改详情。"}
           </p>
         </div>
         <div className="row-actions">
@@ -126,15 +107,11 @@ export default function Records({
           )}
         </div>
       </div>
-      <TabsList aria-label="记录栏目" hidden={mode === "movement"}>
-        <Tab value="documents">出入库记录</Tab>
-        <Tab value="audit">操作记录</Tab>
-      </TabsList>
       {!can(user, "records.read") && (
         <Empty>当前账号可登记出入库，没有查看历史记录的权限。</Empty>
       )}
-      <TabsPanel
-        value={tab}
+      <section
+        aria-label={tab === "documents" ? "出入库记录" : "操作记录"}
         className="panel ledger-sheet records-sheet"
         hidden={!can(user, "records.read")}
       >
@@ -386,7 +363,7 @@ export default function Records({
             </Button>
           </div>
         </div>
-      </TabsPanel>
+      </section>
       {detail && (
         <Modal
           title={movementLabels[detail.kind] ?? "记录详情"}
@@ -461,6 +438,6 @@ export default function Records({
             )}
         </Modal>
       )}
-    </Tabs>
+    </div>
   );
 }

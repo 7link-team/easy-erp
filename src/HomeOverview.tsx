@@ -232,7 +232,7 @@ export function HomeMetrics({
           {data.records && (
             <PageLink
               className="home-ledger-cell"
-              page="records"
+              page="movement"
               navigate={navigate}
             >
               <span>

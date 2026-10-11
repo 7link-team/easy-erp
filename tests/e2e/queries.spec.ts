@@ -299,7 +299,7 @@ test("出入库与审计搜索、类型筛选和CSV导出一致，普通账号�
   const material = await item(page.request, tag, "M20");
   await movement(page.request, material.id, "receipt", "10", tag);
   await movement(page.request, material.id, "issue", "2", tag);
-  await page.goto("/#/records");
+  await page.goto("/#/movement");
   await page.getByLabel("搜索记录").fill(tag);
   const table = page.getByRole("table", { name: "出入库记录列表" });
   await expect(table.locator("tbody tr")).toHaveCount(2);
@@ -332,7 +332,8 @@ test("出入库与审计搜索、类型筛选和CSV导出一致，普通账号�
     "本次操作完成后的库存：8 个",
   );
   await page.getByRole("button", { name: "关闭", exact: true }).click();
-  await page.getByRole("tab", { name: "操作记录", exact: true }).click();
+  await page.goto("/#/records");
+  await page.getByLabel("搜索记录").fill(tag);
   await chooseSelect(
     page.getByRole("combobox", { name: "筛选操作类型" }),
     "新增物料",
@@ -348,8 +349,8 @@ test("出入库与审计搜索、类型筛选和CSV导出一致，普通账号�
   expect(await auditCSV.text()).toContain("新增物料");
   await page.reload();
   await expect(
-    page.getByRole("tab", { name: "操作记录", exact: true }),
-  ).toHaveAttribute("aria-selected", "true");
+    page.getByRole("region", { name: "操作记录", exact: true }),
+  ).toBeVisible();
   await expect(
     page.getByRole("combobox", { name: "筛选操作类型" }),
   ).toHaveAttribute("data-value", "新增物料");

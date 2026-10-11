@@ -473,13 +473,12 @@ for (const viewport of [
         await fits(page);
       }
       if (name === "记录") {
-        const tab = page.getByRole("tab", { name: "出入库记录", exact: true });
-        await tab.focus();
-        await page.keyboard.press("ArrowRight");
         await expect(
-          page.getByRole("tab", { name: "操作记录", exact: true }),
-        ).toHaveAttribute("aria-selected", "true");
-        await expect(page.getByRole("tabpanel")).toBeVisible();
+          page.getByRole("tablist", { name: "记录栏目" }),
+        ).toHaveCount(0);
+        await expect(
+          page.getByRole("region", { name: "操作记录", exact: true }),
+        ).toBeVisible();
       }
       if (name === "开单") {
         if (viewport.width <= 760)
@@ -688,7 +687,7 @@ test("手机物料列表不横滑即可入库，底栏不遮挡操作", async ({
   await expect(page.getByText("本次操作完成后的库存：2 个")).toBeVisible();
 });
 
-test("全站栏目选中样式一致、侧栏分区与普通页面打印", async ({
+test("页面无重复栏目、字典键盘切换、侧栏分区与普通页面打印", async ({
   page,
 }, testInfo) => {
   await login(page);
@@ -708,30 +707,14 @@ test("全站栏目选中样式一致、侧栏分区与普通页面打印", async
   ).toBeVisible();
   for (const width of [1280, 375]) {
     await page.setViewportSize({ width, height: 800 });
-    const styles = [];
-    for (const [route, label] of [
-      ["records", "出入库记录"],
-      ["sales", "单据列表"],
-    ]) {
+    for (const route of ["records", "movement", "sales"]) {
       await page.goto(`/#/${route}`);
-      const tab = page.getByRole("tab", { name: label, exact: true });
-      await expect(tab).toHaveAttribute("aria-selected", "true");
-      styles.push(
-        await tab.evaluate((el) => {
-          const style = getComputedStyle(el);
-          return {
-            color: style.color,
-            border: style.borderBottomColor,
-            thickness: style.borderBottomWidth,
-            font: style.fontSize,
-            radius: style.borderRadius,
-            height: style.minHeight,
-          };
-        }),
-      );
+      await expect(page.locator("main h1")).toBeVisible();
+      await expect(page.locator("main").getByRole("tablist")).toHaveCount(0);
+      await expect(page.locator("main").getByRole("tabpanel")).toHaveCount(0);
       await fits(page);
       await page.screenshot({
-        path: testInfo.outputPath(`${route}-tabs-${width}.png`),
+        path: testInfo.outputPath(`${route}-no-duplicate-tabs-${width}.png`),
         fullPage: true,
       });
     }
@@ -741,7 +724,6 @@ test("全站栏目选中样式一致、侧栏分区与普通页面打印", async
       exact: true,
     });
     const selected = config.getByRole("tab", { selected: true });
-    expect(styles[1]).toEqual(styles[0]);
     // Dictionary navigation follows the prototype: a side list on desktop,
     // horizontal choices on mobile, not the ordinary underline tab style.
     await expect(config).toHaveAttribute(

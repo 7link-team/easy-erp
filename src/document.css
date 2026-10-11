@@ -15,7 +15,7 @@
   overflow: hidden;
 }
 .sales-page:has(.document-editor),
-.sales-page:has(.document-editor) > .ui-tabs-panel,
+.sales-page:has(.document-editor) > .sales-content,
 .document-editor,
 .document-editor > form {
   display: flex;

@@ -418,7 +418,7 @@ function Home({
               </h2>
               <PageLink
                 className="text-button"
-                page="records"
+                page="movement"
                 navigate={navigate}
               >
                 查看全部 →

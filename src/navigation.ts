@@ -35,6 +35,24 @@ interface Route {
 }
 const hashPage = (): Page => {
   const candidate = location.hash.replace(/^#\/?/, "");
+  const params = new URLSearchParams(location.search);
+  // Old explicit stock-ledger links now open the single inventory ledger.
+  if (candidate === "records" && params.get("records_tab") === "documents") {
+    params.delete("records_tab");
+    for (const key of ["q", "kind", "item", "page"]) {
+      const value = params.get(`records_${key}`);
+      if (value !== null) params.set(`movement_${key}`, value);
+      else params.delete(`movement_${key}`);
+      params.delete(`records_${key}`);
+    }
+    const search = params.toString();
+    history.replaceState(
+      history.state,
+      "",
+      `${location.pathname}${search ? `?${search}` : ""}#/movement`,
+    );
+    return "movement";
+  }
   return pages.includes(candidate as Page) ? (candidate as Page) : "home";
 };
 const address = (page: Page) =>
@@ -43,6 +61,7 @@ const address = (page: Page) =>
 /** Share the same query cleanup between in-app navigation and native links. */
 export function pageAddress(page: Page, query?: Record<string, string>) {
   const params = new URLSearchParams(location.search);
+  if (page === "records") params.delete("records_tab");
   if (!query?.sale_open) params.delete("sale_open");
   if (!query?.sale_print) params.delete("sale_print");
   if (page !== "inventory") params.delete("inventory_item");

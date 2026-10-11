@@ -479,21 +479,17 @@ test("真实界面多品类开单、收款、打印、手机版式与离开保�
   await expect(
     page.getByRole("heading", { name: "单据", exact: true }),
   ).toBeVisible();
-  const listTab = page.getByRole("tab", { name: "单据列表", exact: true });
-  await expect(listTab).toHaveAttribute("aria-selected", "true");
-  await listTab.focus();
-  await page.keyboard.press("ArrowRight");
-  await expect(
-    page.getByRole("tab", { name: "收款与欠款", exact: true }),
-  ).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tablist", { name: "开单栏目" })).toHaveCount(0);
+  await expect(page.locator(".finance-panel")).toHaveCount(0);
+  const nav = page.getByRole("navigation", { name: "主要导航" });
+  await nav.getByRole("link", { name: "收款", exact: true }).click();
   await expect(
     page.getByRole("heading", {
       name: "客户对账（全部有效单据）",
       exact: true,
     }),
   ).toBeVisible();
-  await page.keyboard.press("Home");
-  await expect(listTab).toHaveAttribute("aria-selected", "true");
+  await nav.getByRole("link", { name: "单据", exact: true }).click();
   await page.getByRole("button", { name: "新建单据", exact: true }).click();
   await chooseSelect(
     page.getByRole("combobox", { name: "客户 必填", exact: true }),
@@ -954,7 +950,10 @@ test("部门业务员归属、跨部门校验、历史快照及业绩退货作�
     ),
   ).toMatchObject({ count: 1, due: 80000, paid: 5000, debt: 75000 });
   await page.getByRole("button", { name: "返回列表", exact: true }).click();
-  await page.getByRole("tab", { name: "收款与欠款", exact: true }).click();
+  await page
+    .getByRole("navigation", { name: "主要导航" })
+    .getByRole("link", { name: "业绩", exact: true })
+    .click();
   await page
     .getByRole("region", { name: "部门业绩", exact: true })
     .scrollIntoViewIfNeeded();

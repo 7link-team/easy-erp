@@ -425,3 +425,79 @@ test("菜单原生链接支持新标签、保留最新筛选，跳过导航不�
   expect(page.url()).toBe(url);
   await expect(accounts).toBeVisible();
 });
+
+test("单据与财务、库存与操作历史各有唯一页面，旧库存链接保留筛选", async ({
+  page,
+}) => {
+  const tag = `入口去重-${randomUUID().slice(0, 8)}`;
+  const item = await post(page.request, "/items", {
+    name: tag,
+    kind: "成品",
+    unit: "个",
+  });
+  await post(page.request, "/movements", {
+    request_id: randomUUID(),
+    kind: "receipt",
+    lines: [{ item_id: item.id, quantity: "5" }],
+  });
+  for (const width of [1280, 375]) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.goto("/#/sales");
+    await expect(
+      page.getByRole("group", { name: "单据记录筛选" }),
+    ).toBeVisible();
+    await expect(page.locator("main").getByRole("tablist")).toHaveCount(0);
+    await expect(page.locator(".finance-panel")).toHaveCount(0);
+    await page.goto("/#/finance");
+    await expect(page.locator(".finance-panel")).toHaveCount(1);
+    await expect(page.getByRole("group", { name: "单据记录筛选" })).toHaveCount(
+      0,
+    );
+    await page.goto(`/?records_q=${encodeURIComponent(tag)}#/records`);
+    await expect(
+      page.getByRole("region", { name: "操作记录", exact: true }),
+    ).toBeVisible();
+    await expect(page.getByRole("table")).toContainText(tag);
+    await expect(
+      page.getByRole("table", { name: "出入库记录列表" }),
+    ).toHaveCount(0);
+    await expect(page.locator("main").getByRole("tablist")).toHaveCount(0);
+    const csv = page.getByRole("link", { name: "导出 CSV" });
+    await expect(csv).toHaveAttribute("href", /\/api\/export\/audit\?/);
+    await page.goto(
+      `/?records_tab=documents&records_q=${encodeURIComponent(tag)}&records_kind=in&records_item=${item.id}&records_page=1#/records`,
+    );
+    await expect(page).toHaveURL(/#\/movement$/);
+    await expect(
+      page.getByRole("table", { name: "出入库记录列表" }).locator("tbody tr"),
+    ).toHaveCount(1);
+    await expect(page.getByLabel("搜索记录")).toHaveValue(tag);
+    await expect(
+      page
+        .getByRole("group", { name: "记录类型" })
+        .getByRole("button", { name: "入库", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+    await expect(csv).toHaveAttribute(
+      "href",
+      new RegExp(`/api/export/documents.*item_id=${item.id}`),
+    );
+    await page.reload();
+    await expect(
+      page.getByRole("table", { name: "出入库记录列表" }).locator("tbody tr"),
+    ).toHaveCount(1);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+  }
+  await page.goto("/#/home");
+  await expect(
+    page
+      .locator(".activity-feed")
+      .getByRole("link", { name: "查看全部 →", exact: true }),
+  ).toHaveAttribute("href", /#\/movement$/);
+  await expect(
+    page.locator(".home-ledger-cell").filter({ hasText: "今日库存操作" }),
+  ).toHaveAttribute("href", /#\/movement$/);
+});

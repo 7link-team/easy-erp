@@ -197,6 +197,8 @@ test("物料新增、重复编码校验、修改、搜索、类型与低库存�
 test("全部收发用途、数量限制、移除物料、连续登记、记录和操作审计", async ({
   page,
 }) => {
+  // Eight complete stock flows plus ledger and audit checks share this budget.
+  test.setTimeout(90_000);
   const added = await page.request.post("/api/items", {
     headers,
     data: { name: "收发用途验收", kind: "原材料", unit: "公斤", precision: 2 },
@@ -291,11 +293,11 @@ test("全部收发用途、数量限制、移除物料、连续登记、记录�
       d.lines.some((l) => l.item_id === id),
     ),
   ).toHaveLength(8);
-  await navigate(page, "记录");
+  await navigate(page, "出入库");
   await page.getByRole("button", { name: /报损.*收发用途验收/ }).click();
   await expect(page.getByRole("dialog")).toContainText("验收原因");
   await page.getByRole("button", { name: "关闭", exact: true }).click();
-  await page.getByRole("tab", { name: "操作记录", exact: true }).click();
+  await navigate(page, "记录");
   await expect(page.getByRole("table")).toContainText("报损");
   await page.getByText("查看详情", { exact: true }).first().click();
   await expect(page.locator(".audit-detail").first()).toBeVisible();

@@ -2845,9 +2845,7 @@ export default function Sales({
   const financeView = view === "finance";
   const returnsView = view === "returns";
   const configView = view === "customers" || view === "catalog";
-  const [tab, setTab] = useState(
-    configView ? "config" : financeView ? "finance" : "list",
-  );
+  const listView = !configView && !financeView;
   const [recordKind, setRecordKind] = useQueryValue<string>(
     "sales_records",
     returnsView
@@ -2955,7 +2953,6 @@ export default function Sales({
     action.run(async () => {
       setSelected(await api<Sale>(`/sales/${id}`));
       setEditing(edit);
-      setTab(configView ? "config" : financeView ? "finance" : "list");
     });
   useEffect(() => {
     const id = new URLSearchParams(location.search).get("sale_print");
@@ -2979,7 +2976,6 @@ export default function Sales({
     if (!financeSection) return;
     setSelected(undefined);
     setEditing(false);
-    setTab("finance");
   }, [financeSection, navigationIndex]);
   const confirm = useConfirm();
   const closeEditor = async () => {
@@ -3118,14 +3114,7 @@ export default function Sales({
       setLocal((n) => n + 1);
     });
   return (
-    <Tabs
-      className="sales-page"
-      value={tab}
-      onValueChange={(value) => {
-        setTab(value);
-        setSelected(undefined);
-      }}
-    >
+    <div className="sales-page">
       <div className="page-heading">
         <div>
           <h1>
@@ -3183,7 +3172,7 @@ export default function Sales({
             <div className="row-actions">
               {user.role === "admin" &&
                 !selected &&
-                tab === "list" &&
+                listView &&
                 !adjustmentAction && (
                   <a
                     className="button"
@@ -3198,7 +3187,6 @@ export default function Sales({
                   onClick={() => {
                     setSelected(undefined);
                     setEditing(true);
-                    setTab("list");
                   }}
                 >
                   <Plus aria-hidden="true" size={18} />
@@ -3208,43 +3196,32 @@ export default function Sales({
             </div>
           )}
       </div>
-      <TabsList
-        aria-label="开单栏目"
-        hidden={editing || financeView || configView}
-      >
-        <Tab value="list">单据列表</Tab>
-        {can(user, "finance.read") && <Tab value="finance">收款与欠款</Tab>}
-      </TabsList>
-      <TabsPanel value={tab}>
-        {!editing &&
-          !selected &&
-          !configView &&
-          !financeView &&
-          tab === "list" && (
-            <div
-              className="filter-chips document-record-filters"
-              role="group"
-              aria-label="单据记录筛选"
-            >
-              {[
-                ["documents", "单据"],
-                ["return", "退货记录"],
-                ["void", "作废记录"],
-              ].map(([value, label]) => (
-                <Button
-                  key={value}
-                  className="filter-chip"
-                  aria-pressed={value === (adjustmentAction || "documents")}
-                  onClick={() => {
-                    setRecordKind(value);
-                    setAdjustmentPage(1);
-                  }}
-                >
-                  {label}
-                </Button>
-              ))}
-            </div>
-          )}
+      <div className="sales-content">
+        {!editing && !selected && listView && (
+          <div
+            className="filter-chips document-record-filters"
+            role="group"
+            aria-label="单据记录筛选"
+          >
+            {[
+              ["documents", "单据"],
+              ["return", "退货记录"],
+              ["void", "作废记录"],
+            ].map(([value, label]) => (
+              <Button
+                key={value}
+                className="filter-chip"
+                aria-pressed={value === (adjustmentAction || "documents")}
+                onClick={() => {
+                  setRecordKind(value);
+                  setAdjustmentPage(1);
+                }}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+        )}
         {(catalog.error || action.error || customerFinance.error) && (
           <Notice>
             {catalog.error || action.error || customerFinance.error}
@@ -3287,7 +3264,7 @@ export default function Sales({
               setOpenSaleId("");
             }}
           />
-        ) : tab === "list" && adjustmentAction ? (
+        ) : listView && adjustmentAction ? (
           <AdjustmentsLedger
             user={user}
             revision={revision + local}
@@ -3296,7 +3273,7 @@ export default function Sales({
             page={adjustmentPage}
             setPage={setAdjustmentPage}
           />
-        ) : tab === "list" ? (
+        ) : listView ? (
           <section className="panel ledger-sheet sale-list-sheet">
             <div className="filters sale-filters">
               <label className="search">
@@ -3546,7 +3523,7 @@ export default function Sales({
               </Button>
             </div>
           </section>
-        ) : tab === "finance" && can(user, "finance.read") ? (
+        ) : financeView && can(user, "finance.read") ? (
           <FinancePanel
             section={financeSection}
             navigationIndex={navigationIndex}
@@ -4026,7 +4003,7 @@ export default function Sales({
             </TabsPanel>
           </Tabs>
         )}
-      </TabsPanel>
+      </div>
       {showCustomerFinance &&
         can(user, "sales.read") &&
         ledgerCustomer &&
@@ -4083,6 +4060,6 @@ export default function Sales({
           />
         </Modal>
       )}
-    </Tabs>
+    </div>
   );
 }
