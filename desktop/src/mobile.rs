@@ -3,6 +3,7 @@ use crate::preferences::{self, Mode, Preferences};
 use serde_json::{Value, json};
 use std::{path::PathBuf, sync::Mutex, time::Duration};
 use tauri::Manager;
+use tauri_plugin_opener::OpenerExt;
 
 #[derive(Default)]
 struct Mobile {
@@ -22,19 +23,14 @@ fn trusted(
 ) -> Result<(), String> {
     let state = app.state::<Mobile>();
     let url = window.url().map_err(|e| e.to_string())?;
-    let local = state
-        .launcher
-        .lock()
-        .unwrap()
-        .as_ref()
-        .is_some_and(|u| {
-            // tauri:// has an opaque URL origin. Compare the exact bundled
-            // page instead; origin() equality only works for HTTP(S) here.
-            u.scheme() == url.scheme()
-                && u.host_str() == url.host_str()
-                && u.port() == url.port()
-                && u.path() == url.path()
-        });
+    let local = state.launcher.lock().unwrap().as_ref().is_some_and(|u| {
+        // tauri:// has an opaque URL origin. Compare the exact bundled
+        // page instead; origin() equality only works for HTTP(S) here.
+        u.scheme() == url.scheme()
+            && u.host_str() == url.host_str()
+            && u.port() == url.port()
+            && u.path() == url.path()
+    });
     let remote = !local_only
         && state
             .server
@@ -96,7 +92,7 @@ async fn connect(
             "local":false,
             "remote":{"urls":[format!("{}/*",url.origin().ascii_serialization())]},
             "windows":["launcher"],
-            "permissions":["allow-mobile-disconnect","allow-update-info"]
+            "permissions":["allow-mobile-disconnect","allow-update-info","allow-open-web-address"]
         })
         .to_string(),
     )
@@ -149,16 +145,50 @@ fn update_info(window: tauri::WebviewWindow, app: tauri::AppHandle) -> Result<Va
     trusted(&window, &app, false)?;
     Ok(json!({"version":app.package_info().version.to_string(),"mobile":true,"enabled":false}))
 }
+#[tauri::command]
+fn open_web_address(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    address: String,
+) -> Result<(), String> {
+    trusted(&window, &app, false)?;
+    let destination = url::Url::parse(&address).map_err(|_| "访问地址格式不正确。")?;
+    let state = app.state::<Mobile>();
+    let source = state
+        .server
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or("请先连接库存电脑。")?;
+    if destination.origin() != source.origin()
+        || !matches!(destination.scheme(), "http" | "https")
+        || !destination.username().is_empty()
+        || destination.password().is_some()
+        || destination.path() != "/"
+        || !crate::browser_address::print_query_allowed(&destination)
+        || !destination.fragment().is_some_and(|f| {
+            f.strip_prefix("/browser-login/")
+                .is_some_and(|t| t.len() == 64 && t.bytes().all(|b| b.is_ascii_hexdigit()))
+        })
+    {
+        return Err("只能打开当前库存服务的打印地址。".into());
+    }
+    app.opener()
+        .open_url(destination.as_str(), None::<&str>)
+        .map_err(|e| e.to_string())
+}
 pub fn run() {
     #[cfg(debug_assertions)]
     eprintln!("Starting inventory mobile client");
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
         .manage(Mobile::default())
         .invoke_handler(tauri::generate_handler![
             mobile_settings,
             mobile_connect,
             mobile_resume,
             mobile_disconnect,
+            open_web_address,
             update_info
         ])
         .on_page_load(|webview, payload| {

@@ -226,7 +226,10 @@ pub(crate) async fn ensure_local(app: &tauri::AppHandle) -> Result<url::Url, Str
             .spawn()
             .map_err(|e| format!("启动本机服务失败：{e}"))?;
         let mut ready = false;
-        for _ in 0..40 {
+        // A first launch after upgrading a large ledger may need minutes to
+        // build query indexes. Keep checking the owned process while it works.
+        let startup_deadline = std::time::Instant::now() + Duration::from_secs(600);
+        while std::time::Instant::now() < startup_deadline {
             tokio::time::sleep(Duration::from_millis(250)).await;
             if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
                 return Err(format!(
@@ -341,7 +344,7 @@ fn browser_destination(source: &url::Url, address: &str) -> Result<url::Url, Str
         || !destination.username().is_empty()
         || destination.password().is_some()
         || destination.path() != "/"
-        || destination.query().is_some()
+        || !crate::browser_address::print_query_allowed(&destination)
         || destination.fragment().is_some_and(|fragment| {
             !fragment
                 .strip_prefix("/browser-login/")

@@ -15,6 +15,7 @@ use sea_orm::{
     ConnectOptions, Database,
     sqlx::{self, Acquire},
 };
+use sea_orm_migration::MigratorTrait;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -25,13 +26,18 @@ use std::{
 };
 
 const FORMAT: u32 = 1;
-const MAX_SNAPSHOT: u64 = 512 * 1024 * 1024;
+const MAX_SNAPSHOT: u64 = 16 * 1024 * 1024 * 1024;
+const SPACE_MARGIN: u64 = 256 * 1024 * 1024;
 #[derive(Serialize, Deserialize)]
 struct Manifest {
     format: u32,
     created_at: i64,
     sha256: String,
     schema: Vec<String>,
+    #[serde(default)]
+    source: Option<String>,
+    #[serde(default)]
+    photo_count: Option<u64>,
 }
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Schedule {
@@ -49,6 +55,11 @@ pub struct BackupInfo {
     name: String,
     created_at: i64,
     size: u64,
+    snapshot_at: Option<i64>,
+    source: Option<String>,
+    photo_count: Option<u64>,
+    path: String,
+    metadata_error: bool,
 }
 
 fn local(peer: SocketAddr) -> Result<()> {
@@ -87,7 +98,7 @@ async fn schemas(db: &sea_orm::DatabaseConnection) -> Result<Vec<String>> {
     // the business backup format or invalidate existing inventory backups.
     Ok(all(
         db,
-        "SELECT version FROM seaql_migrations WHERE version <> 'session_idle_v1' ORDER BY version",
+        "SELECT version FROM seaql_migrations WHERE version NOT IN ('session_idle_v1','query_indexes_v1') ORDER BY version",
         vec![],
     )
     .await?
@@ -95,9 +106,29 @@ async fn schemas(db: &sea_orm::DatabaseConnection) -> Result<Vec<String>> {
     .map(|r| text(r, "version"))
     .collect())
 }
-pub async fn create(s: &AppState, actor: &User) -> Result<BackupInfo> {
+async fn database_size(db: &sea_orm::DatabaseConnection) -> Result<u64> {
+    let pages = int(
+        &one(db, "PRAGMA page_count", vec![]).await?.unwrap(),
+        "page_count",
+    ) as u64;
+    let size = int(
+        &one(db, "PRAGMA page_size", vec![]).await?.unwrap(),
+        "page_size",
+    ) as u64;
+    Ok(pages.saturating_mul(size))
+}
+fn check_space(path: &FsPath, required: u64) -> Result<()> {
+    if fs2::available_space(path)? < required {
+        return Err(ApiError::bad(format!(
+            "磁盘空间不足，需至少 {:.1} GiB 可用空间完成备份或恢复；请释放空间后重试，已有备份不会删除。",
+            required as f64 / 1073741824.
+        )));
+    }
+    Ok(())
+}
+pub async fn create(s: &AppState, actor: &User, source: &str) -> Result<BackupInfo> {
     let _backup = s.backup_lock.lock().await;
-    let info = snapshot(&s.db, &s.data_dir).await?;
+    let info = snapshot(&s.db, &s.data_dir, source).await?;
     audit(
         &s.db,
         actor,
@@ -113,9 +144,24 @@ pub async fn create(s: &AppState, actor: &User) -> Result<BackupInfo> {
 }
 
 /// Also used before installer migrations, while holding the data-directory lock.
-pub async fn snapshot(db: &sea_orm::DatabaseConnection, data_dir: &FsPath) -> Result<BackupInfo> {
+pub async fn snapshot(
+    db: &sea_orm::DatabaseConnection,
+    data_dir: &FsPath,
+    source: &str,
+) -> Result<BackupInfo> {
     let dir = data_dir.join("backups");
     tokio::fs::create_dir_all(&dir).await?;
+    let started = std::time::Instant::now();
+    let estimated = database_size(db).await?;
+    if estimated > MAX_SNAPSHOT {
+        return Err(ApiError::bad(
+            "数据库超过当前 16 GiB 备份上限，请联系管理员扩容。",
+        ));
+    }
+    check_space(
+        data_dir,
+        estimated.saturating_mul(3).saturating_add(SPACE_MARGIN),
+    )?;
     let stage = tempfile::tempdir_in(&dir)?;
     let snapshot = stage.path().join("inventory.sqlite");
     execute(
@@ -124,8 +170,39 @@ pub async fn snapshot(db: &sea_orm::DatabaseConnection, data_dir: &FsPath) -> Re
         vec![snapshot.to_string_lossy().to_string().into()],
     )
     .await?;
+    if tokio::fs::metadata(&snapshot).await?.len() > MAX_SNAPSHOT {
+        return Err(ApiError::bad(
+            "数据库（含凭证图片）超过当前 16 GiB 备份上限，请联系管理员扩容。",
+        ));
+    }
+    tracing::info!(
+        elapsed_ms = started.elapsed().as_millis(),
+        "备份快照复制完成"
+    );
     let checked = validate_database(&snapshot).await?;
+    let photo_count = if one(
+        &checked,
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='sales_attachments'",
+        vec![],
+    )
+    .await?
+    .is_some()
+    {
+        int(
+            &one(
+                &checked,
+                "SELECT COUNT(*) AS total FROM sales_attachments",
+                vec![],
+            )
+            .await?
+            .unwrap(),
+            "total",
+        ) as u64
+    } else {
+        0
+    };
     checked.close().await?;
+    tracing::info!(elapsed_ms = started.elapsed().as_millis(), "备份校验完成");
     let created_at = now();
     let name = format!(
         "backup-{}-{}.zip",
@@ -135,12 +212,21 @@ pub async fn snapshot(db: &sea_orm::DatabaseConnection, data_dir: &FsPath) -> Re
     let schema = schemas(db).await?;
     let temporary = stage.path().join("snapshot.zip");
     let target = dir.join(&name);
+    let path = tokio::fs::canonicalize(&dir)
+        .await?
+        .join(&name)
+        .to_string_lossy()
+        .to_string();
+    let source = source.to_string();
+    let manifest_source = source.clone();
     tokio::task::spawn_blocking(move || -> std::io::Result<()> {
         let manifest = Manifest {
             format: FORMAT,
             created_at,
             sha256: file_hash(&snapshot)?,
             schema,
+            source: Some(manifest_source),
+            photo_count: Some(photo_count),
         };
         let output = std::fs::File::create(&temporary)?;
         let mut zip = zip::ZipWriter::new(output);
@@ -148,7 +234,7 @@ pub async fn snapshot(db: &sea_orm::DatabaseConnection, data_dir: &FsPath) -> Re
             .compression_method(zip::CompressionMethod::Stored);
         zip.start_file("manifest.json", options)?;
         zip.write_all(&serde_json::to_vec(&manifest)?)?;
-        zip.start_file("inventory.sqlite", options)?;
+        zip.start_file("inventory.sqlite", options.large_file(true))?;
         std::io::copy(&mut std::fs::File::open(snapshot)?, &mut zip)?;
         zip.finish()?.sync_all()?;
         std::fs::rename(temporary, target)?;
@@ -156,10 +242,19 @@ pub async fn snapshot(db: &sea_orm::DatabaseConnection, data_dir: &FsPath) -> Re
     })
     .await
     .map_err(|_| ApiError::bad("备份任务未完成，请重试。"))??;
+    tracing::info!(
+        elapsed_ms = started.elapsed().as_millis(),
+        "备份归档发布完成"
+    );
     let info = BackupInfo {
         name: name.clone(),
         created_at,
         size: tokio::fs::metadata(dir.join(&name)).await?.len(),
+        snapshot_at: Some(created_at),
+        source: Some(source),
+        photo_count: Some(photo_count),
+        path,
+        metadata_error: false,
     };
     Ok(info)
 }
@@ -179,12 +274,14 @@ async fn validate_database(path: &FsPath) -> Result<sea_orm::DatabaseConnection>
             "备份里的数据不完整，不能恢复，请选择其他备份。",
         ));
     }
-    let mismatches=one(&db,"SELECT COUNT(*) AS total FROM items i WHERE i.balance<>COALESCE((SELECT SUM(delta) FROM document_lines WHERE item_id=i.id),0)",vec![]).await?.unwrap();
+    let mismatches=one(&db,"SELECT COUNT(*) AS total FROM items i LEFT JOIN (SELECT item_id,SUM(delta) AS balance FROM document_lines GROUP BY item_id) l ON l.item_id=i.id WHERE i.balance<>COALESCE(l.balance,0)",vec![]).await?.unwrap();
     if int(&mismatches, "total") != 0 {
         return Err(ApiError::bad(
             "备份中的库存数量与出入库记录对不上，不能恢复，请选择其他备份。",
         ));
     }
+    crate::sales::validate_backup(&db).await?;
+    crate::roles::validate_backup(&db).await?;
     Ok(db)
 }
 pub async fn settings(s: &AppState) -> Result<Schedule> {
@@ -215,7 +312,7 @@ async fn value(s: &AppState, key: &str) -> Result<String> {
 pub async fn list(State(s): State<AppState>, headers: HeaderMap) -> Result<Json<Value>> {
     current(&s, &headers).await?.admin()?;
     Ok(Json(
-        json!({"items":files(&s).await?,"schedule":settings(&s).await?,"last_success":value(&s,"backup_last_success").await?,"last_error":value(&s,"backup_last_error").await?}),
+        json!({"items":files(&s, true).await?,"schedule":settings(&s).await?,"last_success":value(&s,"backup_last_success").await?,"last_error":value(&s,"backup_last_error").await?}),
     ))
 }
 pub async fn manual(
@@ -226,7 +323,7 @@ pub async fn manual(
     local(peer)?;
     let actor = current(&s, &headers).await?;
     actor.admin()?;
-    Ok(Json(create(&s, &actor).await?))
+    Ok(Json(create(&s, &actor, "manual").await?))
 }
 pub async fn update_schedule(
     State(s): State<AppState>,
@@ -250,11 +347,26 @@ pub async fn update_schedule(
     audit(&s.db, &actor, "修改备份计划", "", json!(input)).await?;
     Ok(Json(json!({"ok":true})))
 }
-async fn files(s: &AppState) -> Result<Vec<BackupInfo>> {
+fn read_manifest(zip: &mut zip::ZipArchive<std::fs::File>) -> Result<Manifest> {
+    let mut text = String::new();
+    zip.by_name("manifest.json")
+        .map_err(|_| ApiError::bad("备份缺少清单。"))?
+        .take(65536)
+        .read_to_string(&mut text)?;
+    let manifest: Manifest =
+        serde_json::from_str(&text).map_err(|_| ApiError::bad("备份清单格式不正确。"))?;
+    if manifest.format != FORMAT {
+        return Err(ApiError::bad("不支持此备份格式版本。"));
+    }
+    Ok(manifest)
+}
+
+async fn files(s: &AppState, details: bool) -> Result<Vec<BackupInfo>> {
     let dir = s.data_dir.join("backups");
     if !dir.exists() {
         return Ok(vec![]);
     }
+    let dir = tokio::fs::canonicalize(dir).await?;
     let mut entries = tokio::fs::read_dir(dir).await?;
     let mut results = vec![];
     while let Some(entry) = entries.next_entry().await? {
@@ -266,7 +378,7 @@ async fn files(s: &AppState) -> Result<Vec<BackupInfo>> {
         if !meta.is_file() {
             continue;
         }
-        results.push(BackupInfo {
+        let mut info = BackupInfo {
             name,
             created_at: meta
                 .modified()?
@@ -274,14 +386,37 @@ async fn files(s: &AppState) -> Result<Vec<BackupInfo>> {
                 .unwrap_or_default()
                 .as_millis() as i64,
             size: meta.len(),
-        });
+            snapshot_at: None,
+            source: None,
+            photo_count: None,
+            path: entry.path().to_string_lossy().to_string(),
+            metadata_error: false,
+        };
+        if details {
+            let path = entry.path();
+            let metadata = tokio::task::spawn_blocking(move || -> Result<Manifest> {
+                let mut zip = zip::ZipArchive::new(std::fs::File::open(path)?)
+                    .map_err(|_| ApiError::bad("无法读取备份信息。"))?;
+                read_manifest(&mut zip)
+            })
+            .await;
+            match metadata {
+                Ok(Ok(manifest)) if (0..=8_640_000_000_000_000).contains(&manifest.created_at) => {
+                    info.snapshot_at = Some(manifest.created_at);
+                    info.source = manifest.source;
+                    info.photo_count = manifest.photo_count;
+                }
+                _ => info.metadata_error = true,
+            }
+        }
+        results.push(info);
     }
     results.sort_by_key(|a| std::cmp::Reverse(a.created_at));
     Ok(results)
 }
 async fn prune(s: &AppState) -> Result<()> {
     let settings = settings(s).await?;
-    let files = files(s).await?;
+    let files = files(s, false).await?;
     let cutoff = now() - settings.keep_days as i64 * 86_400_000;
     // Keep every snapshot within the requested period, and always retain the newest.
     // create() calls this only after a complete, validated ZIP has been saved.
@@ -300,18 +435,23 @@ pub async fn download(
 ) -> Result<Response> {
     local(peer)?;
     current(&s, &headers).await?.admin()?;
-    let bytes = tokio::fs::read(archive_path(&s, &name)?).await?;
-    Ok((
-        [
-            (header::CONTENT_TYPE, "application/zip".to_string()),
-            (
-                header::CONTENT_DISPOSITION,
-                format!("attachment; filename=\"{name}\""),
-            ),
-        ],
-        bytes,
-    )
-        .into_response())
+    let mut service = tower_http::services::ServeFile::new(archive_path(&s, &name)?);
+    let request = axum::http::Request::builder()
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let mut response = service.try_call(request).await?.into_response();
+    if !response.status().is_success() {
+        return Err(ApiError::missing());
+    }
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        header::HeaderValue::from_static("application/zip"),
+    );
+    response.headers_mut().insert(
+        header::CONTENT_DISPOSITION,
+        format!("attachment; filename=\"{name}\"").parse().unwrap(),
+    );
+    Ok(response)
 }
 #[derive(Deserialize)]
 pub struct Restore {
@@ -336,6 +476,8 @@ pub async fn restore(
             "请填写“恢复全部数据”确认，恢复后将退出所有账号。",
         ));
     }
+    let live_size = database_size(&s.db).await?;
+    let space_path = s.data_dir.clone();
     let original = archive_path(&s, &input.name)?;
     let stage = tempfile::tempdir_in(&s.data_dir)?;
     let snapshot = stage.path().join("restore.sqlite");
@@ -343,16 +485,7 @@ pub async fn restore(
     let manifest = tokio::task::spawn_blocking(move || -> Result<Manifest> {
         let mut zip = zip::ZipArchive::new(std::fs::File::open(original)?)
             .map_err(|_| ApiError::bad("不是有效的完整备份文件。"))?;
-        let mut text = String::new();
-        zip.by_name("manifest.json")
-            .map_err(|_| ApiError::bad("备份缺少清单。"))?
-            .take(65536)
-            .read_to_string(&mut text)?;
-        let manifest: Manifest =
-            serde_json::from_str(&text).map_err(|_| ApiError::bad("备份清单格式不正确。"))?;
-        if manifest.format != FORMAT {
-            return Err(ApiError::bad("不支持此备份格式版本。"));
-        }
+        let manifest = read_manifest(&mut zip)?;
         {
             let file = zip
                 .by_name("inventory.sqlite")
@@ -360,10 +493,20 @@ pub async fn restore(
             if file.size() > MAX_SNAPSHOT {
                 return Err(ApiError::bad("备份超过当前恢复大小限制。"));
             }
-            std::io::copy(
-                &mut file.take(MAX_SNAPSHOT + 1),
-                &mut std::fs::File::create(&dest)?,
+            let expected = file.size();
+            check_space(
+                &space_path,
+                live_size
+                    .saturating_mul(4)
+                    .saturating_add(expected.saturating_mul(2))
+                    .saturating_add(SPACE_MARGIN),
             )?;
+            let mut output = std::fs::File::create(&dest)?;
+            let copied = std::io::copy(&mut file.take(MAX_SNAPSHOT + 1), &mut output)?;
+            if copied > MAX_SNAPSHOT || copied != expected {
+                return Err(ApiError::bad("备份数据库大小不一致或超过恢复上限。"));
+            }
+            output.sync_all()?;
         }
         if file_hash(&dest)? != manifest.sha256 {
             return Err(ApiError::bad(
@@ -374,15 +517,72 @@ pub async fn restore(
     })
     .await
     .map_err(|_| ApiError::bad("无法读取备份。"))??;
-    if manifest.schema != schemas(&s.db).await? {
+    let current_schema = schemas(&s.db).await?;
+    // Only known older business schemas can be staged forward.
+    let legacy = manifest.schema.len() < current_schema.len()
+        && [
+            current_schema
+                .iter()
+                .filter(|v| v.as_str() != "material_options_meta_v1")
+                .cloned()
+                .collect::<Vec<_>>(),
+            current_schema
+                .iter()
+                .filter(|v| !["material_options_meta_v1", "roles_v1"].contains(&v.as_str()))
+                .cloned()
+                .collect::<Vec<_>>(),
+            current_schema
+                .iter()
+                .filter(|v| {
+                    ![
+                        "material_options_meta_v1",
+                        "roles_v1",
+                        "material_options_v1",
+                    ]
+                    .contains(&v.as_str())
+                })
+                .cloned()
+                .collect::<Vec<_>>(),
+            current_schema
+                .iter()
+                .filter(|v| {
+                    ![
+                        "material_options_meta_v1",
+                        "roles_v1",
+                        "material_options_v1",
+                        "sales_v1",
+                    ]
+                    .contains(&v.as_str())
+                })
+                .cloned()
+                .collect::<Vec<_>>(),
+        ]
+        .contains(&manifest.schema);
+    if manifest.schema != current_schema && !legacy {
         return Err(ApiError::bad(
             "备份数据库版本不同，请使用匹配版本的软件恢复。",
         ));
     }
     let validation = validate_database(&snapshot).await?;
+    if schemas(&validation).await? != manifest.schema {
+        return Err(ApiError::bad("备份清单与数据库版本不一致。"));
+    }
     validation.close().await?;
+    if legacy {
+        // Upgrade only the temporary source; the live database is untouched until
+        // validation and a safety backup have both succeeded.
+        let source = snapshot.clone();
+        let mut options = ConnectOptions::new("sqlite://restore-stage");
+        options
+            .max_connections(1)
+            .map_sqlx_sqlite_opts(move |o| o.filename(&source));
+        let staged = Database::connect(options).await?;
+        crate::migration::Migrator::up(&staged, None).await?;
+        crate::roles::validate_backup(&staged).await?;
+        staged.close().await?;
+    }
     // Snapshot current data first. Failure leaves all current data untouched.
-    let before = create(&s, &actor).await?;
+    let before = create(&s, &actor, "restore").await?;
     let _writes = s.writes.lock().await;
     let mut connection =
         s.db.get_sqlite_connection_pool()
@@ -397,6 +597,14 @@ pub async fn restore(
     let outcome: Result<()> = async {
         let mut txn = connection.begin().await.map_err(ApiError::from)?;
         const TABLES: &[&str] = &[
+            "sales_attachments",
+            "sales_returns",
+            "sales_inventory",
+            "sales_cash",
+            "sales_revisions",
+            "sales",
+            "sales_catalog",
+            "material_options",
             "sessions",
             "document_lines",
             "stocktake_lines",
@@ -406,6 +614,7 @@ pub async fn restore(
             "stocktakes",
             "items",
             "users",
+            "roles",
             "settings",
         ];
         // Identifiers come only from this compile-time allowlist, never from backup/user data.
@@ -481,12 +690,14 @@ pub async fn scheduler(s: AppState) {
                     username: "system".into(),
                     name: "自动备份".into(),
                     role: "admin".into(),
+                    role_name: "管理员".into(),
+                    permissions: vec![],
                     can_in: false,
                     can_out: false,
                     can_count: false,
                     active: true,
                 };
-                create(&s, &system).await?;
+                create(&s, &system, "automatic").await?;
             }
             Ok(())
         }

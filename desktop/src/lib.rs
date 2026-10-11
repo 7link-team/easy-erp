@@ -1,3 +1,4 @@
+mod browser_address;
 #[cfg(all(desktop, any(windows, test)))]
 mod data_location;
 #[cfg(desktop)]

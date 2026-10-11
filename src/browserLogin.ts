@@ -38,7 +38,7 @@ if (match)
   history.replaceState(
     null,
     "",
-    `${location.pathname}${location.search}#/home`,
+    `${location.pathname}${location.search}#/${new URLSearchParams(location.search).has("sale_print") ? "sales" : "home"}`,
   );
 export const browserLogin = match
   ? send<{ user: User }>("/browser-login/consume", { ticket: match[1] })

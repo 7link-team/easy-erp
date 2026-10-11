@@ -250,7 +250,9 @@ async fn stop_local(app: &tauri::AppHandle, for_update: bool) -> Result<bool, St
         .map_err(|_| "旧版库存服务不支持安全停止，请先备份并手动退出库存服务后再试。")?;
     let client = reqwest::Client::builder()
         .no_proxy()
-        .timeout(Duration::from_secs(120))
+        .connect_timeout(Duration::from_secs(5))
+        // Large ledgers need minutes for the validated backup before shutdown.
+        .timeout(Duration::from_secs(30 * 60))
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| e.to_string())?;

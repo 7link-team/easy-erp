@@ -24,6 +24,7 @@ pub fn quantity(input: &str, precision: i64, allow_zero: bool) -> Result<i64> {
             "数量请填写数字，不要填写负数、逗号或算式，例如请填 1000，不要填 1,000 或 1e3。",
         ));
     }
+    let decimal = decimal.trim_end_matches('0');
     if decimal.len() > precision as usize {
         return Err(ApiError::bad(if precision == 0 {
             "这件物料只能填写整数。".into()

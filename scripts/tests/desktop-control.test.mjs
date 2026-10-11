@@ -145,6 +145,8 @@ test(
       assert.equal(result.status, 200);
       const backup = await result.json();
       assert.equal(backup.instance_id, identity.instance_id);
+      assert.equal(backup.backup.source, "shutdown");
+      assert.equal(backup.backup.photo_count, 0);
       assert.ok(
         (await readdir(join(directory, "backups"))).some((name) =>
           name.endsWith(".zip"),
@@ -156,6 +158,8 @@ test(
       const offline = await backupOnly();
       const archived = JSON.parse(offline.stdout.trim());
       assert.ok(archived.name.endsWith(".zip"));
+      assert.equal(archived.source, "maintenance");
+      assert.equal(archived.photo_count, 0);
       assert.equal(
         (await readdir(join(directory, "backups"))).length,
         beforeOffline.length + 1,

@@ -7,7 +7,7 @@ import "./style.css";
 import "./responsive.css";
 import "./theme.css";
 import "./controls.css";
-import "./movement.css";
+import "./document.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

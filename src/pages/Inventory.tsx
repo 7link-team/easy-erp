@@ -1,5 +1,8 @@
+import TableImport from "../TableImport";
+import { pageAddress, useQueryValue, type Navigate } from "../navigation";
+import { can } from "../api";
 import { Disclosure } from "../ui";
-import { Form, Input, Select, Button, Checkbox } from "../ui";
+import { Form, Input, Select, ComboBox, Button, useConfirm } from "../ui";
 import { useEffect, useState } from "react";
 import {
   Plus,
@@ -7,6 +10,7 @@ import {
   ArrowDownToLine,
   ArrowUpFromLine,
   Pencil,
+  ReceiptText,
 } from "lucide-react";
 import { type Item, type User, api, send, kinds, quantity } from "../api";
 import {
@@ -31,11 +35,18 @@ export function ItemForm({
   onDone: () => void;
   onClose: () => void;
 }) {
+  const choices = useResource<{
+    items: { field: string; name: string; active: boolean }[];
+  }>("/material-options");
+  const options = (field: string) =>
+    (choices.data?.items || [])
+      .filter((c) => c.field === field && c.active)
+      .map((c) => ({ value: c.name, label: c.name }));
   const [name, setName] = useState(item?.name ?? "");
   const [spec, setSpec] = useState(item?.spec ?? "");
   const [kind, setKind] = useState(item?.kind ?? "其他");
   const [unit, setUnit] = useState(item?.unit ?? "个");
-  const [precision, setPrecision] = useState(item?.precision ?? 0);
+  const precision = item?.precision ?? 3;
   const [code, setCode] = useState(item?.code ?? "");
   const [barcode, setBarcode] = useState(item?.barcode ?? "");
   const [minimum, setMinimum] = useState(
@@ -80,17 +91,18 @@ export function ItemForm({
               onChange={(e) => setName(e.target.value)}
               required
               maxLength={100}
-              autoFocus
+              autoFocus={window.matchMedia("(pointer: fine)").matches}
             />
           )}
         </Field>
         <div className="form-grid">
           <Field label="规格" hint="例如：M6 × 20 mm">
             {(p) => (
-              <Input
+              <ComboBox
                 {...p}
+                options={options("spec")}
                 value={spec}
-                onChange={(e) => setSpec(e.target.value)}
+                onValueChange={setSpec}
                 maxLength={100}
               />
             )}
@@ -100,44 +112,33 @@ export function ItemForm({
             help="只用于分类查找，不会自动扣原料或增加成品数量。"
           >
             {(p) => (
-              <Select
+              <ComboBox
                 {...p}
+                options={options("kind")}
                 value={kind}
-                onChange={(e) => setKind(e.target.value)}
-              >
-                {kinds.map((k) => (
-                  <option key={k}>{k}</option>
-                ))}
-              </Select>
+                onValueChange={setKind}
+                maxLength={100}
+              />
             )}
           </Field>
         </div>
         <div className="form-grid">
           <Field label="基本单位" required hint="已有出入库记录后不能更改。">
             {(p) => (
-              <Input
+              <ComboBox
                 {...p}
+                options={options("unit")}
                 value={unit}
-                onChange={(e) => setUnit(e.target.value)}
+                onValueChange={setUnit}
                 required
                 maxLength={16}
               />
             )}
           </Field>
-          <Field label="数量格式" required>
-            {(p) => (
-              <Select
-                {...p}
-                value={precision}
-                onChange={(e) => setPrecision(Number(e.target.value))}
-              >
-                <option value={0}>整数，例如 20 个</option>
-                <option value={1}>1 位小数，例如 1.5 公斤</option>
-                <option value={2}>2 位小数，例如 1.25 公斤</option>
-                <option value={3}>3 位小数，例如 1.250 公斤</option>
-              </Select>
-            )}
-          </Field>
+          <p className="muted">
+            数量支持整数和最多 3 位小数，例如
+            10、1.25。库存数量在入库或首次库存登记时填写。
+          </p>
         </div>
         <Field label="最低库存提醒" hint="留空不提醒；填 0 表示用完时提醒。">
           {(p) => (
@@ -158,6 +159,7 @@ export function ItemForm({
               <Input
                 {...p}
                 maxLength={64}
+                spellCheck={false}
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
               />
@@ -168,6 +170,7 @@ export function ItemForm({
               <Input
                 {...p}
                 maxLength={128}
+                spellCheck={false}
                 value={barcode}
                 onChange={(e) => setBarcode(e.target.value)}
               />
@@ -175,7 +178,7 @@ export function ItemForm({
           </Field>
         </Disclosure>
         {action.error && <Notice>{action.error}</Notice>}
-        <div className="form-actions">
+        <div className="form-actions form-footer">
           <Button type="button" className="button" onClick={onClose}>
             取消
           </Button>
@@ -191,61 +194,111 @@ export default function Inventory({
   revision,
   refresh,
   move,
+  openSale,
+  navigate,
 }: {
   user: User;
   revision: number;
   refresh: () => void;
   move: (direction: "in" | "out", item?: Item) => void;
+  openSale: (item: Item) => void;
+  navigate: Navigate;
 }) {
-  const [search, setSearch] = useState("");
-  const [debounced, setDebounced] = useState("");
-  const [kind, setKind] = useState("");
-  const [low, setLow] = useState(false);
-  const [page, setPage] = useState(1);
+  const choices = useResource<{
+    items: { field: string; name: string; active: boolean }[];
+    kinds: string[];
+  }>("/material-options", revision);
+  const typeOptions = Array.from(
+    new Set([
+      ...kinds,
+      ...(choices.data?.kinds || []),
+      ...(choices.data?.items || [])
+        .filter((c) => c.field === "kind")
+        .map((c) => c.name),
+    ]),
+  );
+  const [search, setSearch] = useQueryValue<string>("inventory_q", "");
+  const [focusedItem, setFocusedItem] = useQueryValue<string>(
+    "inventory_item",
+    "",
+  );
+  const [debounced, setDebounced] = useState(search);
+  const [kind, setKind] = useQueryValue<string>("inventory_kind", "");
+  const [status, setStatus] = useQueryValue<string>(
+    "inventory_status",
+    "active",
+  );
+  const [sort, setSort] = useQueryValue<string>("inventory_sort", "newest");
+  const confirm = useConfirm();
+  const [page, setPage] = useQueryValue<number>("inventory_page", 1);
   const [editing, setEditing] = useState<Item | "new">();
+  const [importing, setImporting] = useState(false);
   const [removing, setRemoving] = useState<Item>();
   const action = useAction();
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebounced(search);
-      setPage(1);
     }, 200);
     return () => clearTimeout(timer);
   }, [search]);
   const { data, error, loading } = useResource<{
     items: Item[];
     total: number;
+    counts: Record<string, number>;
   }>(
-    `/items?q=${encodeURIComponent(debounced)}&kind=${encodeURIComponent(kind)}&low=${low}&page=${page}`,
+    `/items?q=${encodeURIComponent(debounced)}&kind=${encodeURIComponent(kind)}&status=${encodeURIComponent(status)}&sort=${encodeURIComponent(sort)}&page=${page}${focusedItem ? `&ids=${encodeURIComponent(focusedItem)}` : ""}`,
     revision,
   );
   return (
     <>
       <div className="page-heading">
         <div>
-          <h1>库存</h1>
+          <h1>物料</h1>
           <p>找物料、看数量。每笔收发都有记录。</p>
         </div>
-        {user.role === "admin" && (
-          <Button className="button primary" onClick={() => setEditing("new")}>
-            <Plus size={19} />
-            添加物料
-          </Button>
-        )}
+        <div className="row-actions">
+          {user.role === "admin" && (
+            <>
+              <Button onClick={() => setImporting(true)}>导入物料</Button>
+              <a
+                className="button"
+                href={`/api/export/items?format=csv&q=${encodeURIComponent(debounced)}&kind=${encodeURIComponent(kind)}&status=${encodeURIComponent(status)}&sort=${encodeURIComponent(sort)}${focusedItem ? `&ids=${encodeURIComponent(focusedItem)}` : ""}`}
+              >
+                导出 CSV
+              </a>
+            </>
+          )}
+          {can(user, "items.create") && (
+            <Button
+              className="button primary"
+              onClick={() => setEditing("new")}
+            >
+              <Plus aria-hidden="true" size={19} />
+              添加物料
+            </Button>
+          )}
+        </div>
       </div>
-      <section className="panel">
+      <section className="panel ledger-sheet inventory-sheet">
         <div className="filters">
           <label className="search">
-            <Search size={20} />
+            <Search aria-hidden="true" size={20} />
             <Input
               aria-label="搜索物料"
-              placeholder="搜索物料名称、编码或扫描条码"
+              name="inventory-search"
+              type="search"
+              placeholder="名称、规格、编码或条码…"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setFocusedItem("");
+                setPage(1);
+              }}
             />
           </label>
           <Select
             aria-label="筛选物料类型"
+            name="inventory-kind"
             value={kind}
             onChange={(e) => {
               setKind(e.target.value);
@@ -253,28 +306,69 @@ export default function Inventory({
             }}
           >
             <option value="">全部类型</option>
-            {kinds.map((k) => (
+            {typeOptions.map((k) => (
               <option key={k}>{k}</option>
             ))}
           </Select>
-          <label className="checkbox">
-            <Checkbox
-              checked={low}
-              onChange={(e) => {
-                setLow(e.target.checked);
+          <Select
+            aria-label="物料排序"
+            name="inventory-sort"
+            value={sort}
+            onChange={(e) => {
+              setSort(e.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="newest">最近新增</option>
+            <option value="stock_asc">库存量从少到多</option>
+            <option value="stock_desc">库存量从多到少</option>
+            <option value="name">物料名称</option>
+          </Select>
+        </div>
+        {focusedItem && (
+          <div className="search-location" role="status">
+            <span>已定位到搜索选中的物料</span>
+            <Button
+              className="text-button"
+              onClick={() => {
+                setFocusedItem("");
                 setPage(1);
               }}
-            />
-            只看库存不足
-          </label>
+            >
+              查看全部物料
+            </Button>
+          </div>
+        )}
+        <div className="filter-chips" role="group" aria-label="物料状态">
+          {[
+            ["active", "全部在用"],
+            ["low", "低库存"],
+            ["zero", "已清零"],
+            ["archived", "已停用"],
+          ].map(([value, label]) => (
+            <Button
+              key={value}
+              className="filter-chip"
+              aria-pressed={status === value}
+              onClick={() => {
+                setStatus(value);
+                setPage(1);
+              }}
+            >
+              {label}{" "}
+              <span aria-hidden="true">
+                {data?.counts?.[value]?.toLocaleString() ?? "…"}
+              </span>
+            </Button>
+          ))}
         </div>
         {(error || action.error) && <Notice>{error || action.error}</Notice>}
-        {loading ? (
+        {loading || search !== debounced ? (
           <Loading />
         ) : !data?.items.length ? (
           <Empty>
-            {search
-              ? "没有找到物料，请换个名称、规格或编码试试。"
+            {search || kind || status !== "active"
+              ? "没有符合筛选条件的物料，请调整搜索或状态。"
               : "暂无物料，请管理员添加或导入物料。"}
           </Empty>
         ) : (
@@ -289,6 +383,7 @@ export default function Inventory({
                   <th>物料 / 规格</th>
                   <th>类型</th>
                   <th className="numeric">当前库存</th>
+                  <th className="numeric">预警线</th>
                   <th>状态</th>
                   <th>操作</th>
                 </tr>
@@ -309,8 +404,15 @@ export default function Inventory({
                       </b>{" "}
                       {item.unit}
                     </td>
+                    <td className="numeric" role="cell" data-label="预警线">
+                      {item.minimum >= 0
+                        ? `${quantity(item.minimum, item.precision)} ${item.unit}`
+                        : "未设置"}
+                    </td>
                     <td role="cell">
-                      {item.counting ? (
+                      {!item.active ? (
+                        <span className="badge">已停用</span>
+                      ) : item.counting ? (
                         <span className="badge amber">正在清点</span>
                       ) : item.minimum >= 0 && item.balance <= item.minimum ? (
                         <span className="badge amber">库存不足</span>
@@ -320,36 +422,111 @@ export default function Inventory({
                     </td>
                     <td role="cell">
                       <div className="row-actions">
-                        {(user.role === "admin" || user.can_in) && (
+                        {can(user, "records.read") && (
+                          <a
+                            className="button small"
+                            href={pageAddress("movement", {
+                              movement_item: item.id,
+                              movement_q: "",
+                              movement_kind: "",
+                              movement_page: "",
+                            })}
+                            onClick={(event) => {
+                              if (
+                                event.metaKey ||
+                                event.ctrlKey ||
+                                event.shiftKey ||
+                                event.altKey
+                              )
+                                return;
+                              event.preventDefault();
+                              void navigate("movement", undefined, {
+                                movement_item: item.id,
+                                movement_q: "",
+                                movement_kind: "",
+                                movement_page: "",
+                              });
+                            }}
+                          >
+                            明细
+                          </a>
+                        )}
+                        {item.active && can(user, "movement.in") && (
                           <Button
                             className="button small"
                             disabled={item.counting}
                             onClick={() => move("in", item)}
                           >
-                            <ArrowDownToLine size={16} />
+                            <ArrowDownToLine aria-hidden="true" size={16} />
                             入库
                           </Button>
                         )}
-                        {(user.role === "admin" || user.can_out) && (
+                        {item.active && can(user, "movement.out") && (
                           <Button
                             className="button small"
-                            disabled={item.counting}
+                            disabled={item.counting || item.balance <= 0}
+                            title={
+                              item.balance <= 0
+                                ? "无库存，暂不能出库"
+                                : undefined
+                            }
                             onClick={() => move("out", item)}
                           >
-                            <ArrowUpFromLine size={16} />
+                            <ArrowUpFromLine aria-hidden="true" size={16} />
                             出库
                           </Button>
                         )}
-                        {user.role === "admin" && (
+                        {item.active && can(user, "sales.create") && (
+                          <Button
+                            className="button small"
+                            disabled={item.counting || item.balance <= 0}
+                            title={
+                              item.balance <= 0
+                                ? "无库存，暂不能开单出库"
+                                : undefined
+                            }
+                            onClick={() => openSale(item)}
+                          >
+                            <ReceiptText aria-hidden="true" size={16} />
+                            开单出库
+                          </Button>
+                        )}
+                        {can(user, "items.update") && (
                           <Button
                             className="icon-button"
                             onClick={() => setEditing(item)}
                             aria-label={`修改${item.name}`}
                           >
-                            <Pencil size={17} />
+                            <Pencil aria-hidden="true" size={17} />
                           </Button>
                         )}
-                        {user.role === "admin" &&
+                        {!item.active && can(user, "items.update") && (
+                          <Button
+                            className="button small"
+                            disabled={action.busy}
+                            onClick={() =>
+                              action.run(async () => {
+                                if (
+                                  !(await confirm({
+                                    title: `启用“${item.name}”？`,
+                                    description:
+                                      "启用后可以重新登记收发，原库存和历史记录保留。",
+                                    confirmLabel: "确认启用",
+                                  }))
+                                )
+                                  return;
+                                await send(`/items/${item.id}/restore`, {
+                                  version: item.version,
+                                });
+                                refresh();
+                              })
+                            }
+                          >
+                            启用
+                          </Button>
+                        )}
+                        {item.active &&
+                          can(user, "items.delete") &&
                           item.balance === 0 &&
                           !item.counting && (
                             <Button
@@ -396,6 +573,14 @@ export default function Inventory({
           </div>
         </div>
       </section>
+      {importing && (
+        <Modal title="导入物料" onClose={() => setImporting(false)}>
+          <TableImport
+            onImported={refresh}
+            onClose={() => setImporting(false)}
+          />
+        </Modal>
+      )}
       {editing && (
         <ItemForm
           item={editing === "new" ? undefined : editing}

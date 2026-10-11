@@ -46,7 +46,7 @@
 }
 .update-progress progress {
   width: 100%;
-  accent-color: var(--accent);
+  accent-color: var(--primary);
 }
 .update-notes p {
   white-space: pre-wrap;
