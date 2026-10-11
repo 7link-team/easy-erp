@@ -32,12 +32,10 @@ target/
 *.keystore
 *.jks
 
-# Local Playwright tests and generated reports
+# Generated Playwright reports
 /test-results/
 /playwright-report/
 /playwright-report-*/
-/playwright.config.*
-/tests/e2e/
 /playwright/
 /blob-report/
 /coverage/
@@ -52,6 +50,8 @@ target/
 .idea/
 .vscode/
 .cache/
+__pycache__/
+*.pyc
 .vite/
 /tmp/
 /temp/
@@ -64,3 +64,7 @@ target/
 ._*
 Thumbs.db
 Desktop.ini
+
+# Agent / 设计工作区产物
+.playwright-mcp/
+/design-system/*/shots/

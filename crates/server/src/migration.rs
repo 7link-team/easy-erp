@@ -4,7 +4,52 @@ pub struct Migrator;
 #[async_trait::async_trait]
 impl MigratorTrait for Migrator {
     fn migrations() -> Vec<Box<dyn MigrationTrait>> {
-        vec![Box::new(Initial), Box::new(SessionIdle)]
+        vec![
+            Box::new(Initial),
+            Box::new(SessionIdle),
+            Box::new(Sales),
+            Box::new(MaterialOptions),
+            Box::new(Roles),
+            Box::new(MaterialOptionMetadata),
+        ]
+    }
+}
+
+struct Sales;
+impl MigrationName for Sales {
+    fn name(&self) -> &str {
+        "sales_v1"
+    }
+}
+#[async_trait::async_trait]
+impl MigrationTrait for Sales {
+    async fn up(&self, m: &SchemaManager) -> std::result::Result<(), DbErr> {
+        for sql in [
+            "CREATE TABLE sales_catalog (id TEXT PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL, active INTEGER NOT NULL, version INTEGER NOT NULL, data TEXT NOT NULL)",
+            "CREATE UNIQUE INDEX sales_catalog_name ON sales_catalog(kind,name,CASE WHEN kind='salesperson' THEN json_extract(data,'$.department_id') ELSE '' END)",
+            "CREATE TABLE sales (id TEXT PRIMARY KEY, actor_id TEXT NOT NULL, customer_id TEXT NOT NULL, status TEXT NOT NULL, version INTEGER NOT NULL, created_at INTEGER NOT NULL, data TEXT NOT NULL)",
+            "CREATE INDEX sales_actor_created ON sales(actor_id,created_at)",
+            "CREATE INDEX sales_customer ON sales(customer_id)",
+            "CREATE TABLE sales_revisions (id TEXT PRIMARY KEY, sale_id TEXT NOT NULL, version INTEGER NOT NULL, actor_name TEXT NOT NULL, reason TEXT NOT NULL, created_at INTEGER NOT NULL, data TEXT NOT NULL)",
+            "CREATE INDEX sales_revision_parent ON sales_revisions(sale_id,version)",
+            "CREATE TABLE sales_cash (id TEXT PRIMARY KEY, sale_id TEXT NOT NULL, account_id TEXT NOT NULL, account_name TEXT NOT NULL, amount INTEGER NOT NULL, actor_name TEXT NOT NULL, business_date TEXT NOT NULL, note TEXT NOT NULL, reversal_of TEXT NOT NULL, created_at INTEGER NOT NULL)",
+            "CREATE INDEX sales_cash_parent ON sales_cash(sale_id)",
+            "CREATE TABLE sales_inventory (document_id TEXT PRIMARY KEY, sale_id TEXT NOT NULL)",
+            "CREATE TABLE sales_returns (id TEXT PRIMARY KEY, sale_id TEXT NOT NULL, created_at INTEGER NOT NULL, data TEXT NOT NULL)",
+            "CREATE TABLE sales_attachments (id TEXT PRIMARY KEY, sale_id TEXT NOT NULL, mime TEXT NOT NULL, active INTEGER NOT NULL, actor_name TEXT NOT NULL, created_at INTEGER NOT NULL, data BLOB NOT NULL)",
+            "CREATE INDEX sales_attachments_parent ON sales_attachments(sale_id,active)",
+            "UPDATE items SET precision=3,version=version+1 WHERE precision<>3",
+            "INSERT INTO sales_catalog VALUES ('sale','type','销售单',1,1,'{\"billable\":true,\"sort\":0}')",
+            "INSERT INTO sales_catalog VALUES ('sample','type','样品单',1,1,'{\"billable\":false,\"sort\":1}')",
+            "INSERT INTO sales_catalog VALUES ('transfer','type','调货单',1,1,'{\"billable\":false,\"sort\":2}')",
+            "INSERT INTO sales_catalog VALUES ('cash','account','现金',1,1,'{}')",
+        ] {
+            m.get_connection().execute_unprepared(sql).await?;
+        }
+        Ok(())
+    }
+    async fn down(&self, _: &SchemaManager) -> std::result::Result<(), DbErr> {
+        Err(DbErr::Custom("不自动回退销售及资金数据".into()))
     }
 }
 
@@ -230,5 +275,91 @@ impl MigrationTrait for Initial {
         Err(DbErr::Custom(
             "禁止自动删除库存业务表；请使用已验证的备份恢复。".into(),
         ))
+    }
+}
+
+struct MaterialOptions;
+impl MigrationName for MaterialOptions {
+    fn name(&self) -> &str {
+        "material_options_v1"
+    }
+}
+#[async_trait::async_trait]
+impl MigrationTrait for MaterialOptions {
+    async fn up(&self, m: &SchemaManager) -> std::result::Result<(), DbErr> {
+        let db = m.get_connection();
+        db.execute_unprepared("CREATE TABLE material_options (id TEXT PRIMARY KEY, field TEXT NOT NULL, name TEXT NOT NULL, key TEXT NOT NULL, version INTEGER NOT NULL, UNIQUE(field,key))").await?;
+        // Seed existing values using the same Unicode normalization as future writes.
+        for field in ["spec", "kind", "unit"] {
+            let rows = crate::db::all(
+                db,
+                &format!("SELECT DISTINCT {field} AS name FROM items"),
+                vec![],
+            )
+            .await
+            .map_err(|e| DbErr::Custom(e.to_string()))?;
+            let defaults: &[&str] = match field {
+                "kind" => &crate::domain::ITEM_KINDS,
+                "unit" => &["个", "件", "公斤", "米", "箱"],
+                _ => &[],
+            };
+            let names = rows
+                .iter()
+                .map(|r| crate::db::text(r, "name"))
+                .chain(defaults.iter().map(|v| String::from(*v)));
+            for name in names {
+                crate::options::seed(db, field, &name)
+                    .await
+                    .map_err(|e| DbErr::Custom(e.to_string()))?;
+            }
+        }
+        Ok(())
+    }
+    async fn down(&self, _: &SchemaManager) -> std::result::Result<(), DbErr> {
+        Err(DbErr::Custom("不自动回退基础资料".into()))
+    }
+}
+
+struct Roles;
+impl MigrationName for Roles {
+    fn name(&self) -> &str {
+        "roles_v1"
+    }
+}
+#[async_trait::async_trait]
+impl MigrationTrait for Roles {
+    async fn up(&self, m: &SchemaManager) -> std::result::Result<(), DbErr> {
+        m.get_connection().execute_unprepared("CREATE TABLE roles (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, permissions TEXT NOT NULL, version INTEGER NOT NULL)").await?;
+        crate::roles::initialize(m.get_connection())
+            .await
+            .map_err(|e| DbErr::Custom(e.to_string()))
+    }
+    async fn down(&self, _: &SchemaManager) -> std::result::Result<(), DbErr> {
+        Err(DbErr::Custom("不自动回退角色权限".into()))
+    }
+}
+
+struct MaterialOptionMetadata;
+impl MigrationName for MaterialOptionMetadata {
+    fn name(&self) -> &str {
+        "material_options_meta_v1"
+    }
+}
+#[async_trait::async_trait]
+impl MigrationTrait for MaterialOptionMetadata {
+    async fn up(&self, m: &SchemaManager) -> std::result::Result<(), DbErr> {
+        for sql in [
+            "ALTER TABLE material_options ADD COLUMN active INTEGER NOT NULL DEFAULT 1",
+            "ALTER TABLE material_options ADD COLUMN sort INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE material_options ADD COLUMN note TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE material_options ADD COLUMN source TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE material_options ADD COLUMN last_used_at INTEGER NOT NULL DEFAULT 0",
+        ] {
+            m.get_connection().execute_unprepared(sql).await?;
+        }
+        Ok(())
+    }
+    async fn down(&self, _: &SchemaManager) -> std::result::Result<(), DbErr> {
+        Err(DbErr::Custom("不自动回退候选资料管理字段".into()))
     }
 }

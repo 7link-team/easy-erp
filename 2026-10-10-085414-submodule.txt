@@ -1,0 +1,56 @@
+ ▐▛███▛█   Claude Code v2.1.295
+▝▜██████▀  Opus 5 · API Usage Billing
+ ▝▝   ▝▝   /Volumes/Macintosh/Projects/aspeed/easy-erp
+
+
+❯ 如果有涉及到签名等 不适合放到公开仓库 但有需要保管的，就推到私有仓库， 然后   
+  submodule 引用？                                                              
+
+⏺ ✅ CLAUDE.md loaded 🎉
+
+  Searched for 1 pattern, read 2 files, ran 2 shell commands (ctrl+o to expand)
+
+⏺ 不用 submodule。签名这件事仓库里已经解决了，缺的是另一件事。
+
+  为什么 submodule 不合适
+
+  1. 引用本身就是泄露面。公开仓库的 .gitmodules 会写出私有仓库地址 + 固定 commit
+     SHA，等于公开告诉所有人「密钥在这个仓库」。
+  2. CI 要为此再加一个 secret。actions/checkout 拉私有 submodule 需要
+     PAT，于是你为了取密钥先得配一个密钥，循环依赖；而且 fork 发来的 PR 一律
+     checkout 失败。
+  3. Git 不加密，私有只是 ACL。一旦
+     commit，密钥永久留在历史里。轮换删不掉旧版本，任何协作者、泄露的
+     token、误转公开都拿到全量。对 TAURI_SIGNING_PRIVATE_KEY
+     来说后果是：别人能给所有已安装客户端签一个假更新包。
+
+  现状已经是对的
+
+  - CI 用 GitHub Secrets，.github/workflows/build.yml 已经全部接好（Tauri /
+    Android keystore / Apple p12 / iOS profile）。
+  - 本机用 scripts/create-signing-keys.mjs 写到
+    ~/.config/easy-erp/signing/，0600。
+  - .gitignore 已经挡掉 *.p12 *.jks *.key *.pem。
+
+  真正的缺口是备份恢复：GitHub Secrets 只能写不能读回，而本地那份只在这一台 Mac
+  上。这台机器坏了，Tauri 更新私钥就没了 —— 按 docs/发布与自动更新.md 自己写的，
+  换密钥会让所有旧客户端永久无法验证更新。这是个保管问题，不是版本控制问题。
+
+  建议
+
+  把 ~/.config/easy-erp/signing/ 整个目录放进密码管理器（1Password / Bitwarden
+  的附件条目），恢复口令另存离线一份。两处异地，够了。
+
+  如果你坚持要 git 存：私有仓库 + age 或 sops 加密后再 commit，手工 clone
+  到工作区外的路径。加密是必须的 ——
+  私有仓库只防外人，不防历史。但这比密码管理器复杂，收益为零。
+
+  Next Step
+
+  等你定方案。我这边能做的是把「密钥备份与恢复」写进 docs/发布与自动更新.md（目
+  前只有一句「需另行备份」，没说备份什么、怎么恢复、恢复后怎么验证）——
+  要我补这一节就说。密钥往哪存是你的决定，我不动。
+
+✻ Cooked for 1m 14s · done Friday 9:01 PM
+
+※ recap: You asked whether signing keys belong in a private repo referenced as a submodule; I advised against it and recommended a password manager instead, since GitHub Secrets already covers CI. Waiting on your decision before documenting key backup and recovery. (disable recaps in /config)

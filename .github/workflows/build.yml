@@ -37,6 +37,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: npm ci
       - run: npm run build
+      - run: npm run typecheck:e2e
+      - run: cargo fmt --all -- --check
       - run: cargo test --locked -p easy-erp-server
       - run: cargo build --locked -p easy-erp-server
       - run: node --test scripts/tests/desktop-control.test.mjs scripts/tests/release-manifest.test.mjs scripts/tests/update-permissions.test.mjs
@@ -58,6 +60,46 @@ jobs:
           name: web
           path: easy-erp-web.zip
           if-no-files-found: error
+
+  e2e:
+    if: ${{ !inputs.windows_only }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            browser: chromium
+          - runner: macos-15-intel
+            browser: webkit
+    runs-on: ${{ matrix.runner }}
+    env:
+      ERP_E2E_BROWSER: ${{ matrix.browser }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: npm ci
+      - run: npx playwright install --with-deps ${{ matrix.browser }}
+      - if: runner.os == 'Linux'
+        run: sudo apt-get install -y sqlite3
+      - run: npm run build
+      - run: cargo build --locked -p easy-erp-server
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-${{ matrix.browser }}-evidence
+          path: |
+            playwright-report/
+            test-results/
+            tmp/*.png
+          if-no-files-found: ignore
+          retention-days: 14
 
   desktop:
     strategy:
@@ -310,10 +352,11 @@ jobs:
     if: >-
       always() && startsWith(github.ref, 'refs/tags/v') &&
       needs.checks.result == 'success' &&
+      needs.e2e.result == 'success' &&
       needs.web.result == 'success' && needs.desktop.result == 'success' &&
       needs.android.result == 'success' && needs.ios-simulator.result == 'success' &&
       (needs.ios-device.result == 'success' || needs.ios-device.result == 'skipped')
-    needs: [checks, web, desktop, android, ios-simulator, ios-device]
+    needs: [checks, e2e, web, desktop, android, ios-simulator, ios-device]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

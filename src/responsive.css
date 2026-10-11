@@ -5,7 +5,7 @@
   color: var(--muted);
 }
 .table-wrap:focus-visible {
-  outline: 3px solid #2563eb;
+  outline: 2px solid var(--control-focus);
   outline-offset: 3px;
 }
 .audit-detail {
@@ -37,7 +37,6 @@
 .form-grid > *,
 .task-grid > *,
 .home-columns > *,
-.movement-layout > *,
 .document-body,
 .recent-row > div,
 .page-heading > div {
@@ -56,18 +55,22 @@ svg {
   flex-shrink: 0;
 }
 .sidebar {
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  overflow: hidden;
 }
 .sidebar .brand {
+  flex-shrink: 0;
   padding-bottom: 24px;
 }
 .sidebar-bottom {
+  flex-shrink: 0;
   padding-top: 16px;
   margin-top: 24px;
 }
 .sidebar nav {
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .topbar {
   min-height: 72px;
@@ -99,7 +102,7 @@ svg {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 .panel {
-  box-shadow: 0 2px 5px #172b3704;
+  box-shadow: 0 2px 5px rgba(16, 22, 24, 0.03);
 }
 .table-wrap {
   max-width: 100%;
@@ -124,16 +127,10 @@ tbody tr:last-child td {
   border-bottom: 0;
 }
 tbody tr:hover {
-  background: #f8fafb;
+  background: var(--paper-1);
 }
 .row-actions {
   align-items: center;
-}
-.picker-item > span:first-child {
-  min-width: 0;
-}
-.picker-item > span:last-child {
-  flex-shrink: 0;
 }
 .document {
   flex-wrap: wrap;
@@ -143,9 +140,6 @@ tbody tr:hover {
 }
 .detail-grid {
   grid-template-columns: 120px minmax(0, 1fr);
-}
-.tabs {
-  flex-wrap: wrap;
 }
 .help {
   margin-top: 4px;
@@ -161,13 +155,13 @@ tbody tr:hover {
   position: static;
   width: 100%;
   padding: 12px 14px;
-  background: #eff4f7;
-  color: #263e4b;
+  background: var(--paper-1);
+  color: var(--ink-1);
   box-shadow: none;
-  border-left: 3px solid #8a9dac;
+  border-left: 3px solid var(--line-3);
 }
 .help-content p {
-  color: #435865;
+  color: var(--ink-2);
 }
 .modal-heading {
   flex-shrink: 0;
@@ -188,14 +182,6 @@ tbody tr:hover {
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 24px;
-}
-.modal-body .form-actions {
-  position: sticky;
-  bottom: -24px;
-  background: #fff;
-  border-top: 1px solid var(--border);
-  padding: 16px 0 24px;
-  margin-top: 20px;
 }
 .modal-body .more {
   margin-bottom: 20px;
@@ -236,12 +222,6 @@ tbody tr:hover {
   .filters .search {
     flex-basis: 100%;
   }
-  .movement-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .picker-list {
-    max-height: 260px;
-  }
 }
 
 @media (max-width: 760px) {
@@ -265,6 +245,7 @@ tbody tr:hover {
     display: none;
   }
   .sidebar nav {
+    overflow: visible;
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 6px;
@@ -350,7 +331,7 @@ tbody tr:hover {
   }
   .form-grid {
     grid-template-columns: minmax(0, 1fr);
-    gap: 0;
+    gap: 18px;
   }
   .home-columns {
     gap: 16px;
@@ -373,7 +354,7 @@ tbody tr:hover {
   }
   .login-page {
     display: block;
-    background: #f4f7f8;
+    background: var(--paper-1);
     padding-bottom: 20px;
   }
   .login-intro {
@@ -395,10 +376,6 @@ tbody tr:hover {
   }
   .modal-body {
     padding: 20px 16px;
-  }
-  .modal-body .form-actions {
-    bottom: -20px;
-    padding-bottom: 20px;
   }
   .entry .form-actions .button {
     width: 100%;

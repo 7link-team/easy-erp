@@ -1,3 +1,11 @@
+import { can } from "./api";
+import { GlobalSearch } from "./GlobalSearch";
+import {
+  HomeMetrics,
+  TodaySales,
+  HomeFollowUp,
+  useOverview,
+} from "./HomeOverview";
 import { Form, Input, Button, Checkbox } from "./ui";
 import { NativeTools, UpdateProvider } from "./NativeTools";
 import { ServiceUpdate } from "./ServiceUpdate";
@@ -9,13 +17,26 @@ import {
   useState,
   type RefObject,
 } from "react";
-import { useNavigation, useVisualViewport, type Page } from "./navigation";
+import {
+  useNavigation,
+  useVisualViewport,
+  type Page,
+  type Navigate,
+} from "./navigation";
 import { browserLogin, openDesktopBrowser } from "./browserLogin";
 import {
   Boxes,
   LayoutDashboard,
   PackageSearch,
   ClipboardList,
+  ReceiptText,
+  Wallet,
+  Landmark,
+  ChartNoAxesCombined,
+  ArrowLeftRight,
+  Info,
+  ContactRound,
+  ListChecks,
   ClipboardCheck,
   UsersRound,
   Settings,
@@ -29,6 +50,8 @@ import {
   MoreHorizontal,
   ChevronRight,
   ExternalLink,
+  Sun,
+  Moon,
 } from "lucide-react";
 import {
   api,
@@ -41,6 +64,7 @@ import {
 } from "./api";
 import {
   Field,
+  PageLink,
   Modal,
   Loading,
   Notice,
@@ -50,6 +74,7 @@ import {
   useResource,
 } from "./components";
 
+const Sales = lazy(() => import("./pages/Sales"));
 const Inventory = lazy(() => import("./pages/Inventory"));
 const Movement = lazy(() => import("./pages/Movement"));
 const Records = lazy(() => import("./pages/Records"));
@@ -58,6 +83,68 @@ const Users = lazy(() => import("./pages/Users"));
 const SettingsPage = lazy(() => import("./pages/Settings"));
 const UpdatesPage = lazy(() => import("./pages/Updates"));
 import WebAccess from "./WebAccess";
+
+/** 界面字号与深浅主题。写在 <html> 的 data 属性上，由设计令牌接管缩放与配色。 */
+function useDisplaySettings() {
+  const read = (key: string, fallback: string) => {
+    try {
+      return localStorage.getItem(key) ?? fallback;
+    } catch {
+      return fallback;
+    }
+  };
+  const [size, setSize] = useState(() => read("erp-size", "md"));
+  const [theme, setTheme] = useState(() => read("erp-theme", "light"));
+  useEffect(() => {
+    document.documentElement.dataset.size = size;
+    document.documentElement.dataset.theme = theme;
+    document
+      .querySelector('meta[name="theme-color"]')
+      ?.setAttribute(
+        "content",
+        getComputedStyle(document.documentElement)
+          .getPropertyValue("--paper-2")
+          .trim(),
+      );
+    try {
+      localStorage.setItem("erp-size", size);
+      localStorage.setItem("erp-theme", theme);
+    } catch {
+      /* 隐私模式下不可写，不影响使用 */
+    }
+  }, [size, theme]);
+  return { size, setSize, theme, setTheme };
+}
+
+function SizeSwitch({
+  size,
+  onChange,
+}: {
+  size: string;
+  onChange: (size: string) => void;
+}) {
+  return (
+    <div className="size-switch" role="group" aria-label="界面字号">
+      {(
+        [
+          ["sm", "小号字"],
+          ["md", "中号字（默认）"],
+          ["lg", "大号字"],
+        ] as const
+      ).map(([value, label]) => (
+        <Button
+          key={value}
+          title={label}
+          aria-label={label}
+          aria-pressed={size === value}
+          onClick={() => onChange(value)}
+        >
+          A
+        </Button>
+      ))}
+    </div>
+  );
+}
 
 function Login({
   initialized,
@@ -78,7 +165,7 @@ function Login({
     <div className="login-page">
       <section className="login-intro">
         <div className="brand">
-          <Boxes size={30} />
+          <Boxes aria-hidden="true" size={30} />
           <span>库存管理</span>
         </div>
         <h1>
@@ -93,10 +180,11 @@ function Login({
         </p>
         <div className="login-points">
           <span>
-            <ShieldCheck size={20} /> 独立账号 · 操作有记录
+            <ShieldCheck aria-hidden="true" size={20} /> 独立账号 · 操作有记录
           </span>
           <span>
-            <Boxes size={20} /> 同一网络内共用 · 数据保存在自己的电脑
+            <Boxes aria-hidden="true" size={20} /> 同一网络内共用 ·
+            数据保存在自己的电脑
           </span>
         </div>
       </section>
@@ -189,22 +277,29 @@ function Login({
                   onClick={() => setShow((s) => !s)}
                   aria-label={show ? "隐藏密码" : "显示密码"}
                 >
-                  {show ? <EyeOff size={19} /> : <Eye size={19} />}
+                  {show ? (
+                    <EyeOff aria-hidden="true" size={19} />
+                  ) : (
+                    <Eye aria-hidden="true" size={19} />
+                  )}
                 </Button>
               </div>
             )}
           </Field>
           <label className="checkbox">
             <Checkbox
+              name="remember-login"
               checked={remember}
               onChange={(e) => setRemember(e.target.checked)}
             />
             这是我的专用设备，记住登录（30 天未使用才过期）
           </label>
           {action.error && <Notice>{action.error}</Notice>}
-          <Submit busy={action.busy}>
-            {initialized ? "登录" : "设置并登录"}
-          </Submit>
+          <div className="form-actions form-footer">
+            <Submit busy={action.busy}>
+              {initialized ? "登录" : "设置并登录"}
+            </Submit>
+          </div>
         </Form>
       </section>
     </div>
@@ -218,122 +313,145 @@ function Home({
 }: {
   user: User;
   revision: number;
-  navigate: (page: Page) => void;
+  navigate: Navigate;
 }) {
   const { data, error } = useResource<{ items: Document[] }>(
-    "/documents",
+    can(user, "records.read") ? "/documents" : undefined,
     revision,
   );
-  const stock = useResource<{ total: number }>("/items", revision);
   const [webAccess, setWebAccess] = useState(false);
-  const low = useResource<{ total: number }>("/items?low=true", revision);
+  const overview = useOverview(revision);
   return (
     <>
       <div className="page-heading">
         <div>
           <h1>{user.name}的工作台</h1>
-          <p>库存概况与常用操作</p>
+          <p>经营概况、库存与今日业务</p>
         </div>
         <div className="row-actions">
           <Button className="button" onClick={() => setWebAccess(true)}>
-            <ExternalLink size={17} />在 Web 中打开
+            <ExternalLink aria-hidden="true" size={17} />在 Web 中打开
           </Button>
           <span className="date-label">
             {new Intl.DateTimeFormat("zh-CN", {
               month: "long",
               day: "numeric",
               weekday: "long",
-            }).format(new Date())}
+            }).format(
+              overview.data
+                ? new Date(`${overview.data.today}T12:00:00`)
+                : new Date(),
+            )}
           </span>
         </div>
       </div>
       {webAccess && <WebAccess onClose={() => setWebAccess(false)} />}
-      <div className="stock-summary">
-        <Button className="summary-card" onClick={() => navigate("inventory")}>
-          <span>物料总数</span>
-          <strong>
-            {stock.data?.total ?? "—"}
-            <small>种</small>
-          </strong>
-          <ChevronRight size={18} />
-        </Button>
-        <Button className="summary-card" onClick={() => navigate("inventory")}>
-          <span>库存不足</span>
-          <strong className={low.data?.total ? "warning-number" : ""}>
-            {low.data?.total ?? "—"}
-            <small>种</small>
-          </strong>
-          <ChevronRight size={18} />
-        </Button>
-      </div>
-      <div className="task-grid">
-        {(user.role === "admin" || user.can_in) && (
-          <Button className="task-card inbound" onClick={() => navigate("in")}>
-            <span className="task-icon">
-              <ArrowDownToLine size={28} />
-            </span>
-            <strong>我要入库</strong>
-            <span>收货、完工、退回</span>
-          </Button>
-        )}
-        {(user.role === "admin" || user.can_out) && (
-          <Button
-            className="task-card outbound"
-            onClick={() => navigate("out")}
-          >
-            <span className="task-icon">
-              <ArrowUpFromLine size={28} />
-            </span>
-            <strong>我要出库</strong>
-            <span>领料、发货</span>
-          </Button>
-        )}
-        <Button
-          className="task-card lookup"
-          onClick={() => navigate("inventory")}
-        >
-          <span className="task-icon">
-            <PackageSearch size={28} />
-          </span>
-          <strong>查库存</strong>
-          <span>找物料、看数量</span>
-        </Button>
-      </div>
-      <div className="activity-feed">
-        <section className="panel">
-          <div className="section-title">
-            <h2>{user.role === "admin" ? "最近的出入库" : "我最近的出入库"}</h2>
-            <Button className="text-button" onClick={() => navigate("records")}>
-              查看全部 →
-            </Button>
-          </div>
-          {error && <Notice>{error}</Notice>}
-          {data?.items.length ? (
-            data.items.slice(0, 6).map((doc) => (
-              <div className="recent-row" key={doc.id}>
-                <span className="badge">
-                  {movementLabels[doc.kind] ?? doc.kind}
-                </span>
-                <div>
-                  <strong>{doc.lines[0]?.name ?? "库存调整"}</strong>
-                  <small>
-                    {doc.actor_name} · {dateTime(doc.created_at)}
-                  </small>
-                </div>
-                <span>
-                  {doc.lines.length === 1
-                    ? `${quantity(doc.lines[0].quantity, doc.lines[0].precision)} ${doc.lines[0].unit}`
-                    : `${doc.lines.length} 种物料`}
-                </span>
-              </div>
-            ))
-          ) : (
-            <div className="empty">
-              还没有记录，完成第一笔入库后会显示在这里。
-            </div>
+      <HomeMetrics overview={overview} navigate={navigate} />
+      {(overview.data || !overview.loading) && (
+        <div className="task-grid">
+          {(can(user, "sales.create") || can(user, "sales.read")) && (
+            <PageLink
+              className="task-card sales-entry"
+              page={can(user, "sales.create") ? "invoice" : "sales"}
+              navigate={navigate}
+            >
+              <span className="task-icon">
+                <ReceiptText aria-hidden="true" size={28} />
+              </span>
+              <strong>
+                {can(user, "sales.create") ? "开单发货" : "查看单据"}
+              </strong>
+              <span>多物料开单、登记收款</span>
+            </PageLink>
           )}
-        </section>
+          {can(user, "movement.in") && (
+            <PageLink
+              className="task-card inbound"
+              page="in"
+              navigate={navigate}
+            >
+              <span className="task-icon">
+                <ArrowDownToLine aria-hidden="true" size={28} />
+              </span>
+              <strong>我要入库</strong>
+              <span>收货、完工、退回</span>
+            </PageLink>
+          )}
+          {can(user, "movement.out") && (
+            <PageLink
+              className="task-card outbound"
+              page="out"
+              navigate={navigate}
+            >
+              <span className="task-icon">
+                <ArrowUpFromLine aria-hidden="true" size={28} />
+              </span>
+              <strong>我要出库</strong>
+              <span>领料、发货</span>
+            </PageLink>
+          )}
+          {can(user, "items.read") && (
+            <PageLink
+              className="task-card lookup"
+              page="inventory"
+              navigate={navigate}
+            >
+              <span className="task-icon">
+                <PackageSearch aria-hidden="true" size={28} />
+              </span>
+              <strong>查库存</strong>
+              <span>找物料、看数量</span>
+            </PageLink>
+          )}
+        </div>
+      )}
+      <div className="home-business-columns">
+        <TodaySales overview={overview} user={user} navigate={navigate} />
+        <HomeFollowUp overview={overview} navigate={navigate} />
       </div>
+      {can(user, "records.read") && (
+        <div className="activity-feed">
+          <section className="panel">
+            <div className="section-title">
+              <h2>
+                {can(user, "records.all") ? "最近的出入库" : "我最近的出入库"}
+              </h2>
+              <PageLink
+                className="text-button"
+                page="records"
+                navigate={navigate}
+              >
+                查看全部 →
+              </PageLink>
+            </div>
+            {error && <Notice>{error}</Notice>}
+            {data?.items.length ? (
+              data.items.slice(0, 6).map((doc) => (
+                <div className="recent-row" key={doc.id}>
+                  <span className="badge">
+                    {movementLabels[doc.kind] ?? doc.kind}
+                  </span>
+                  <div>
+                    <strong>{doc.lines[0]?.name ?? "库存调整"}</strong>
+                    <small>
+                      {doc.actor_name} · {dateTime(doc.created_at)}
+                    </small>
+                  </div>
+                  <span>
+                    {doc.lines.length === 1
+                      ? `${quantity(doc.lines[0].quantity, doc.lines[0].precision)} ${doc.lines[0].unit}`
+                      : `${doc.lines.length} 种物料`}
+                  </span>
+                </div>
+              ))
+            ) : (
+              <div className="empty">
+                还没有记录，完成第一笔入库后会显示在这里。
+              </div>
+            )}
+          </section>
+        </div>
+      )}
     </>
   );
 }
@@ -354,11 +472,12 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
   const [startError, setStartError] = useState("");
   const [browserError, setBrowserError] = useState("");
   const {
-    route: { page, initialItem },
+    route: { page, initialItem, index: navigationIndex },
     navigate,
     back,
     reset,
   } = useNavigation(dirty);
+  const display = useDisplaySettings();
   useVisualViewport();
   const [moreOpen, setMoreOpen] = useState(false);
   const logout = useAction();
@@ -453,21 +572,77 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
         />
       </>
     );
+  /* 手机底栏只放 5 个最高频入口，其余走「更多」。清单只在这里定义一次。 */
+  const secondary = [
+    "sales",
+    "customers",
+    "movement",
+    "stocktakes",
+    "records",
+    "accounts",
+    "performance",
+    "catalog",
+    "users",
+    "settings",
+  ];
   const nav = [
     { id: "home", label: "工作台", icon: LayoutDashboard },
-    { id: "inventory", label: "库存", icon: PackageSearch },
-    { id: "records", label: "记录", icon: ClipboardList },
-    ...(user.role === "admin" || user.can_count
-      ? [{ id: "stocktakes", label: "清点库存", icon: ClipboardCheck }]
+    ...(can(user, "sales.create")
+      ? [{ id: "invoice", label: "开单", icon: ReceiptText }]
+      : []),
+    ...(can(user, "sales.read")
+      ? [{ id: "sales", label: "单据", icon: ClipboardList }]
+      : []),
+    ...(can(user, "customers.read")
+      ? [{ id: "customers", label: "客户", icon: ContactRound }]
+      : []),
+    ...(can(user, "items.read")
+      ? [{ id: "inventory", label: "物料", icon: PackageSearch }]
+      : []),
+    ...(["records.read", "movement.in", "movement.out"].some((p) =>
+      can(user, p),
+    )
+      ? [{ id: "movement", label: "出入库", icon: ArrowLeftRight }]
+      : []),
+    ...(can(user, "stocktake.read")
+      ? [{ id: "stocktakes", label: "清点", icon: ClipboardCheck }]
+      : []),
+    ...(can(user, "records.read")
+      ? [{ id: "records", label: "记录", icon: ClipboardList }]
+      : []),
+    ...(can(user, "finance.read")
+      ? [
+          { id: "finance", label: "收款", icon: Wallet },
+          { id: "accounts", label: "账户", icon: Landmark },
+          { id: "performance", label: "业绩", icon: ChartNoAxesCombined },
+        ]
+      : []),
+    ...(["catalog.read", "options.read", "accounts.read"].some((p) =>
+      can(user, p),
+    )
+      ? [{ id: "catalog", label: "基础资料", icon: ListChecks }]
       : []),
     ...(user.role === "admin"
       ? [
-          { id: "users", label: "人员与权限", icon: UsersRound },
-          { id: "settings", label: "数据与备份", icon: Settings },
+          { id: "users", label: "人员", icon: UsersRound },
+          { id: "settings", label: "备份", icon: Settings },
         ]
       : []),
-    { id: "updates", label: "版本更新", icon: RefreshCw },
   ];
+  const financePage = ["finance", "accounts", "performance"].includes(page);
+  const activePage =
+    page === "in" || page === "out"
+      ? "movement"
+      : page === "returns"
+        ? "sales"
+        : page;
+  const salesView =
+    page === "invoice" ? "sales" : financePage ? "finance" : page;
+  const allowedPage =
+    nav.some((entry) => entry.id === page) ||
+    page === "updates" ||
+    (page === "in" && can(user, "movement.in")) ||
+    (page === "out" && can(user, "movement.out"));
   return (
     <div className="app-shell" data-flow={page === "in" || page === "out"}>
       {browserError && (
@@ -475,78 +650,159 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
           <Notice>{browserError}</Notice>
         </Modal>
       )}
-      <a className="skip-link" href="#main">
+      <a
+        className="skip-link"
+        href="#main"
+        onClick={(event) => {
+          event.preventDefault();
+          document.getElementById("main")?.focus();
+        }}
+      >
         跳到主要内容
       </a>
       <aside className="sidebar">
         <div className="brand">
-          <Boxes size={27} />
+          <Boxes aria-hidden="true" size={27} />
           <span>库存管理</span>
         </div>
         <nav aria-label="主要导航">
-          {nav.map(({ id, label, icon: Icon }) => (
-            <Button
-              key={id}
-              className={`${page === id ? "nav-item active" : "nav-item"} ${["users", "settings", "updates"].includes(id) ? "secondary-nav" : ""}`}
-              onClick={() => navigate(id as Page)}
-              aria-current={page === id ? "page" : undefined}
-            >
-              <Icon size={21} />
-              <span>{label}</span>
-            </Button>
-          ))}
+          {[
+            { label: "概览", domain: "overview", ids: ["home"] },
+            {
+              label: "销售",
+              domain: "sales",
+              ids: ["invoice", "sales", "customers"],
+            },
+            {
+              label: "库存",
+              domain: "stock",
+              ids: ["inventory", "movement", "stocktakes", "records"],
+            },
+            {
+              label: "财务",
+              domain: "money",
+              ids: ["finance", "accounts", "performance"],
+            },
+            {
+              label: "设置",
+              domain: "admin",
+              ids: ["catalog", "users", "settings"],
+            },
+          ]
+            .filter((group) => nav.some(({ id }) => group.ids.includes(id)))
+            .map((group) => (
+              <div
+                className="nav-group"
+                role="group"
+                data-domain={group.domain}
+                aria-label={group.label}
+                key={group.label}
+              >
+                <p className="nav-group-title" aria-hidden="true">
+                  {group.label}
+                </p>
+                {nav
+                  .filter(({ id }) => group.ids.includes(id))
+                  .map(({ id, label, icon: Icon }) => (
+                    <PageLink
+                      key={id}
+                      className={`${activePage === id ? "nav-item active" : "nav-item"} ${secondary.includes(id) ? "secondary-nav" : ""}`}
+                      page={id as Page}
+                      query={
+                        ["finance", "accounts", "performance"].includes(id)
+                          ? {}
+                          : undefined
+                      }
+                      navigate={navigate}
+                      aria-current={activePage === id ? "page" : undefined}
+                    >
+                      <Icon aria-hidden="true" size={21} />
+                      <span>{label}</span>
+                    </PageLink>
+                  ))}
+              </div>
+            ))}
           <Button
-            className={`nav-item mobile-more ${moreOpen || ["users", "settings", "updates"].includes(page) ? "active" : ""}`}
+            className={`nav-item mobile-more ${moreOpen || secondary.includes(activePage) || page === "updates" ? "active" : ""}`}
             aria-haspopup="dialog"
             aria-expanded={moreOpen}
             onClick={() => setMoreOpen(true)}
           >
-            <MoreHorizontal size={21} />
+            <MoreHorizontal aria-hidden="true" size={21} />
             <span>更多</span>
           </Button>
         </nav>
         <div className="sidebar-bottom">
-          <ShieldCheck size={18} />
+          <ShieldCheck aria-hidden="true" size={18} />
           <span>
-            数据保存在库存电脑
+            数据保存在库存服务所在设备
             <br />
-            <small>自动保存操作记录</small>
+            <small>每次操作都会自动留痕</small>
+            <PageLink
+              className="text-button sidebar-about"
+              page="updates"
+              navigate={navigate}
+            >
+              <Info size={15} aria-hidden="true" />
+              关于
+            </PageLink>
           </span>
         </div>
       </aside>
       <div className="workspace">
         <header className="topbar">
           <span className="mobile-brand">
-            <Boxes size={22} />
+            <Boxes aria-hidden="true" size={22} />
             库存管理
           </span>
           <span className="connection">
             <strong className="workspace-title">
-              {nav.find((item) => item.id === page)?.label ??
-                (page === "in" ? "入库登记" : "出库登记")}
+              {nav.find(
+                (item) => item.id === (page === "returns" ? "sales" : page),
+              )?.label ??
+                (page === "updates"
+                  ? "关于"
+                  : page === "in"
+                    ? "入库登记"
+                    : "出库登记")}
             </strong>
             <i />
-            已连接库存电脑
+            库存服务
+            <span className="host">{location.host}</span>
           </span>
           <div className="topbar-actions">
+            <GlobalSearch user={user} revision={revision} navigate={navigate} />
+            <SizeSwitch size={display.size} onChange={display.setSize} />
+            <Button
+              className="icon-button"
+              aria-label={
+                display.theme === "dark" ? "切换到浅色界面" : "切换到深色界面"
+              }
+              title={
+                display.theme === "dark" ? "切换到浅色界面" : "切换到深色界面"
+              }
+              onClick={() =>
+                display.setTheme(display.theme === "dark" ? "light" : "dark")
+              }
+            >
+              {display.theme === "dark" ? (
+                <Sun aria-hidden="true" size={18} />
+              ) : (
+                <Moon aria-hidden="true" size={18} />
+              )}
+            </Button>
             <NativeTools pageOpen={page === "updates"} />
             <Button
               className="icon-button"
               onClick={refresh}
               aria-label="刷新数据"
             >
-              <RefreshCw size={19} />
+              <RefreshCw aria-hidden="true" size={19} />
             </Button>
             <span className="user-avatar">{user.name.slice(0, 1)}</span>
             <span className="account-name">
               {user.name}
-              <small>
-                {user.role === "admin"
-                  ? "管理员"
-                  : user.role === "viewer"
-                    ? "查看员"
-                    : "操作员"}
-              </small>
+              <small>{user.role_name}</small>
             </span>
             <Button
               className="button small desktop-logout"
@@ -557,30 +813,39 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
                 })
               }
             >
-              <LogOut size={16} />
+              <LogOut aria-hidden="true" size={16} />
               退出登录
             </Button>
           </div>
         </header>
         <ServiceUpdate dirty={dirty} />
         <main id="main" tabIndex={-1}>
+          {!allowedPage && (
+            <Notice>当前角色没有此页面的查看权限，请联系管理员。</Notice>
+          )}
           {logout.error && <Notice>{logout.error}</Notice>}
           <Suspense fallback={<Loading />}>
             {page === "updates" && <UpdatesPage />}
             {page === "home" && (
               <Home user={user} revision={revision} navigate={navigate} />
             )}
-            {page === "inventory" && (
+            {page === "inventory" && can(user, "items.read") && (
               <Inventory
+                key={`inventory-${navigationIndex}`}
+                navigate={navigate}
                 user={user}
                 revision={revision}
                 refresh={refresh}
+                openSale={(item) => {
+                  void navigate("invoice", item);
+                }}
                 move={(direction, item) => {
                   navigate(direction, item);
                 }}
               />
             )}
-            {(page === "in" || page === "out") && (
+            {((page === "in" && can(user, "movement.in")) ||
+              (page === "out" && can(user, "movement.out"))) && (
               <Movement
                 key={`${page}-${initialItem?.id ?? ""}`}
                 user={user}
@@ -594,10 +859,90 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
                 }}
               />
             )}
-            {page === "records" && (
-              <Records user={user} revision={revision} refresh={refresh} />
+            {[
+              "invoice",
+              "sales",
+              "finance",
+              "accounts",
+              "performance",
+              "customers",
+              "catalog",
+              "returns",
+            ].includes(page) &&
+              {
+                sales:
+                  page === "invoice"
+                    ? can(user, "sales.create")
+                    : can(user, "sales.read"),
+                returns: can(user, "sales.read"),
+                finance: can(user, "finance.read"),
+                customers: can(user, "customers.read"),
+                catalog: ["catalog.read", "options.read", "accounts.read"].some(
+                  (p) => can(user, p),
+                ),
+              }[
+                salesView as
+                  "sales" | "finance" | "customers" | "catalog" | "returns"
+              ] && (
+                <Sales
+                  key={
+                    financePage
+                      ? "finance"
+                      : `${page}-${initialItem?.id || ""}-${navigationIndex}`
+                  }
+                  initialItem={
+                    page === "invoice" || page === "sales"
+                      ? initialItem
+                      : undefined
+                  }
+                  startNew={page === "invoice"}
+                  onOpenList={(id) =>
+                    void navigate("sales", undefined, {
+                      sale_open: id || "",
+                      sale_print: "",
+                    })
+                  }
+                  financeSection={
+                    financePage
+                      ? page === "accounts"
+                        ? "accounts"
+                        : page === "performance"
+                          ? "performance"
+                          : "debts"
+                      : undefined
+                  }
+                  navigationIndex={navigationIndex}
+                  view={
+                    salesView as
+                      "sales" | "finance" | "customers" | "catalog" | "returns"
+                  }
+                  user={user}
+                  revision={revision}
+                  refresh={refresh}
+                  onDirtyChange={(value) => {
+                    dirty.current = value;
+                  }}
+                />
+              )}
+            {page === "movement" && allowedPage && (
+              <Records
+                key={`movement-${navigationIndex}`}
+                user={user}
+                revision={revision}
+                refresh={refresh}
+                mode="movement"
+                onMove={(direction) => void navigate(direction)}
+              />
             )}
-            {page === "stocktakes" && (
+            {page === "records" && can(user, "records.read") && (
+              <Records
+                key={`records-${navigationIndex}`}
+                user={user}
+                revision={revision}
+                refresh={refresh}
+              />
+            )}
+            {page === "stocktakes" && can(user, "stocktake.read") && (
               <Stocktakes user={user} revision={revision} refresh={refresh} />
             )}
             {page === "users" && user.role === "admin" && (
@@ -615,35 +960,44 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
             <span className="user-avatar">{user.name.slice(0, 1)}</span>
             <div>
               <strong>{user.name}</strong>
-              <small>
-                {user.role === "admin"
-                  ? "管理员"
-                  : user.role === "viewer"
-                    ? "查看员"
-                    : "操作员"}
-              </small>
+              <small>{user.role_name}</small>
             </div>
+          </div>
+          <div className="mobile-display-settings">
+            <span>界面字号</span>
+            <SizeSwitch size={display.size} onChange={display.setSize} />
           </div>
           <nav className="more-menu" aria-label="更多功能">
             {nav
-              .filter((item) =>
-                ["users", "settings", "updates"].includes(item.id),
-              )
+              .filter((item) => secondary.includes(item.id))
               .map(({ id, label, icon: Icon }) => (
-                <Button
+                <PageLink
                   className="more-menu-item"
                   key={id}
-                  onClick={() => {
-                    setMoreOpen(false);
-                    navigate(id as Page);
-                  }}
+                  page={id as Page}
+                  query={
+                    ["finance", "accounts", "performance"].includes(id)
+                      ? {}
+                      : undefined
+                  }
+                  navigate={navigate}
+                  onClick={() => setMoreOpen(false)}
                 >
-                  <Icon size={22} />
+                  <Icon aria-hidden="true" size={22} />
                   <span>{label}</span>
-                  <ChevronRight size={18} />
-                </Button>
+                  <ChevronRight aria-hidden="true" size={18} />
+                </PageLink>
               ))}
           </nav>
+          <PageLink
+            className="button"
+            page="updates"
+            navigate={navigate}
+            onClick={() => setMoreOpen(false)}
+          >
+            <Info size={18} aria-hidden="true" />
+            关于
+          </PageLink>
           {logout.error && <Notice>{logout.error}</Notice>}
           <Button
             className="button mobile-signout"
@@ -657,7 +1011,7 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
               })
             }
           >
-            <LogOut size={18} />
+            <LogOut aria-hidden="true" size={18} />
             {logout.busy ? "正在退出…" : "退出登录"}
           </Button>
         </Modal>

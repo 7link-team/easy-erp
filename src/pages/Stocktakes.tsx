@@ -1,4 +1,5 @@
-import { Button, Form, Input, Checkbox, Textarea } from "../ui";
+import { can } from "../api";
+import { Button, Form, Input, Checkbox, Textarea, Select } from "../ui";
 import { useEffect, useState } from "react";
 import {
   type User,
@@ -32,6 +33,11 @@ export default function Stocktakes({
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
+  const [kind, setKind] = useState("");
+  const choices = useResource<{ kinds: string[] }>(
+    "/material-options",
+    revision,
+  );
   useEffect(() => {
     const timer = setTimeout(() => {
       setQuery(search);
@@ -40,7 +46,7 @@ export default function Stocktakes({
     return () => clearTimeout(timer);
   }, [search]);
   const materials = useResource<{ items: Item[]; total: number }>(
-    `/items?q=${encodeURIComponent(query)}&page=${page}`,
+    `/items?q=${encodeURIComponent(query)}&kind=${encodeURIComponent(kind)}&page=${page}`,
     revision,
   );
   const [starting, setStarting] = useState(false);
@@ -49,6 +55,10 @@ export default function Stocktakes({
   const [values, setValues] = useState<Record<string, string>>({});
   const [reason, setReason] = useState("");
   const action = useAction();
+  const choosing = materials.loading || search !== query;
+  const available = materials.error
+    ? []
+    : materials.data?.items.filter((i) => !i.counting) || [];
   const open = (count: Stocktake) => {
     setEditing(count);
     setValues(
@@ -66,16 +76,18 @@ export default function Stocktakes({
     <>
       <div className="page-heading">
         <div>
-          <h1>清点库存</h1>
-          <p>填写实际数到的数量，管理员确认后更新库存。</p>
+          <h1>清点</h1>
+          <p>填写实际数到的数量，确认清点后更新库存。</p>
         </div>
-        {user.role === "admin" && (
+        {can(user, "stocktake.create") && (
           <Button
             className="button primary"
             onClick={() => {
               setStarting(true);
               setChosen([]);
               setSearch("");
+              setQuery("");
+              setKind("");
               setPage(1);
             }}
           >
@@ -155,9 +167,29 @@ export default function Stocktakes({
               )
             }
           >
+            <Field label="物料分类">
+              {(p) => (
+                <Select
+                  {...p}
+                  value={kind}
+                  onChange={(e) => {
+                    setKind(e.target.value);
+                    setPage(1);
+                  }}
+                >
+                  <option value="">全部分类</option>
+                  {(choices.data?.kinds || []).map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+            {choices.error && <Notice>{choices.error}</Notice>}
             <Field
               label="查找清点物料"
-              hint="可按名称或编码搜索；切换页面会保留已勾选的物料。"
+              hint="可按名称、编码或规格搜索；切换分类和页面会保留已勾选的物料，每次最多100种。"
             >
               {(p) => (
                 <Input
@@ -169,35 +201,41 @@ export default function Stocktakes({
               )}
             </Field>
             {materials.error && <Notice>{materials.error}</Notice>}
-            <div className="selection-list" aria-busy={materials.loading}>
-              {materials.data?.items
-                .filter((i) => !i.counting)
-                .map((i) => (
-                  <label key={i.id} className="checkbox">
-                    <Checkbox
-                      checked={chosen.includes(i.id)}
-                      onChange={(e) =>
-                        setChosen((ids) =>
-                          e.target.checked
-                            ? [...ids, i.id]
-                            : ids.filter((id) => id !== i.id),
-                        )
-                      }
-                    />
-                    <span className="stocktake-choice">
-                      <strong>
-                        {i.name} · {i.spec || "未填写规格"}
-                      </strong>
-                      <span>
-                        {i.code} · 当前库存 {quantity(i.balance, i.precision)}{" "}
-                        {i.unit}
-                      </span>
+            <div className="selection-list" aria-busy={choosing}>
+              {available.map((i) => (
+                <label key={i.id} className="checkbox">
+                  <Checkbox
+                    name={`stocktake-item-${i.id}`}
+                    disabled={
+                      choosing ||
+                      action.busy ||
+                      (!chosen.includes(i.id) && chosen.length >= 100)
+                    }
+                    checked={chosen.includes(i.id)}
+                    onChange={(e) =>
+                      setChosen((ids) =>
+                        e.target.checked
+                          ? [...ids, i.id]
+                          : ids.filter((id) => id !== i.id),
+                      )
+                    }
+                  />
+                  <span className="stocktake-choice">
+                    <strong>
+                      {i.name} · {i.spec || "未填写规格"}
+                    </strong>
+                    <span>
+                      {i.code} · 当前库存 {quantity(i.balance, i.precision)}{" "}
+                      {i.unit}
                     </span>
-                  </label>
-                ))}
+                  </span>
+                </label>
+              ))}
             </div>
-            {!materials.loading && !materials.data?.items.length && (
-              <Empty>没有找到物料，请换个关键词。</Empty>
+            {!choosing && !materials.error && !available.length && (
+              <Empty>
+                本页没有可清点物料；请切换分类、关键词或页码，正在清点的物料暂不可选。
+              </Empty>
             )}
             <div className="pagination">
               <span>
@@ -227,7 +265,7 @@ export default function Stocktakes({
               </div>
             </div>
             {action.error && <Notice>{action.error}</Notice>}
-            <div className="form-actions">
+            <div className="form-actions form-footer">
               <Submit busy={action.busy}>
                 开始清点 {chosen.length} 种物料
               </Submit>
@@ -273,7 +311,9 @@ export default function Stocktakes({
                     inputMode={line.precision ? "decimal" : "numeric"}
                     required
                     value={values[line.item_id] ?? ""}
-                    readOnly={editing.status !== "open"}
+                    readOnly={
+                      editing.status !== "open" || !can(user, "stocktake.count")
+                    }
                     onChange={(e) =>
                       setValues((v) => ({
                         ...v,
@@ -285,67 +325,71 @@ export default function Stocktakes({
               </Field>
             ))}
             {action.error && <Notice>{action.error}</Notice>}
+            {editing.status === "open" && can(user, "stocktake.finish") && (
+              <section className="section-divider">
+                <h3>确认清点</h3>
+                <p className="hint">
+                  请先保存上面的清点数量，再确认。确认后按实际数量更新库存。
+                </p>
+                <Field
+                  label="差异原因"
+                  hint="实际清点数量与系统记录不一致时，请填写原因。"
+                >
+                  {(p) => (
+                    <Textarea
+                      {...p}
+                      value={reason}
+                      onChange={(e) => setReason(e.target.value)}
+                      maxLength={500}
+                    />
+                  )}
+                </Field>
+              </section>
+            )}
             {editing.status === "open" && (
-              <div className="form-actions">
-                <Submit busy={action.busy}>保存清点数量</Submit>
+              <div className="form-actions form-footer">
+                {can(user, "stocktake.count") && (
+                  <Submit busy={action.busy}>保存清点数量</Submit>
+                )}
+                {can(user, "stocktake.finish") && (
+                  <>
+                    <Button
+                      className="button"
+                      disabled={action.busy}
+                      onClick={() =>
+                        action.run(async () => {
+                          await send(`/stocktakes/${editing.id}/finish`, {
+                            confirm: false,
+                            reason,
+                          });
+                          setEditing(undefined);
+                          refresh();
+                        })
+                      }
+                    >
+                      取消清点，恢复收发
+                    </Button>
+                    <Button
+                      className="button primary"
+                      disabled={action.busy}
+                      onClick={() =>
+                        action.run(async () => {
+                          await send(`/stocktakes/${editing.id}/finish`, {
+                            confirm: true,
+                            reason,
+                          });
+                          setEditing(undefined);
+                          refresh();
+                        })
+                      }
+                    >
+                      确认并更新库存
+                    </Button>
+                  </>
+                )}
               </div>
             )}
           </Form>
-          {editing.status === "open" && user.role === "admin" && (
-            <section className="section-divider">
-              <h3>管理员确认</h3>
-              <p className="hint">
-                请先保存上面的清点数量，再确认。确认后按实际数量更新库存。
-              </p>
-              <Field
-                label="差异原因"
-                hint="实际清点数量与系统记录不一致时，请填写原因。"
-              >
-                {(p) => (
-                  <Textarea
-                    {...p}
-                    value={reason}
-                    onChange={(e) => setReason(e.target.value)}
-                    maxLength={500}
-                  />
-                )}
-              </Field>
-              <div className="form-actions">
-                <Button
-                  className="button"
-                  disabled={action.busy}
-                  onClick={() =>
-                    action.run(async () => {
-                      await send(`/stocktakes/${editing.id}/finish`, {
-                        confirm: false,
-                        reason,
-                      });
-                      setEditing(undefined);
-                      refresh();
-                    })
-                  }
-                >
-                  取消清点，恢复收发
-                </Button>
-                <Button
-                  className="button primary"
-                  disabled={action.busy}
-                  onClick={() =>
-                    action.run(async () => {
-                      await send(`/stocktakes/${editing.id}/finish`, {
-                        confirm: true,
-                        reason,
-                      });
-                      setEditing(undefined);
-                      refresh();
-                    })
-                  }
-                >
-                  确认并更新库存
-                </Button>
-              </div>
-            </section>
-          )}
         </Modal>
       )}
     </>

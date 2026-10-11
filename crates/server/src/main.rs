@@ -1,13 +1,18 @@
 mod assets;
 mod auth;
 mod backup;
+mod dashboard;
 mod db;
 mod desktop_control;
 mod domain;
 mod error;
 mod inventory;
 mod migration;
+mod money;
 mod network;
+mod options;
+mod roles;
+mod sales;
 mod state;
 mod stocktake;
 mod transfer;
@@ -96,7 +101,7 @@ async fn main() -> anyhow::Result<()> {
             .sqlx_logging(false)
             .map_sqlx_sqlite_opts(move |options| options.filename(&path).read_only(true));
         let db = Database::connect(options).await?;
-        let result = backup::snapshot(&db, &cfg.data_dir).await;
+        let result = backup::snapshot(&db, &cfg.data_dir, "maintenance").await;
         db.close().await?;
         let info = result.map_err(|error| anyhow::anyhow!(error.1))?;
         if let Some(target) = &cfg.migrate_data_to {
@@ -148,6 +153,24 @@ async fn main() -> anyhow::Result<()> {
                 .busy_timeout(std::time::Duration::from_secs(5))
         });
     let db = Database::connect(options).await?;
+    if db::one(
+        &db,
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='items'",
+        vec![],
+    )
+    .await?
+    .is_some()
+        && db::one(
+            &db,
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='roles'",
+            vec![],
+        )
+        .await?
+        .is_none()
+    {
+        let before = backup::snapshot(&db, &cfg.data_dir, "upgrade").await?;
+        tracing::info!(backup=?serde_json::to_value(before)?, "业务模块升级前备份已完成");
+    }
     migration::Migrator::up(&db, None).await?;
     let s = Arc::new(state::State {
         db,
@@ -196,6 +219,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/me", get(auth::me))
         .route("/api/users", get(auth::users).post(auth::create_user))
         .route("/api/users/{id}", put(auth::update_user))
+        .route("/api/roles", get(roles::list).post(roles::save))
+        .route("/api/roles/{id}", axum::routing::delete(roles::remove))
         .route(
             "/api/items",
             get(inventory::items).post(inventory::create_item),
@@ -205,6 +230,39 @@ async fn main() -> anyhow::Result<()> {
             put(inventory::update_item).delete(inventory::archive_item),
         )
         .route("/api/movements", post(inventory::movement))
+        .route(
+            "/api/material-options",
+            get(options::list).post(options::save),
+        )
+        .route(
+            "/api/material-options/{id}",
+            axum::routing::delete(options::remove),
+        )
+        .route("/api/catalog-order", post(options::reorder))
+        .route("/api/dashboard", get(dashboard::overview))
+        .route("/api/sales", get(sales::list))
+        .route(
+            "/api/sales/catalog",
+            get(sales::catalog).post(sales::save_catalog),
+        )
+        .route("/api/items/{id}/restore", post(inventory::restore_item))
+        .route("/api/sales/commands", post(sales::command))
+        .route(
+            "/api/sales/catalog/{id}",
+            axum::routing::delete(sales::remove_catalog),
+        )
+        .route("/api/sales/finance", get(sales::finance))
+        .route("/api/sales/adjustments", get(sales::adjustments))
+        .route("/api/sales/{id}", get(sales::get))
+        .route("/api/sales/{id}/revisions/{version}", get(sales::revision))
+        .route(
+            "/api/sales/{id}/attachments",
+            post(sales::upload).layer(DefaultBodyLimit::max(10 * 1024 * 1024 + 65536)),
+        )
+        .route(
+            "/api/sales/attachments/{id}",
+            get(sales::attachment).delete(sales::remove_attachment),
+        )
         .route(
             "/api/items/{id}/permanent",
             axum::routing::delete(inventory::delete_item),

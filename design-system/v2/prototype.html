@@ -1,0 +1,1733 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Easy ERP · 设计系统 v2 原型</title>
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#15181a" media="(prefers-color-scheme: dark)">
+<meta name="description" content="Easy ERP 设计系统 v2 原型：库存、开单、收款与财务对账">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="prototype.css">
+</head>
+<body>
+
+<!-- 图标：方头端点、机械几何，刻意区别于 Lucide 默认圆头 -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<g id="i-board"><rect x="2.5" y="2.5" width="6" height="6"/><rect x="11.5" y="2.5" width="6" height="6"/><rect x="2.5" y="11.5" width="6" height="6"/><rect x="11.5" y="11.5" width="6" height="6"/></g>
+<g id="i-box"><path d="M10 2.5 17.5 6.5v7L10 17.5 2.5 13.5v-7L10 2.5Z"/><path d="M2.5 6.5 10 10.5l7.5-4M10 10.5v7"/></g>
+<g id="i-doc"><path d="M4.5 2.5h8l3 3v12h-11v-15Z"/><path d="M12.5 2.5v3h3M7 9.5h6M7 12.5h6"/></g>
+<g id="i-coin"><path d="M3 5.5h14v9H3z"/><path d="M3 8.5h14M6 11.5h3"/></g>
+<g id="i-list"><path d="M3 5h3v3H3zM3 11h3v3H3zM8.5 6.5h8.5M8.5 12.5h8.5"/></g>
+<g id="i-check"><rect x="3" y="3" width="14" height="14"/><path d="M6.5 10 9 12.5l4.5-5"/></g>
+<g id="i-user"><circle cx="10" cy="7" r="3"/><path d="M4 17c0-3.3 2.7-5 6-5s6 1.7 6 5"/></g>
+<g id="i-db"><ellipse cx="10" cy="5" rx="6.5" ry="2.5"/><path d="M3.5 5v10c0 1.4 2.9 2.5 6.5 2.5s6.5-1.1 6.5-2.5V5M3.5 10c0 1.4 2.9 2.5 6.5 2.5s6.5-1.1 6.5-2.5"/></g>
+<g id="i-sync"><path d="M16.5 9A6.5 6.5 0 0 0 5 5.5M3.5 11A6.5 6.5 0 0 0 15 14.5"/><path d="M3.5 4.5v3h3M16.5 15.5v-3h-3"/></g>
+<g id="i-search"><circle cx="8.5" cy="8.5" r="5"/><path d="m12.5 12.5 4 4"/></g>
+<g id="i-plus"><path d="M10 4v12M4 10h12"/></g>
+<g id="i-print"><path d="M6 7V2.5h8V7M6 14H3.5V7h13v7H14M6 11h8v6.5H6z"/></g>
+<g id="i-x"><path d="m5 5 10 10M15 5 5 15"/></g>
+<g id="i-alert"><path d="M10 3 18 16.5H2L10 3Z"/><path d="M10 8v4M10 14.2v.3"/></g>
+<g id="i-camera"><path d="M2.5 6h3l1.5-2h6L14.5 6h3v10h-15z"/><circle cx="10" cy="10.5" r="3"/></g>
+<g id="i-down"><path d="m6 8 4 4 4-4"/></g>
+<g id="i-edit"><path d="M13.5 3.5 16.5 6.5 7 16H4v-3l9.5-9.5Z"/><path d="M11.5 5.5 14.5 8.5"/></g>
+<g id="i-back"><path d="M16 10H5M9 6l-4 4 4 4"/></g>
+<g id="i-clock"><circle cx="10" cy="10" r="7.5"/><path d="M10 5.5V10l3 2"/></g>
+<g id="i-chart"><path d="M3 17V8M7.67 17V3M12.33 17v-6M17 17v-9"/></g>
+<g id="i-tag"><path d="M10.5 2.5H17.5v7L9 18 2 11l8.5-8.5Z"/><circle cx="14" cy="6" r="1.2"/></g>
+<g id="i-users"><circle cx="7.5" cy="7" r="2.8"/><path d="M2.5 16.5c0-2.9 2.2-4.5 5-4.5s5 1.6 5 4.5"/><path d="M13.5 5.2a2.8 2.8 0 0 1 0 5.3M14.5 12.4c2 .5 3.2 1.9 3.2 4.1"/></g>
+<g id="i-shield"><path d="M10 2.5 16.5 5v5c0 4-2.8 6.6-6.5 7.5C6.3 16.6 3.5 14 3.5 10V5L10 2.5Z"/><path d="m7.2 10 2 2 3.6-4"/></g>
+<g id="i-swatch"><rect x="2.5" y="2.5" width="6.5" height="6.5"/><rect x="11" y="2.5" width="6.5" height="6.5"/><rect x="2.5" y="11" width="6.5" height="6.5"/><circle cx="14.25" cy="14.25" r="3.25"/></g>
+<g id="i-theme"><circle cx="10" cy="10" r="5.5"/><path d="M10 1.5v2M10 16.5v2M1.5 10h2M16.5 10h2M4 4l1.4 1.4M14.6 14.6 16 16M16 4l-1.4 1.4M5.4 14.6 4 16"/></g>
+<g id="i-arrow"><path d="M4 10h11M11 6l4 4-4 4"/></g>
+</defs></svg>
+
+<a class="skip" href="#main">跳到主内容</a>
+<div class="app">
+
+<!-- ════════════ 侧栏 ════════════ -->
+<aside class="sidebar">
+  <div class="brand">
+    <span class="brand-mark"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="square"><use href="#i-box"/></svg></span>
+    <span>
+      <span class="brand-name">库存管理</span>
+      <span class="brand-sub">鑫利五金 · 0.2.0</span>
+    </span>
+  </div>
+
+  <div class="nav-scroll">
+  <nav class="nav-group" data-group="概览">
+    <div class="nav-label">概览</div>
+    <button class="nav-item" data-go="workbench" data-roles="admin,warehouse,sales" aria-current="page"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"><use href="#i-board"/></svg>工作台</button>
+  </nav>
+
+  <nav class="nav-group" data-group="销售">
+    <div class="nav-label">销售<span class="lock" data-lock="sales">按岗位开放</span></div>
+    <button class="nav-item" data-go="invoice" data-roles="admin,sales"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"><use href="#i-doc"/></svg>开单<span class="nav-kbd">N</span></button>
+    <button class="nav-item" data-go="doclist" data-roles="admin,sales,warehouse"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"><use href="#i-list"/></svg>单据<span class="nav-count">12</span></button>
+    <button class="nav-item" data-go="customers" data-roles="admin,sales"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"><use href="#i-user"/></svg>客户<span class="nav-count">31</span></button>
+    <button class="nav-item" data-go="returns" data-roles="admin"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"><use href="#i-sync"/></svg>退货</button>
+  </nav>
+
+  <nav class="nav-group" data-group="库存">
+    <div class="nav-label">库存</div>
+    <button class="nav-item" data-go="inventory" data-roles="admin,warehouse,sales"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"><use href="#i-box"/></svg>物料<span class="nav-count">148</span></button>
+    <button class="nav-item" data-go="movement" data-roles="admin,warehouse"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"><use href="#i-arrow"/></svg>出入库</button>
+    <button class="nav-item" data-go="stocktake" data-roles="admin,warehouse"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"><use href="#i-check"/></svg>清点</button>
+    <button class="nav-item" data-go="records" data-roles="admin,warehouse,sales"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"><use href="#i-clock"/></svg>记录</button>
+  </nav>
+
+  <nav class="nav-group" data-group="财务">
+    <div class="nav-label">财务<span class="lock">最高权限</span></div>
+    <button class="nav-item" data-go="finance" data-roles="admin"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"><use href="#i-coin"/></svg>收款<span class="nav-count">7</span></button>
+    <button class="nav-item" data-go="accounts" data-roles="admin"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"><use href="#i-db"/></svg>账户</button>
+    <button class="nav-item" data-go="perf" data-roles="admin"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"><use href="#i-chart"/></svg>业绩</button>
+  </nav>
+
+  <nav class="nav-group" data-group="设置">
+    <div class="nav-label">设置<span class="lock">最高权限</span></div>
+    <button class="nav-item" data-go="basedata" data-roles="admin"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"><use href="#i-tag"/></svg>基础资料</button>
+    <button class="nav-item" data-go="system" data-roles="admin"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"><use href="#i-users"/></svg>人员</button>
+    <button class="nav-item" data-go="backup" data-roles="admin"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"><use href="#i-shield"/></svg>备份</button>
+    <button class="nav-item" data-go="tokens" data-roles="admin,warehouse,sales"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"><use href="#i-swatch"/></svg>规范<span class="nav-count">原型</span></button>
+  </nav>
+  </div>
+
+  <div class="sidebar-foot">
+    数据存在「仓库主机」<br>今天 06:30 已自动备份
+  </div>
+</aside>
+
+<!-- ════════════ 工作区 ════════════ -->
+<div class="workspace">
+  <header class="topbar">
+    <div class="crumb"><strong data-crumb>工作台</strong><span>·</span><span>2026 年 10 月 9 日 周四</span></div>
+    <form class="omnibox" role="search" onsubmit="return false">
+      <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="square" aria-hidden="true"><use href="#i-search"/></svg>
+      <input type="search" name="q" aria-label="全局搜索物料、单号或客户" placeholder="搜物料、单号、客户" autocomplete="off">
+      <kbd class="kbd">⌘K</kbd>
+    </form>
+    <label class="role-switch" title="切换登录身份，左边菜单会按这个人的权限增减">
+      <span>当前身份</span>
+      <select id="role">
+        <option value="admin">管理员 · 陈建国</option>
+        <option value="sales">开单员 · 罗秀珍</option>
+        <option value="warehouse">仓管 · 李国强</option>
+      </select>
+    </label>
+    <div class="size-switch" role="group" aria-label="界面字号">
+      <button data-size="sm" aria-pressed="false" title="小号字">A</button>
+      <button data-size="md" aria-pressed="true" title="中号字（默认）">A</button>
+      <button data-size="lg" aria-pressed="false" title="大号字">A</button>
+    </div>
+    <button class="theme-toggle" id="theme" aria-label="切换深浅主题" title="切换深浅主题">
+      <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"><use href="#i-theme"/></svg>
+    </button>
+    <div class="conn" title="数据实时保存在 仓库主机 192.168.1.8，断开时会立刻提示">
+      <span class="dot"></span><b>数据正常保存</b><span class="conn-at">仓库主机</span>
+    </div>
+    <div class="vrule"></div>
+    <div class="user">
+      <span class="avatar">陈</span>
+      <span><span class="user-name">陈建国</span><br><span class="user-role">管理员</span></span>
+    </div>
+  </header>
+
+  <main id="main" tabindex="-1">
+
+<!-- ───────── 工作台 ───────── -->
+<section class="screen is-active" id="s-workbench">
+  <div class="page-head">
+    <div>
+      <h1>工作台</h1>
+      <p>今天 10 月 9 日 · 陈建国 · 鑫利五金制品厂</p>
+    </div>
+    <div class="actions">
+      <button class="btn btn-default"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="square"><use href="#i-box"/></svg>登记入库</button>
+      <button class="btn btn-primary" data-go="invoice"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-plus"/></svg>新建销售单</button>
+    </div>
+  </div>
+
+  <!-- 展示带：一屏唯一的焦点 -->
+  <section class="band" aria-label="本月经营概况">
+    <div class="band-appbar">
+      <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="square"><use href="#i-box"/></svg>
+      <span class="nm">鑫利五金</span>
+      <span class="av">陈</span>
+    </div>
+    <div class="band-grid">
+      <div>
+        <div class="band-eyebrow">2026 年 10 月 · 第 41 周</div>
+        <div class="band-figure"><span class="cur">¥</span><span data-count>386,420</span><span class="dec">.00</span></div>
+        <div class="band-cap">本月出货金额<span class="delta">↑ 12.4%</span>较上月同期 ¥343,760</div>
+      </div>
+      <dl class="band-side">
+        <div><dt>实际收到</dt><dd>322,580<small>元</small></dd></div>
+        <div><dt>客户欠款</dt><dd class="owe">63,840<small>元</small></dd></div>
+        <div><dt>已收比例</dt><dd>83.5<small>%</small></dd></div>
+      </dl>
+    </div>
+    <div class="band-chart" role="img" aria-label="近 30 日每日出货金额"><i style="height:50%" title="10 月 1 日"></i><i style="height:72%" title="10 月 2 日"></i><i style="height:86%" title="10 月 3 日"></i><i style="height:100%" title="10 月 4 日"></i><i style="height:32%" title="10 月 5 日"></i><i style="height:8%" title="10 月 6 日"></i><i style="height:8%" title="10 月 7 日"></i><i style="height:54%" title="10 月 8 日"></i><i class="hi" style="height:58%" title="10 月 9 日"></i><i style="height:33%" title="10 月 10 日"></i><i style="height:68%" title="10 月 11 日"></i><i style="height:30%" title="10 月 12 日"></i><i style="height:30%" title="10 月 13 日"></i><i style="height:8%" title="10 月 14 日"></i><i style="height:69%" title="10 月 15 日"></i><i style="height:72%" title="10 月 16 日"></i><i style="height:59%" title="10 月 17 日"></i><i style="height:48%" title="10 月 18 日"></i><i style="height:44%" title="10 月 19 日"></i><i style="height:8%" title="10 月 20 日"></i><i style="height:53%" title="10 月 21 日"></i><i style="height:76%" title="10 月 22 日"></i><i style="height:100%" title="10 月 23 日"></i><i style="height:71%" title="10 月 24 日"></i><i style="height:70%" title="10 月 25 日"></i><i style="height:49%" title="10 月 26 日"></i><i style="height:12%" title="10 月 27 日"></i><i style="height:8%" title="10 月 28 日"></i><i style="height:85%" title="10 月 29 日"></i><i style="height:85%" title="10 月 30 日"></i></div>
+  </section>
+
+  <!-- 货的指标与钱的指标分开：钱在展示带，货在账本栏 -->
+  <div class="ledger">
+    <button class="ledger-cell" data-hue="jade" data-go="inventory">
+      <span class="ledger-label">在库物料</span>
+      <div class="ledger-value">148<span class="unit">种</span></div>
+      <div class="ledger-foot">本周新建档 3 种 · 库存总值 ¥128.5 万</div>
+      <svg class="trend" viewBox="0 0 120 26" preserveAspectRatio="none" aria-hidden="true">
+        <path class="area" d="M0,19 L20,16 L40,17 L60,11 L80,13 L100,6 L120,8 L120,26 L0,26 Z"/>
+        <path class="line" d="M0,19 L20,16 L40,17 L60,11 L80,13 L100,6 L120,8"/>
+        <circle cx="120" cy="8" r="2.4"/>
+      </svg>
+    </button>
+    <button class="ledger-cell" data-hue="amber" data-go="inventory">
+      <span class="ledger-label">库存偏低 <span class="tag tag-warn">9 种</span></span>
+      <div class="ledger-value" >9<span class="unit">种</span></div>
+      <div class="ledger-foot">其中 2 种已清零，影响 3 张在途单</div>
+      <svg class="trend is-neg" viewBox="0 0 120 26" preserveAspectRatio="none" aria-hidden="true">
+        <path class="area" d="M0,8 L20,11 L40,13 L60,10 L80,16 L100,18 L120,21 L120,26 L0,26 Z"/>
+        <path class="line" d="M0,8 L20,11 L40,13 L60,10 L80,16 L100,18 L120,21"/>
+        <circle cx="120" cy="21" r="2.4"/>
+      </svg>
+    </button>
+    <button class="ledger-cell" data-hue="indigo" data-go="records">
+      <span class="ledger-label">今天出入库笔数</span>
+      <div class="ledger-value">37<span class="unit">笔</span></div>
+      <div class="ledger-foot">入 11 · 出 24 · 调整 2</div>
+      <svg class="trend" viewBox="0 0 120 26" preserveAspectRatio="none" aria-hidden="true">
+        <path class="area" d="M0,15 L20,18 L40,10 L60,14 L80,9 L100,12 L120,5 L120,26 L0,26 Z"/>
+        <path class="line" d="M0,15 L20,18 L40,10 L60,14 L80,9 L100,12 L120,5"/>
+        <circle cx="120" cy="5" r="2.4"/>
+      </svg>
+    </button>
+    <button class="ledger-cell" data-hue="violet" data-go="stocktake">
+      <span class="ledger-label">10 月清点进度</span>
+      <div class="ledger-value">58<span class="unit">%</span></div>
+      <div class="ledger-foot">已点 86 / 148 种 · 3 种有差异</div>
+      <div style="height:4px;margin-top:14px;background:var(--paper-3);border-radius:2px;overflow:hidden"><i style="display:block;height:100%;width:58%;background:var(--brand)"></i></div>
+    </button>
+  </div>
+
+  <div class="two-col">
+
+    <!-- 今日单据：一张账册内页 -->
+    <div class="sheet">
+      <div class="sheet-head">
+        <h2>今日单据</h2>
+        <div class="segmented spacer" role="tablist">
+          <button role="tab" aria-selected="true">全部 12</button>
+          <button role="tab" aria-selected="false">销售单 9</button>
+          <button role="tab" aria-selected="false">样品单 2</button>
+          <button role="tab" aria-selected="false">调货单 1</button>
+        </div>
+      </div>
+      <table class="m-doc">
+        <thead><tr>
+          <th class="gutter">#</th>
+          <th style="width:128px;white-space:nowrap">单号</th><th>客户 / 业务员</th><th style="width:72px">类型</th>
+          <th class="t-num" style="width:104px">应收款</th><th class="t-num" style="width:104px">已收款</th><th style="width:86px">状态</th>
+        </tr></thead>
+        <tbody>
+          <tr><td class="gutter">01</td><td class="num muted" style="white-space:nowrap">XS-261009-07</td>
+            <td><div class="t-main">顺德骏达机械配件厂</div><div class="t-sub">销售一部 · 罗秀珍</div></td>
+            <td><span class="tag tag-sale">销售单</span></td>
+            <td class="t-num">10,480.00</td><td class="t-num">10,480.00</td>
+            <td><span class="tag tag-ok">已结清</span></td></tr>
+          <tr data-go="docdetail" style="cursor:pointer"><td class="gutter">02</td><td class="num muted" style="white-space:nowrap">XS-261009-06</td>
+            <td><div class="t-main">中山华晨五金制品</div><div class="t-sub">销售二部 · 吴志明</div></td>
+            <td><span class="tag tag-sale">销售单</span></td>
+            <td class="t-num">24,760.00</td><td class="t-num">16,000.00</td>
+            <td><span class="tag tag-danger">欠 8,760</span></td></tr>
+          <tr><td class="gutter">03</td><td class="num muted" style="white-space:nowrap">YP-261009-02</td>
+            <td><div class="t-main">东莞精锐模具（新客）</div><div class="t-sub">销售一部 · 罗秀珍</div></td>
+            <td><span class="tag tag-sample">样品单</span></td>
+            <td class="t-num muted">—</td><td class="t-num muted">—</td>
+            <td><span class="tag">已发出</span></td></tr>
+          <tr><td class="gutter">04</td><td class="num muted" style="white-space:nowrap">XS-261009-05</td>
+            <td><div class="t-main">佛山南海兴发机电</div><div class="t-sub">销售二部 · 吴志明</div></td>
+            <td><span class="tag tag-sale">销售单</span></td>
+            <td class="t-num">3,215.00</td><td class="t-num">3,200.00</td>
+            <td><span class="tag tag-ok">抹零结清</span></td></tr>
+          <tr class="row-void"><td class="gutter">05</td><td class="num muted" style="white-space:nowrap">XS-261009-04</td>
+            <td><div class="t-main">惠州金鼎紧固件</div><div class="t-sub">销售一部 · 周丽娟</div></td>
+            <td><span class="tag tag-sale">销售单</span></td>
+            <td class="t-num">1,860.00</td><td class="t-num">0.00</td>
+            <td><span class="tag tag-void">已作废</span></td></tr>
+          <tr><td class="gutter">06</td><td class="num muted" style="white-space:nowrap">DH-261009-01</td>
+            <td><div class="t-main">鑫利二厂（厂内调拨）</div><div class="t-sub">仓储 · 李国强</div></td>
+            <td><span class="tag tag-move">调货单</span></td>
+            <td class="t-num muted">—</td><td class="t-num muted">—</td>
+            <td><span class="tag tag-ok">已出库</span></td></tr>
+        </tbody>
+        <tfoot><tr>
+          <td class="gutter" style="border-top:3px double var(--ink-3)"></td>
+          <td colspan="3" style="font-weight:500">本日合计 · 12 张有效单据</td>
+          <td class="t-num">52,480.00</td><td class="t-num">43,720.00</td>
+          <td class="neg num" style="font-size:var(--t-12)">欠 8,760</td>
+        </tr></tfoot>
+      </table>
+    </div>
+
+    <div>
+      <div class="sheet">
+        <div class="sheet-head"><h2>需要处理</h2><span class="spacer muted" style="font-size:var(--t-11);padding-right:0">3 项</span></div>
+        <div class="rail-list">
+          <button class="rail-item urgent">
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--danger)" stroke-width="1.5" stroke-linecap="square" style="margin-top:2px"><use href="#i-alert"/></svg>
+            <span style="flex:1"><b>2 种物料已清零</b><span>304 不锈钢内六角 M6×20、黄铜轴套 φ12×15</span></span>
+            <span class="at">今天</span>
+          </button>
+          <button class="rail-item warn">
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--warn)" stroke-width="1.5" stroke-linecap="square" style="margin-top:2px"><use href="#i-coin"/></svg>
+            <span style="flex:1"><b>3 笔欠款超过 60 天</b><span>合计 ¥18,200.00 · 最早 8 月 2 日 中山华晨</span></span>
+            <span class="at">78 天</span>
+          </button>
+          <button class="rail-item">
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--ink-3)" stroke-width="1.5" stroke-linecap="square" style="margin-top:2px"><use href="#i-check"/></svg>
+            <span style="flex:1"><b>10 月清点未完成</b><span>已点 86 / 148 种 · 负责人 李国强</span></span>
+            <span class="at">62 剩</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="sheet mt">
+        <div class="sheet-head"><h2>本月业务员业绩</h2><span class="spacer muted" style="font-size:var(--t-11);padding-right:0">万元</span></div>
+        <div class="panel-body">
+          <div class="bars">
+            <div class="bar-row"><span>罗秀珍<br><span class="t-sub">销售一部</span></span><span class="bar-track"><i style="width:92%"></i></span><span class="num" style="text-align:right">14.82</span></div>
+            <div class="bar-row"><span>吴志明<br><span class="t-sub">销售二部</span></span><span class="bar-track"><i style="width:74%"></i></span><span class="num" style="text-align:right">11.96</span></div>
+            <div class="bar-row"><span>周丽娟<br><span class="t-sub">销售一部</span></span><span class="bar-track"><i style="width:48%"></i></span><span class="num" style="text-align:right">7.74</span></div>
+            <div class="bar-row"><span>黄海峰<br><span class="t-sub">销售二部</span></span><span class="bar-track"><i class="alt" style="width:25%"></i></span><span class="num" style="text-align:right">4.10</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ───────── 库存 ───────── -->
+<section class="screen" id="s-inventory">
+  <div class="page-head">
+    <div><h1>库存</h1><p>148 种物料 · 9 种库存偏低 · 数据截至 14:26</p></div>
+    <div class="actions">
+      <button class="btn btn-default">导入 / 导出</button>
+      <button class="btn btn-default">出库</button>
+      <button class="btn btn-primary"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-plus"/></svg>入库</button>
+    </div>
+  </div>
+
+  <div class="sheet">
+    <div class="toolbar">
+      <span class="search"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="var(--ink-3)" stroke-width="1.6" stroke-linecap="square"><use href="#i-search"/></svg><input type="search" aria-label="搜索物料名称、规格或编码" placeholder="物料名称、规格或编码" autocomplete="off"></span>
+      <button class="chip" aria-pressed="true">全部 148</button>
+      <button class="chip">低库存 9</button>
+      <button class="chip">已清零 2</button>
+      <button class="chip">已停用 4</button>
+      <span style="margin-left:auto" class="muted">按 <b class="num">库存量</b> 升序</span>
+    </div>
+    <table class="m-stock">
+      <thead><tr>
+        <th style="width:30%">物料 / 规格</th><th style="width:108px">编码</th><th>分类</th>
+        <th class="t-num" style="width:150px">当前库存</th><th class="t-num" style="width:96px">预警线</th>
+        <th class="t-num" style="width:104px">均价</th><th class="t-act" style="width:150px"></th>
+      </tr></thead>
+      <tbody>
+        <tr class="row-alert">
+          <td><div class="t-main">304 不锈钢内六角螺丝</div><div class="t-sub">M6×20 · 全牙 · 袋装 500 支</div></td>
+          <td class="num muted">BS-M620</td><td><span class="tag">紧固件</span></td>
+          <td class="t-num"><span class="meter"><span class="num neg" style="font-weight:600">0</span><span class="muted" style="font-size:var(--t-11)">袋</span><span class="meter-bar out"><i style="width:2%"></i></span></span></td>
+          <td class="t-num muted">20</td><td class="t-num">38.50</td>
+          <td class="t-act"><button class="btn btn-ghost btn-sm">入库</button><button class="btn btn-ghost btn-sm">明细</button></td>
+        </tr>
+        <tr class="row-alert">
+          <td><div class="t-main">黄铜轴套</div><div class="t-sub">φ12×15 · H62 · 单只</div></td>
+          <td class="num muted">TT-1215</td><td><span class="tag">轴套类</span></td>
+          <td class="t-num"><span class="meter"><span class="num neg" style="font-weight:600">0</span><span class="muted" style="font-size:var(--t-11)">只</span><span class="meter-bar out"><i style="width:2%"></i></span></span></td>
+          <td class="t-num muted">150</td><td class="t-num">6.20</td>
+          <td class="t-act"><button class="btn btn-ghost btn-sm">入库</button><button class="btn btn-ghost btn-sm">明细</button></td>
+        </tr>
+        <tr>
+          <td><div class="t-main">冷轧钢板</div><div class="t-sub">SPCC 1.0mm × 1250 × 2500</div></td>
+          <td class="num muted">BC-10S</td><td><span class="tag">板材</span></td>
+          <td class="t-num"><span class="meter"><span class="num" style="font-weight:600;color:var(--warn)">7</span><span class="muted" style="font-size:var(--t-11)">张</span><span class="meter-bar low"><i style="width:23%"></i></span></span></td>
+          <td class="t-num muted">30</td><td class="t-num">412.00</td>
+          <td class="t-act"><button class="btn btn-ghost btn-sm">入库</button><button class="btn btn-ghost btn-sm">明细</button></td>
+        </tr>
+        <tr>
+          <td><div class="t-main">镀锌平垫圈</div><div class="t-sub">M8 · GB97 · 袋装 1000 片</div></td>
+          <td class="num muted">DQ-M8</td><td><span class="tag">紧固件</span></td>
+          <td class="t-num"><span class="meter"><span class="num" style="font-weight:600;color:var(--warn)">11</span><span class="muted" style="font-size:var(--t-11)">袋</span><span class="meter-bar low"><i style="width:28%"></i></span></span></td>
+          <td class="t-num muted">40</td><td class="t-num">14.80</td>
+          <td class="t-act"><button class="btn btn-ghost btn-sm">入库</button><button class="btn btn-ghost btn-sm">明细</button></td>
+        </tr>
+        <tr>
+          <td><div class="t-main">尼龙自锁螺母</div><div class="t-sub">M10 · 本色 · 袋装 200 只</div></td>
+          <td class="num muted">LM-M10</td><td><span class="tag">紧固件</span></td>
+          <td class="t-num"><span class="meter"><span class="num" style="font-weight:600">86</span><span class="muted" style="font-size:var(--t-11)">袋</span><span class="meter-bar"><i style="width:62%"></i></span></span></td>
+          <td class="t-num muted">30</td><td class="t-num">22.40</td>
+          <td class="t-act"><button class="btn btn-ghost btn-sm">出库</button><button class="btn btn-ghost btn-sm">明细</button></td>
+        </tr>
+        <tr>
+          <td><div class="t-main">铝合金型材</div><div class="t-sub">6063-T5 · 40×40 · 6 米 / 根</div></td>
+          <td class="num muted">LX-4040</td><td><span class="tag">型材</span></td>
+          <td class="t-num"><span class="meter"><span class="num" style="font-weight:600">214</span><span class="muted" style="font-size:var(--t-11)">根</span><span class="meter-bar"><i style="width:78%"></i></span></span></td>
+          <td class="t-num muted">60</td><td class="t-num">96.00</td>
+          <td class="t-act"><button class="btn btn-ghost btn-sm">出库</button><button class="btn btn-ghost btn-sm">明细</button></td>
+        </tr>
+        <tr>
+          <td><div class="t-main">不锈钢拉丝管</div><div class="t-sub">201 · φ25×1.2 · 6 米 / 根</div></td>
+          <td class="num muted">GG-2512</td><td><span class="tag">管材</span></td>
+          <td class="t-num"><span class="meter"><span class="num" style="font-weight:600">438</span><span class="muted" style="font-size:var(--t-11)">根</span><span class="meter-bar"><i style="width:94%"></i></span></span></td>
+          <td class="t-num muted">80</td><td class="t-num">58.60</td>
+          <td class="t-act"><button class="btn btn-ghost btn-sm">出库</button><button class="btn btn-ghost btn-sm">明细</button></td>
+        </tr>
+      </tbody>
+    </table>
+    <div style="padding:10px var(--s-4);border-top:1px solid var(--line-1);display:flex;align-items:center;gap:var(--s-3)">
+      <span class="muted" style="font-size:var(--t-12)">显示 1–7 / 148</span>
+      <span class="muted" style="font-size:var(--t-12);margin-left:auto">库存总值 <b class="num">¥1,284,660.00</b></span>
+      <button class="btn btn-default btn-sm">下一页</button>
+    </div>
+  </div>
+</section>
+
+<!-- ───────── 开单（核心屏） ───────── -->
+<section class="screen" id="s-invoice">
+  <div class="page-head">
+    <div><h1>新建销售单</h1><p>保存后自动减库存；金额和欠款以后要改，只有最高权限能改</p></div>
+    <div class="actions">
+      <button class="btn btn-ghost">放弃</button>
+      <button class="btn btn-dark">存为草稿</button>
+      <a class="btn btn-primary" href="print.html" target="_blank" rel="noopener"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" aria-hidden="true"><use href="#i-print"/></svg>保存并打印</a>
+    </div>
+  </div>
+
+  <div class="invoice">
+    <div>
+      <!-- 单据：抬头对开 + 中缝 + 草稿章 -->
+      <div class="sheet" style="position:relative">
+        <div class="doc-title-bar">
+          <h2>销售出货单</h2>
+          <span class="muted" style="font-size:var(--t-12)">鑫利五金制品厂</span>
+          <span class="doc-no">No. XS-261009-08</span>
+        </div>
+        <div class="stamp-slot" style="top:16px;right:var(--s-6);translate:0 0"><span class="stamp gold">草 稿</span></div>
+        <div class="doc-head">
+          <div>
+            <div class="field"><label for="f1">客户<span class="req">*</span></label>
+              <div class="combo" data-dict="客户">
+                <input class="ruled" id="f1" role="combobox" aria-expanded="false" aria-autocomplete="list"
+                       autocomplete="off" value="顺德骏达机械配件厂" placeholder="可以直接打字">
+                <button type="button" class="combo-caret" tabindex="-1" aria-label="展开客户选项"><svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square"><use href="#i-down"/></svg></button>
+                <div class="combo-pop" hidden role="listbox" aria-label="客户">
+                  <div class="combo-list"><button type="button" class="combo-opt" role="option" aria-selected="true">顺德骏达机械配件厂<span class="meta">欠 6,000</span></button><button type="button" class="combo-opt" role="option" aria-selected="false">中山华晨五金制品<span class="meta">欠 22,200</span></button><button type="button" class="combo-opt" role="option" aria-selected="false">惠州金鼎紧固件<span class="meta">欠 15,000</span></button><button type="button" class="combo-opt" role="option" aria-selected="false">佛山南海兴发机电<span class="meta">欠 9,200</span></button><button type="button" class="combo-opt" role="option" aria-selected="false">东莞精锐模具<span class="meta">新客</span></button></div>
+                  <div class="combo-foot">找不到就直接打字，保存成功后自动加进「客户」</div>
+                </div>
+              </div></div>
+            <div class="field"><label for="f2">部门 / 业务员<span class="req">*</span></label>
+              <div class="combo" data-dict="业务员">
+                <input class="ruled" id="f2" role="combobox" aria-expanded="false" aria-autocomplete="list"
+                       autocomplete="off" value="销售一部 · 罗秀珍" placeholder="可以直接打字">
+                <button type="button" class="combo-caret" tabindex="-1" aria-label="展开部门 / 业务员选项"><svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square"><use href="#i-down"/></svg></button>
+                <div class="combo-pop" hidden role="listbox" aria-label="部门 / 业务员">
+                  <div class="combo-list"><button type="button" class="combo-opt" role="option" aria-selected="true">销售一部 · 罗秀珍</button><button type="button" class="combo-opt" role="option" aria-selected="false">销售一部 · 周丽娟</button><button type="button" class="combo-opt" role="option" aria-selected="false">销售二部 · 吴志明</button><button type="button" class="combo-opt" role="option" aria-selected="false">仓储 · 李国强</button></div>
+                  <div class="combo-foot">找不到就直接打字，保存成功后自动加进「业务员」</div>
+                </div>
+              </div></div>
+          </div>
+          <div>
+            <div class="field"><label for="f3">单据类型<span class="req">*</span></label>
+              <div class="combo" data-dict="单据类型">
+                <input class="ruled" id="f3" role="combobox" aria-expanded="false" aria-autocomplete="list"
+                       autocomplete="off" value="销售单" placeholder="可以直接打字">
+                <button type="button" class="combo-caret" tabindex="-1" aria-label="展开单据类型选项"><svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square"><use href="#i-down"/></svg></button>
+                <div class="combo-pop" hidden role="listbox" aria-label="单据类型">
+                  <div class="combo-list"><button type="button" class="combo-opt" role="option" aria-selected="true">销售单<span class="meta">要收款</span></button><button type="button" class="combo-opt" role="option" aria-selected="false">样品单<span class="meta">不收款</span></button><button type="button" class="combo-opt" role="option" aria-selected="false">调货单<span class="meta">不收款</span></button><button type="button" class="combo-opt" role="option" aria-selected="false">寄售单<span class="meta">不收款</span></button></div>
+                  <div class="combo-foot">找不到就直接打字，保存成功后自动加进「单据类型」</div>
+                </div>
+              </div></div>
+            <div class="field" style="margin-top:var(--s-4)"><label for="f4">开单日期</label>
+              <input class="ruled" id="f4" type="date" value="2026-10-09"></div>
+          </div></div>
+      </div>
+
+      <!-- 明细：账册内页 -->
+      <div class="sheet mt">
+        <div class="sheet-head"><h2>出货明细</h2><span class="spacer muted" style="font-size:var(--t-11);padding-right:0">数量超过库存会马上提示，并且存不了</span></div>
+        <table class="m-line">
+          <thead><tr>
+            <th class="gutter">#</th>
+            <th style="width:32%">物料</th><th class="t-num" style="width:92px">现有库存</th>
+            <th class="t-num" style="width:106px">数量</th><th class="t-num" style="width:106px">单价</th>
+            <th class="t-num" style="width:116px">金额</th><th class="t-act" style="width:46px"></th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <td class="gutter">01</td>
+              <td><div class="t-main">铝合金型材 6063-T5</div><div class="t-sub">40×40 · 6 米 / 根 · LX-4040</div></td>
+              <td class="t-num muted">214 根</td>
+              <td class="t-num"><input class="input t-num" inputmode="decimal" aria-label="数量" value="60"></td>
+              <td class="t-num"><input class="input t-num" inputmode="decimal" aria-label="单价" value="96.00"></td>
+              <td class="t-num" style="font-weight:600">5,760.00</td>
+              <td class="t-act"><button class="btn btn-danger btn-sm" aria-label="删除此行"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-x"/></svg></button></td>
+            </tr>
+            <tr>
+              <td class="gutter">02</td>
+              <td><div class="t-main">不锈钢拉丝管 201</div><div class="t-sub">φ25×1.2 · 6 米 / 根 · GG-2512</div></td>
+              <td class="t-num muted">438 根</td>
+              <td class="t-num"><input class="input t-num" inputmode="decimal" aria-label="数量" value="80"></td>
+              <td class="t-num"><input class="input t-num" inputmode="decimal" aria-label="单价" value="58.60"></td>
+              <td class="t-num" style="font-weight:600">4,688.00</td>
+              <td class="t-act"><button class="btn btn-danger btn-sm" aria-label="删除此行"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-x"/></svg></button></td>
+            </tr>
+            <tr class="row-alert">
+              <td class="gutter">03</td>
+              <td><div class="t-main">冷轧钢板 SPCC</div><div class="t-sub">1.0mm × 1250 × 2500 · BC-10S</div></td>
+              <td class="t-num" style="color:var(--danger)">7 张</td>
+              <td class="t-num"><input class="input t-num is-error" inputmode="decimal" aria-label="数量" aria-invalid="true" aria-describedby="e-3" value="12"><div class="err" id="e-3">超出库存 5 张</div></td>
+              <td class="t-num"><input class="input t-num" inputmode="decimal" aria-label="单价" value="412.00"></td>
+              <td class="t-num" style="font-weight:600">4,944.00</td>
+              <td class="t-act"><button class="btn btn-danger btn-sm" aria-label="删除此行"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-x"/></svg></button></td>
+            </tr>
+          </tbody>
+          <tfoot><tr>
+            <td class="gutter" style="border-top:3px double var(--ink-3)"></td>
+            <td colspan="2" style="font-weight:500">3 行 · 合计 152 件</td>
+            <td class="t-num muted" colspan="2">货款小计</td>
+            <td class="t-num" style="font-size:var(--t-14)">15,392.00</td><td></td>
+          </tr></tfoot>
+        </table>
+        <div style="padding:var(--s-3) var(--s-4)">
+          <div class="picker">
+            <button class="add-row" id="addline" aria-expanded="false" aria-controls="pickpop"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-plus"/></svg>添加物料行　（也可以直接扫条码）</button>
+            <div class="picker-pop" id="pickpop" hidden>
+              <div class="picker-bar">
+                <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="var(--ink-3)" stroke-width="1.6" stroke-linecap="square" aria-hidden="true"><use href="#i-search"/></svg>
+                <input type="search" id="pickq" aria-label="搜物料名称、编码或条码" placeholder="打名称、编码或条码，例如 螺母 / LM-M10 / 690…" autocomplete="off">
+                <kbd class="kbd">Esc</kbd>
+              </div>
+              <div class="picker-list" role="listbox" aria-label="物料">
+                <button class="picker-opt" role="option"><b>尼龙自锁螺母 M10</b><small>本色 · 袋装 200 只 · LM-M10 · 6901234500117</small><span class="stk">86 袋</span></button>
+                <button class="picker-opt" role="option"><b>镀锌平垫圈 M8</b><small>GB97 · 袋装 1000 片 · DQ-M8 · 6901234500124</small><span class="stk">11 袋</span></button>
+                <button class="picker-opt" role="option"><b>304 不锈钢内六角螺丝</b><small>M6×20 · 全牙 · BS-M620 · 6901234500131</small><span class="stk zero">0 袋</span></button>
+                <button class="picker-opt" role="option"><b>黄铜轴套</b><small>φ12×15 · H62 · TT-1215 · 6901234500148</small><span class="stk zero">0 只</span></button>
+                <button class="picker-opt" role="option"><b>铝合金型材 6063-T5</b><small>40×40 · 6 米 / 根 · LX-4040 · 6901234500155</small><span class="stk">214 根</span></button>
+                <button class="picker-opt" role="option"><b>不锈钢拉丝管 201</b><small>φ25×1.2 · 6 米 / 根 · GG-2512 · 6901234500162</small><span class="stk">438 根</span></button>
+                <button class="picker-opt" role="option"><b>冷轧钢板 SPCC</b><small>1.0mm × 1250 × 2500 · BC-10S · 6901234500179</small><span class="stk">7 张</span></button>
+              </div>
+              <div class="picker-foot">↑↓ 选择 · Enter 添加 · 已经在单上的物料会自动合并数量 · 库存 0 的不能开单</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 结算栏：齿孔撕口 + 深色总额块 -->
+    <aside class="settle perf">
+      <div class="sheet">
+        <div class="sheet-head"><h2>结算</h2></div>
+        <div class="panel-body" style="padding-bottom:0">
+          <div class="settle-row"><span>货款小计</span><span class="num">15,392.00</span></div>
+          <div class="settle-row"><span>折扣（%）</span><input class="input t-num" inputmode="decimal" aria-label="折扣百分比" value="2"></div>
+          <div class="settle-row"><span>折后金额</span><span class="num">15,084.16</span></div>
+          <div class="settle-row"><span>抹零</span><input class="input t-num" inputmode="decimal" aria-label="抹零金额" value="84.16"></div>
+
+          <div class="settle-sum">
+            <div class="lbl">应收合计</div>
+            <div class="big"><span class="cur">¥</span>15,000<span class="dec">.00</span></div>
+            <div class="split">
+              <div>现金 + 转账<b>9,800.00</b></div>
+              <div class="owe">本单欠款<b>5,200.00</b></div>
+            </div>
+          </div>
+
+          <div class="settle-row" style="margin-top:var(--s-3)"><span>现金收款</span><input class="input t-num" inputmode="decimal" aria-label="现金收款" value="5,000.00"></div>
+          <div class="settle-row"><span>转账收款</span><input class="input t-num" inputmode="decimal" aria-label="转账收款" value="4,800.00"></div>
+          <div class="settle-row"><span>收款账户</span><select class="input" aria-label="收款账户" style="width:150px;padding:0 8px"><option>工行 ·6842 对公</option><option>微信收款</option><option>现金柜</option></select></div>
+
+          <div style="margin-top:var(--s-4)">
+            <label style="font-size:var(--t-11);color:var(--ink-3);letter-spacing:var(--track-label)">客户签字凭证（欠款单必传）</label>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px">
+              <button class="photo-slot"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="square"><use href="#i-camera"/></svg>拍照 / 上传</button>
+              <button class="photo-slot"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="square"><use href="#i-plus"/></svg>第二张</button>
+            </div>
+          </div>
+
+          <div style="margin:var(--s-4) 0 var(--s-4);padding-top:var(--s-3);border-top:1px solid var(--line-1);font-size:var(--t-11);color:var(--ink-3);line-height:1.7">
+            保存后自动减库存，并记下这笔收款。<br>现在有 1 行超过库存，<b style="color:var(--danger)">还不能保存</b>。
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+  <div class="mbar">
+    <span class="sum"><span>应收合计</span><b>¥15,000.00</b></span>
+    <button class="btn btn-primary">保存并打印</button>
+  </div>
+</section>
+
+<!-- ───────── 财务 ───────── -->
+<section class="screen" id="s-finance">
+  <div class="page-head">
+    <div><h1>财务</h1><p>客户欠了多少、每个账户收了多少、各部门业绩 · 10 月 1 日 – 10 月 9 日</p></div>
+    <div class="actions">
+      <div class="segmented" role="tablist">
+        <button role="tab" aria-selected="false">本周</button>
+        <button role="tab" aria-selected="true">本月</button>
+        <button role="tab" aria-selected="false">本季</button>
+        <button role="tab" aria-selected="false">自定义</button>
+      </div>
+      <button class="btn btn-default">导出对账单</button>
+    </div>
+  </div>
+
+  <div class="ledger">
+    <div class="ledger-cell" data-hue="jade"><span class="ledger-label">应收货款</span><div class="ledger-value">386,420<span class="unit">元</span></div><div class="ledger-foot">42 张有效单据</div></div>
+    <div class="ledger-cell" data-hue="indigo"><span class="ledger-label">实际收到</span><div class="ledger-value">322,580<span class="unit">元</span></div><div class="ledger-foot">已收比例 83.5%</div></div>
+    <div class="ledger-cell" data-hue="coral"><span class="ledger-label">客户欠款</span><div class="ledger-value neg">63,840<span class="unit">元</span></div><div class="ledger-foot">7 户 · 超 60 天 ¥18,200</div></div>
+    <div class="ledger-cell" data-hue="amber"><span class="ledger-label">抹零 / 折扣让利</span><div class="ledger-value">4,186<span class="unit">元</span></div><div class="ledger-foot">占应收 1.08%</div></div>
+  </div>
+
+  <div class="two-col">
+    <div class="panel">
+      <div class="panel-head">
+        <h2>客户对账</h2>
+        <div class="segmented spacer" role="tablist">
+          <button role="tab" aria-selected="true">有欠款 7</button>
+          <button role="tab" aria-selected="false">全部 31</button>
+        </div>
+      </div>
+      <table class="m-recv">
+        <thead><tr>
+          <th>客户</th><th class="t-num" style="width:110px">应收款</th><th class="t-num" style="width:110px">已收款</th>
+          <th class="t-num" style="width:110px">欠款</th><th style="width:92px">欠了多久</th><th class="t-act" style="width:76px"></th>
+        </tr></thead>
+        <tbody>
+          <tr><td><div class="t-main">中山华晨五金制品</div><div class="t-sub">吴志明 · 近 6 张单</div></td>
+            <td class="t-num">96,740.00</td><td class="t-num">74,540.00</td><td class="t-num neg" style="font-weight:600">22,200.00</td>
+            <td><span class="tag tag-danger">78 天</span></td><td class="t-act"><button class="btn btn-ghost btn-sm" data-open="pay">收款</button></td></tr>
+          <tr><td><div class="t-main">惠州金鼎紧固件</div><div class="t-sub">周丽娟 · 近 4 张单</div></td>
+            <td class="t-num">48,320.00</td><td class="t-num">33,320.00</td><td class="t-num neg" style="font-weight:600">15,000.00</td>
+            <td><span class="tag tag-warn">46 天</span></td><td class="t-act"><button class="btn btn-ghost btn-sm" data-open="pay">收款</button></td></tr>
+          <tr><td><div class="t-main">佛山南海兴发机电</div><div class="t-sub">吴志明 · 近 3 张单</div></td>
+            <td class="t-num">31,860.00</td><td class="t-num">22,660.00</td><td class="t-num neg" style="font-weight:600">9,200.00</td>
+            <td><span class="tag tag-warn">31 天</span></td><td class="t-act"><button class="btn btn-ghost btn-sm" data-open="pay">收款</button></td></tr>
+          <tr><td><div class="t-main">江门新会利丰五金</div><div class="t-sub">罗秀珍 · 近 2 张单</div></td>
+            <td class="t-num">26,400.00</td><td class="t-num">19,960.00</td><td class="t-num neg" style="font-weight:600">6,440.00</td>
+            <td><span class="tag">18 天</span></td><td class="t-act"><button class="btn btn-ghost btn-sm" data-open="pay">收款</button></td></tr>
+          <tr><td><div class="t-main">顺德骏达机械配件厂</div><div class="t-sub">罗秀珍 · 近 9 张单</div></td>
+            <td class="t-num">104,280.00</td><td class="t-num">98,280.00</td><td class="t-num neg" style="font-weight:600">6,000.00</td>
+            <td><span class="tag">9 天</span></td><td class="t-act"><button class="btn btn-ghost btn-sm" data-open="pay">收款</button></td></tr>
+          <tr><td><div class="t-main">东莞长安恒泰机械</div><div class="t-sub">黄海峰 · 近 2 张单</div></td>
+            <td class="t-num">18,760.00</td><td class="t-num">13,760.00</td><td class="t-num neg" style="font-weight:600">5,000.00</td>
+            <td><span class="tag">6 天</span></td><td class="t-act"><button class="btn btn-ghost btn-sm" data-open="pay">收款</button></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div>
+      <div class="panel">
+        <div class="panel-head"><h2>账户流水</h2><span class="spacer muted" style="font-size:var(--t-11)">今日</span></div>
+        <table>
+          <tbody>
+            <tr><td style="padding-left:var(--s-4)"><div class="t-main">工行 ·6842 对公</div><div class="t-sub">14:08 · 顺德骏达 XS-07</div></td><td class="t-num" style="padding-right:var(--s-4);color:var(--brand)">+10,480.00</td></tr>
+            <tr><td style="padding-left:var(--s-4)"><div class="t-main">现金柜</div><div class="t-sub">11:32 · 中山华晨 XS-06</div></td><td class="t-num" style="padding-right:var(--s-4);color:var(--brand)">+16,000.00</td></tr>
+            <tr><td style="padding-left:var(--s-4)"><div class="t-main">微信收款</div><div class="t-sub">10:17 · 南海兴发 XS-05</div></td><td class="t-num" style="padding-right:var(--s-4);color:var(--brand)">+3,200.00</td></tr>
+            <tr><td style="padding-left:var(--s-4)"><div class="t-main">现金柜</div><div class="t-sub">09:40 · 退货退款 TH-02</div></td><td class="t-num neg" style="padding-right:var(--s-4)">−1,860.00</td></tr>
+          </tbody>
+        </table>
+        <div style="padding:10px var(--s-4);border-top:1px solid var(--line-1);display:flex">
+          <span class="muted" style="font-size:var(--t-12)">今天实际收到</span>
+          <b class="num" style="margin-left:auto">¥27,820.00</b>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2>部门业绩</h2><span class="spacer muted" style="font-size:var(--t-11)">本月 · 万元</span></div>
+        <div class="panel-body">
+          <div class="bars">
+            <div class="bar-row"><span>销售一部</span><span class="bar-track"><i style="width:86%"></i></span><span class="num" style="text-align:right">22.56</span></div>
+            <div class="bar-row"><span>销售二部</span><span class="bar-track"><i style="width:61%"></i></span><span class="num" style="text-align:right">16.06</span></div>
+            <div class="bar-row"><span>厂内调拨</span><span class="bar-track"><i class="alt" style="width:12%"></i></span><span class="num" style="text-align:right">3.08</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────── 记录 ───────── -->
+<section class="screen" id="s-records">
+  <div class="page-head">
+    <div><h1>记录</h1><p>所有出入库、改单和作废都按人、按时间记下来</p></div>
+    <div class="actions"><button class="btn btn-default">导出 CSV</button></div>
+  </div>
+  <div class="panel">
+    <div class="toolbar">
+      <span class="search"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="var(--ink-3)" stroke-width="1.6" stroke-linecap="square"><use href="#i-search"/></svg><input type="search" aria-label="搜索物料、单号或操作人" placeholder="物料、单号或操作人" autocomplete="off"></span>
+      <button class="chip" aria-pressed="true">全部</button><button class="chip">入库</button><button class="chip">出库</button>
+      <button class="chip">改单</button><button class="chip">作废</button><button class="chip">清点</button>
+    </div>
+    <table class="m-rec">
+      <thead><tr>
+        <th style="width:128px">时间</th><th style="width:76px">动作</th><th>物料 / 单据</th>
+        <th class="t-num" style="width:96px">增减</th><th class="t-num" style="width:104px">剩余库存</th><th style="width:96px">操作人</th><th>说明</th>
+      </tr></thead>
+      <tbody>
+        <tr><td class="num muted">10-09 14:08</td><td><span class="tag tag-danger">出库</span></td>
+          <td><div class="t-main">铝合金型材 6063-T5</div><div class="t-sub">XS-261009-07</div></td>
+          <td class="t-num neg">−60</td><td class="t-num">154</td><td>罗秀珍</td><td class="muted">销售出库</td></tr>
+        <tr><td class="num muted">10-09 11:32</td><td><span class="tag tag-ok">入库</span></td>
+          <td><div class="t-main">不锈钢拉丝管 201</div><div class="t-sub">CG-261009-02</div></td>
+          <td class="t-num" style="color:var(--brand)">+200</td><td class="t-num">638</td><td>李国强</td><td class="muted">采购到货验收</td></tr>
+        <tr><td class="num muted">10-09 10:46</td><td><span class="tag tag-warn">改单</span></td>
+          <td><div class="t-main">XS-261009-06 中山华晨</div><div class="t-sub">实收 24,760 → 16,000</div></td>
+          <td class="t-num muted">—</td><td class="t-num muted">—</td><td>陈建国</td><td class="muted">客户回款不足，转欠款 8,760</td></tr>
+        <tr class="row-void"><td class="num muted">10-09 09:40</td><td><span class="tag tag-void">作废</span></td>
+          <td><div class="t-main">XS-261009-04 惠州金鼎</div><div class="t-sub">作废调整：加回出库数量</div></td>
+          <td class="t-num" style="color:var(--brand)">+15</td><td class="t-num">—</td><td>陈建国</td><td class="muted">客户取消订单</td></tr>
+        <tr><td class="num muted">10-09 08:55</td><td><span class="tag tag-info">清点</span></td>
+          <td><div class="t-main">镀锌平垫圈 M8</div><div class="t-sub">QD-2610-01 · 系统记录 13 / 实点 11</div></td>
+          <td class="t-num neg">−2</td><td class="t-num">11</td><td>李国强</td><td class="muted">差异已登记，待复核</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ───────── 清点（空状态示例） ───────── -->
+<section class="screen" id="s-stocktake">
+  <div class="page-head"><div><h1>清点库存</h1><p>按分类分批清点，点出来的差异会自动生成一条调整记录</p></div>
+    <div class="actions"><button class="btn btn-primary"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-plus"/></svg>发起清点</button></div></div>
+  <div class="panel"><div class="empty">
+    <div style="width:44px;height:44px;margin:0 auto var(--s-3);display:grid;place-items:center;border:1px solid var(--line-2);border-radius:10px;background:var(--paper-1)">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="var(--ink-3)" stroke-width="1.4" stroke-linecap="square"><use href="#i-check"/></svg></div>
+    <h3>本月还没有清点任务</h3>
+    <p>上一次清点在 9 月 28 日，由李国强完成，148 种物料中 3 种有差异。</p>
+    <button class="btn btn-default">查看上次结果</button>
+    <button class="btn btn-primary">发起 10 月清点</button>
+  </div></div>
+</section>
+
+<!-- ───────── 设计规范 ───────── -->
+<section class="screen" id="s-tokens">
+  <div class="page-head"><div><h1>设计规范</h1><p>所有颜色、字号、间距都取自 tokens.css；页面里不允许写死数值</p></div></div>
+
+  <div class="panel">
+    <div class="panel-head"><h2>纸面与墨线</h2><span class="spacer muted" style="font-size:var(--t-11)">层级靠底色 + 1px 线，不靠阴影</span></div>
+    <div class="panel-body"><div class="swatches">
+      <div class="sw"><div class="sw-chip" style="background:var(--paper-0);border-bottom:1px solid var(--line-1)"></div><div class="sw-meta"><b>paper-0 内容面</b><code>#FFFFFF</code></div></div>
+      <div class="sw"><div class="sw-chip" style="background:var(--paper-1)"></div><div class="sw-meta"><b>paper-1 表头</b><code>#FAF9F6</code></div></div>
+      <div class="sw"><div class="sw-chip" style="background:var(--paper-2)"></div><div class="sw-meta"><b>paper-2 工作区</b><code>#F3F1EC</code></div></div>
+      <div class="sw"><div class="sw-chip" style="background:var(--paper-3)"></div><div class="sw-meta"><b>paper-3 凹陷</b><code>#EAE7E0</code></div></div>
+      <div class="sw"><div class="sw-chip" style="background:var(--line-1)"></div><div class="sw-meta"><b>line-1 发丝线</b><code>#E7E4DC</code></div></div>
+      <div class="sw"><div class="sw-chip" style="background:var(--line-2)"></div><div class="sw-meta"><b>line-2 结构线</b><code>#D7D3C9</code></div></div>
+      <div class="sw"><div class="sw-chip" style="background:var(--line-3)"></div><div class="sw-meta"><b>line-3 控件线</b><code>#BDB8AC</code></div></div>
+    </div></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h2>墨色与语义色</h2><span class="spacer muted" style="font-size:var(--t-11)">一个品牌绿 + 三个语义色，各司其职</span></div>
+    <div class="panel-body"><div class="swatches">
+      <div class="sw"><div class="sw-chip" style="background:var(--ink-1)"></div><div class="sw-meta"><b>ink-1 主文字</b><code>#1B1E1B</code></div></div>
+      <div class="sw"><div class="sw-chip" style="background:var(--ink-3)"></div><div class="sw-meta"><b>ink-3 标签 4.9:1</b><code>#6B726A</code></div></div>
+      <div class="sw"><div class="sw-chip" style="background:var(--brand)"></div><div class="sw-meta"><b>brand 主操作 / 选中</b><code>#14483B</code></div></div>
+      <div class="sw"><div class="sw-chip" style="background:var(--danger)"></div><div class="sw-meta"><b>danger 欠款 / 超库存</b><code>#A83228</code></div></div>
+      <div class="sw"><div class="sw-chip" style="background:var(--warn)"></div><div class="sw-meta"><b>warn 低库存</b><code>#8A5B12</code></div></div>
+      <div class="sw"><div class="sw-chip" style="background:var(--info)"></div><div class="sw-meta"><b>info 系统提示</b><code>#1F5578</code></div></div>
+      <div class="sw"><div class="sw-chip" style="background:var(--gold)"></div><div class="sw-meta"><b>gold 印章 / 归档</b><code>#B2862B</code></div></div>
+    </div></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h2>字阶</h2><span class="spacer muted" style="font-size:var(--t-11)">中文系统字体 · 拉丁与数字 IBM Plex · 基准 13px</span></div>
+    <div class="panel-body">
+      <div class="type-row"><code>t-40 / 650 / num</code><span class="num" style="font-size:var(--t-40);font-weight:650;letter-spacing:-.04em">¥15,000.00</span></div>
+      <div class="type-row"><code>t-32 / 600 / num</code><span class="num" style="font-size:var(--t-32);font-weight:600;letter-spacing:-.03em">386,420</span></div>
+      <div class="type-row"><code>t-24 / 650</code><span style="font-size:var(--t-24);font-weight:650;letter-spacing:-.02em">开单与收款</span></div>
+      <div class="type-row"><code>t-16 / 600</code><span style="font-size:var(--t-16);font-weight:600">出货明细</span></div>
+      <div class="type-row"><code>t-14 / 500</code><span style="font-size:var(--t-14);font-weight:500">304 不锈钢内六角螺丝</span></div>
+      <div class="type-row"><code>t-13 / 400 基准</code><span style="font-size:var(--t-13)">表格与控件的默认字号，一屏能放下更多行</span></div>
+      <div class="type-row"><code>t-11 / 600 / +.04em</code><span style="font-size:var(--t-11);font-weight:600;letter-spacing:.04em;color:var(--ink-3)">客户 / 业务员　预警线　欠了多久</span></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h2>组件</h2></div>
+    <div class="panel-body" style="display:grid;gap:var(--s-5)">
+      <div>
+        <div style="font-size:var(--t-11);color:var(--ink-3);letter-spacing:.04em;margin-bottom:10px">按钮 · 高 34px（触屏自动 44px）</div>
+        <div class="demo-grid">
+          <button class="btn btn-primary">保存并打印</button>
+          <button class="btn btn-dark">存为草稿</button>
+          <button class="btn btn-ghost">放弃</button>
+          <button class="btn btn-danger">作废单据</button>
+          <button class="btn btn-primary" disabled>库存不足</button>
+          <button class="btn btn-default btn-sm">小尺寸</button>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:var(--t-11);color:var(--ink-3);letter-spacing:.04em;margin-bottom:10px">状态章 · 方形细边，不用圆角胶囊</div>
+        <div class="demo-grid">
+          <span class="tag tag-ok">已结清</span><span class="tag tag-danger">欠 8,760</span>
+          <span class="tag tag-warn">低库存</span><span class="tag tag-sample">样品单</span>
+          <span class="tag tag-void">已作废</span><span class="tag tag-sale">销售单</span>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:var(--t-11);color:var(--ink-3);letter-spacing:.04em;margin-bottom:10px">输入 · 单据用下划线栏位，表格用边框输入</div>
+        <div class="demo-grid" style="align-items:flex-start">
+          <div class="field" style="width:200px"><label for="f5">客户<span class="req">*</span></label><input class="ruled" id="f5" value="顺德骏达机械配件厂"></div>
+          <div style="width:140px"><input class="input t-num" aria-label="示例金额输入" value="1,284.00"></div>
+          <div style="width:140px"><input class="input t-num is-error" inputmode="decimal" aria-label="数量" aria-invalid="true" aria-describedby="e-3" value="12"><div class="err" id="e-3">超出库存 5 张</div></div>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:var(--t-11);color:var(--ink-3);letter-spacing:.04em;margin-bottom:10px">分段控件 · 替代页面内嵌套 Tab</div>
+        <div class="segmented" role="tablist">
+          <button role="tab" aria-selected="true">单据列表</button><button role="tab" aria-selected="false">收款与欠款</button><button role="tab" aria-selected="false">客户与配置</button>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:var(--t-11);color:var(--ink-3);letter-spacing:.04em;margin-bottom:10px">可输入下拉 · 凡是取值自「选项清单」的字段都用它。能选、能打字、清单里没有就现场新增</div>
+        <div class="demo-grid" style="align-items:flex-start">
+          <div style="width:260px"><div class="field"><label for="fd1">物料规格</label>
+              <div class="combo" data-dict="常用规格">
+                <input class="input" id="fd1" role="combobox" aria-expanded="false" aria-autocomplete="list"
+                       autocomplete="off" value="" placeholder="可以直接打字">
+                <button type="button" class="combo-caret" tabindex="-1" aria-label="展开物料规格选项"><svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square"><use href="#i-down"/></svg></button>
+                <div class="combo-pop" hidden role="listbox" aria-label="物料规格">
+                  <div class="combo-list"><button type="button" class="combo-opt" role="option" aria-selected="false">M6×20<span class="meta">8</span></button><button type="button" class="combo-opt" role="option" aria-selected="false">M8<span class="meta">6</span></button><button type="button" class="combo-opt" role="option" aria-selected="false">φ12×15<span class="meta">4</span></button><button type="button" class="combo-opt" role="option" aria-selected="false">40×40 · 6 米 / 根<span class="meta">3</span></button></div>
+                  <div class="combo-foot">找不到就直接打字，保存成功后自动加进「常用规格」</div>
+                </div>
+              </div></div></div>
+          <div style="width:200px"><div class="field"><label for="fd2">计量单位</label>
+              <div class="combo" data-dict="计量单位">
+                <input class="input" id="fd2" role="combobox" aria-expanded="false" aria-autocomplete="list"
+                       autocomplete="off" value="袋" placeholder="可以直接打字">
+                <button type="button" class="combo-caret" tabindex="-1" aria-label="展开计量单位选项"><svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square"><use href="#i-down"/></svg></button>
+                <div class="combo-pop" hidden role="listbox" aria-label="计量单位">
+                  <div class="combo-list"><button type="button" class="combo-opt" role="option" aria-selected="false">只<span class="meta">54</span></button><button type="button" class="combo-opt" role="option" aria-selected="true">袋<span class="meta">31</span></button><button type="button" class="combo-opt" role="option" aria-selected="false">根<span class="meta">26</span></button><button type="button" class="combo-opt" role="option" aria-selected="false">张<span class="meta">19</span></button><button type="button" class="combo-opt" role="option" aria-selected="false">米<span class="meta">12</span></button><button type="button" class="combo-opt" role="option" aria-selected="false">公斤<span class="meta">6</span></button></div>
+                  <div class="combo-foot">找不到就直接打字，保存成功后自动加进「计量单位」</div>
+                </div>
+              </div></div></div>
+          <p class="muted" style="max-width:280px;font-size:var(--t-12);line-height:1.7;margin-top:18px">
+            打一个清单里没有的值，底部会出现「新增」。新值<b>只有在单据保存成功之后</b>才真正写进清单，保存失败不会留下垃圾选项。</p>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:var(--t-11);color:var(--ink-3);letter-spacing:.04em;margin-bottom:10px">印章 · 单据终局状态，一张单最多一个</div>
+        <div class="demo-grid" style="gap:var(--s-6);padding:var(--s-3) 0">
+          <span class="stamp paid">已 结 清</span><span class="stamp">已 作 废</span><span class="stamp gold">草 稿</span>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:var(--t-11);color:var(--ink-3);letter-spacing:.04em;margin-bottom:10px">加载骨架 · 不用转圈</div>
+        <div style="display:grid;gap:10px;max-width:420px">
+          <div class="skel" style="width:60%"></div><div class="skel"></div><div class="skel" style="width:84%"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────── 人员 / 备份（占位） ───────── -->
+<section class="screen" id="s-system">
+  <div class="page-head"><div><h1>管理与设置</h1><p>人员与权限、数据与备份沿用同一套表格与表单组件</p></div></div>
+  <div class="panel">
+    <div class="toolbar"><h2 style="font-size:var(--t-14);font-weight:600">业务员</h2>
+      <button class="btn btn-default btn-sm" style="margin-left:auto">新增业务员</button></div>
+    <table class="m-base">
+      <thead><tr><th style="width:120px">姓名</th><th style="width:140px">部门</th><th style="width:100px">状态</th>
+        <th class="t-num" style="width:120px">本月业绩</th><th>关联账号</th><th class="t-act" style="width:88px"></th></tr></thead>
+      <tbody>
+        <tr><td class="t-main">罗秀珍</td><td>销售一部</td><td><span class="tag tag-ok">启用</span></td><td class="t-num">148,200.00</td><td class="muted">luoxz · 开单员</td><td class="t-act"><button class="btn btn-ghost btn-sm">编辑</button></td></tr>
+        <tr><td class="t-main">吴志明</td><td>销售二部</td><td><span class="tag tag-ok">启用</span></td><td class="t-num">119,600.00</td><td class="muted">wuzm · 开单员</td><td class="t-act"><button class="btn btn-ghost btn-sm">编辑</button></td></tr>
+        <tr><td class="t-main">周丽娟</td><td>销售一部</td><td><span class="tag tag-ok">启用</span></td><td class="t-num">77,400.00</td><td class="muted">zhoulj · 开单员</td><td class="t-act"><button class="btn btn-ghost btn-sm">编辑</button></td></tr>
+        <tr><td class="t-main">黄海峰</td><td>销售二部</td><td><span class="tag">停用</span></td><td class="t-num muted">41,000.00</td><td class="muted">—</td><td class="t-act"><button class="btn btn-ghost btn-sm">编辑</button></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ───────── 单据 ───────── -->
+<section class="screen" id="s-doclist">
+  <div class="page-head">
+    <div><h1>单据</h1><p>草稿、已确认、已作废分开看；「单据到哪一步」和「钱收了没有」是两件事</p></div>
+    <div class="actions"><button class="btn btn-default">导出</button><button class="btn btn-primary" data-go="invoice">新建单据</button></div>
+  </div>
+  <div class="sheet">
+    <div class="sheet-head"><h2>全部单据</h2><div class="segmented spacer" role="tablist"><button role="tab" aria-selected="true">全部</button><button role="tab" aria-selected="false">草稿 1</button><button role="tab" aria-selected="false">已确认 40</button><button role="tab" aria-selected="false">已作废 1</button></div></div>
+    <table class="m-doc2"><thead><tr><th class="gutter">#</th><th style="width:128px;white-space:nowrap">单号</th><th>客户 / 业务员</th><th style="width:76px">类型</th><th style="width:88px">单据状态</th><th style="width:96px">收款状态</th><th class="t-num" style="width:104px">应收款</th><th class="t-num" style="width:104px">欠款</th></tr></thead><tbody><tr><td class="gutter">01</td><td class="num muted" style="white-space:nowrap">XS-261009-08</td>
+   <td><div class="t-main">顺德骏达机械配件厂</div><div class="t-sub">销售一部 · 罗秀珍</div></td><td><span class="tag ">销售单</span></td>
+   <td><span class="tag tag-warn">草稿</span></td><td><span class="tag ">未收款</span></td>
+   <td class="t-num">15,000.00</td><td class="t-num muted">—</td></tr><tr><td class="gutter">02</td><td class="num muted" style="white-space:nowrap">XS-261009-07</td>
+   <td><div class="t-main">顺德骏达机械配件厂</div><div class="t-sub">销售一部 · 罗秀珍</div></td><td><span class="tag ">销售单</span></td>
+   <td><span class="tag tag-ok">已确认</span></td><td><span class="tag tag-ok">已结清</span></td>
+   <td class="t-num">10,480.00</td><td class="t-num muted">0.00</td></tr><tr data-go="docdetail" style="cursor:pointer"><td class="gutter">03</td><td class="num muted" style="white-space:nowrap">XS-261009-06</td>
+   <td><div class="t-main">中山华晨五金制品</div><div class="t-sub">销售二部 · 吴志明</div></td><td><span class="tag ">销售单</span></td>
+   <td><span class="tag tag-ok">已确认</span></td><td><span class="tag tag-danger">部分收款</span></td>
+   <td class="t-num">24,760.00</td><td class="t-num neg">8,760.00</td></tr><tr><td class="gutter">04</td><td class="num muted" style="white-space:nowrap">YP-261009-02</td>
+   <td><div class="t-main">东莞精锐模具（新客）</div><div class="t-sub">销售一部 · 罗秀珍</div></td><td><span class="tag tag-sample">样品单</span></td>
+   <td><span class="tag tag-ok">已确认</span></td><td><span class="tag ">不收款</span></td>
+   <td class="t-num">—</td><td class="t-num muted">—</td></tr><tr><td class="gutter">05</td><td class="num muted" style="white-space:nowrap">XS-261009-05</td>
+   <td><div class="t-main">佛山南海兴发机电</div><div class="t-sub">销售二部 · 吴志明</div></td><td><span class="tag ">销售单</span></td>
+   <td><span class="tag tag-ok">已确认</span></td><td><span class="tag tag-ok">已结清</span></td>
+   <td class="t-num">3,215.00</td><td class="t-num muted">0.00</td></tr><tr><td class="gutter">06</td><td class="num muted" style="white-space:nowrap">XS-261009-04</td>
+   <td><div class="t-main">惠州金鼎紧固件</div><div class="t-sub">销售一部 · 周丽娟</div></td><td><span class="tag ">销售单</span></td>
+   <td><span class="tag tag-void">已作废</span></td><td><span class="tag ">已退款</span></td>
+   <td class="t-num">1,860.00</td><td class="t-num muted">0.00</td></tr><tr><td class="gutter">07</td><td class="num muted" style="white-space:nowrap">TH-261008-01</td>
+   <td><div class="t-main">中山华晨五金制品</div><div class="t-sub">销售二部 · 吴志明</div></td><td><span class="tag tag-return">退货单</span></td>
+   <td><span class="tag tag-ok">已确认</span></td><td><span class="tag ">已退款</span></td>
+   <td class="t-num">−2,400.00</td><td class="t-num muted">0.00</td></tr></tbody><tfoot><tr><td class="gutter" style="border-top:3px double var(--ink-3)"></td><td colspan="5">本月 42 张有效单据</td><td class="t-num">386,420.00</td><td class="t-num neg">63,840.00</td></tr></tfoot></table>
+  </div>
+</section>
+
+<!-- ───────── 客户 ───────── -->
+<section class="screen" id="s-customers">
+  <div class="page-head">
+    <div><h1>客户</h1><p>客户资料和对账。欠款认的是客户档案，不是名字，重名不会算错</p></div>
+    <div class="actions"><button class="btn btn-default">导入</button><button class="btn btn-primary">新建客户</button></div>
+  </div>
+  <div class="sheet">
+    <div class="sheet-head"><h2>客户档案</h2></div>
+    <table class="m-cust"><thead><tr><th class="gutter">#</th><th>客户 / 联系人</th><th style="width:130px">电话</th><th class="t-num" style="width:70px">单据</th><th class="t-num" style="width:112px">应收合计</th><th class="t-num" style="width:112px">已收合计</th><th class="t-num" style="width:104px">欠款</th><th class="t-act" style="width:96px"></th></tr></thead><tbody><tr><td class="gutter">01</td><td><div class="t-main">中山华晨五金制品</div><div class="t-sub">黄经理</div></td>
+   <td class="num muted">0760-8842 1937</td><td class="t-num">6</td><td class="t-num">96,740.00</td><td class="t-num">74,540.00</td>
+   <td class="t-num neg" style="font-weight:600">22,200.00</td><td class="t-act"><button class="btn btn-ghost btn-sm">对账</button></td></tr><tr><td class="gutter">02</td><td><div class="t-main">惠州金鼎紧固件</div><div class="t-sub">罗主管</div></td>
+   <td class="num muted">0752-2718 4460</td><td class="t-num">4</td><td class="t-num">48,320.00</td><td class="t-num">33,320.00</td>
+   <td class="t-num neg" style="font-weight:600">15,000.00</td><td class="t-act"><button class="btn btn-ghost btn-sm">对账</button></td></tr><tr><td class="gutter">03</td><td><div class="t-main">佛山南海兴发机电</div><div class="t-sub">梁先生</div></td>
+   <td class="num muted">0757-8630 2254</td><td class="t-num">3</td><td class="t-num">31,860.00</td><td class="t-num">22,660.00</td>
+   <td class="t-num neg" style="font-weight:600">9,200.00</td><td class="t-act"><button class="btn btn-ghost btn-sm">对账</button></td></tr><tr><td class="gutter">04</td><td><div class="t-main">顺德骏达机械配件厂</div><div class="t-sub">何小姐</div></td>
+   <td class="num muted">0757-2286 7714</td><td class="t-num">9</td><td class="t-num">104,280.00</td><td class="t-num">98,280.00</td>
+   <td class="t-num neg" style="font-weight:600">6,000.00</td><td class="t-act"><button class="btn btn-ghost btn-sm">对账</button></td></tr><tr><td class="gutter">05</td><td><div class="t-main">东莞精锐模具</div><div class="t-sub">张工</div></td>
+   <td class="num muted">0769-8217 3308</td><td class="t-num">1</td><td class="t-num">—</td><td class="t-num">—</td>
+   <td class="t-num muted" style="font-weight:600">0.00</td><td class="t-act"><button class="btn btn-ghost btn-sm">对账</button></td></tr></tbody></table>
+  </div>
+</section>
+
+<!-- ───────── 退货与作废 ───────── -->
+<section class="screen" id="s-returns">
+  <div class="page-head">
+    <div><h1>退货与作废</h1><p>退货单挂在原来那张单上，按原单的折扣算该退多少钱；作废只退还没退过的数量</p></div>
+  </div>
+  <div class="sheet">
+    <div class="sheet-head"><h2>近期退货与作废</h2></div>
+    <table class="m-rec"><thead><tr><th class="gutter">#</th><th style="width:124px">单号</th><th style="width:124px">关联原单</th><th>客户 / 原因</th><th style="width:72px">动作</th><th class="t-num" style="width:110px">金额影响</th><th style="width:84px">经办人</th></tr></thead><tbody><tr><td class="gutter">01</td><td class="num muted" style="white-space:nowrap">TH-261008-01</td><td class="num muted" style="white-space:nowrap">XS-261002-03</td>
+   <td><div class="t-main">中山华晨五金制品</div><div class="t-sub">来料尺寸不符，退回 40 根</div></td><td><span class="tag tag-info">部分退货</span></td>
+   <td class="t-num neg">−2,400.00</td><td>陈建国</td></tr><tr><td class="gutter">02</td><td class="num muted" style="white-space:nowrap">ZF-261009-01</td><td class="num muted" style="white-space:nowrap">XS-261009-04</td>
+   <td><div class="t-main">惠州金鼎紧固件</div><div class="t-sub">客户取消订单，库存已冲回</div></td><td><span class="tag tag-void">作废</span></td>
+   <td class="t-num neg">−1,860.00</td><td>陈建国</td></tr><tr><td class="gutter">03</td><td class="num muted" style="white-space:nowrap">TH-260930-02</td><td class="num muted" style="white-space:nowrap">XS-260925-07</td>
+   <td><div class="t-main">佛山南海兴发机电</div><div class="t-sub">表面划伤，整单退回</div></td><td><span class="tag tag-danger">整单退货</span></td>
+   <td class="t-num neg">−6,180.00</td><td>陈建国</td></tr></tbody></table>
+  </div>
+</section>
+
+<!-- ───────── 出入库 ───────── -->
+<section class="screen" id="s-movement">
+  <div class="page-head">
+    <div><h1>出入库</h1><p>不走销售单的出入库：采购到货、车间领用、报损、厂内调货</p></div>
+    <div class="actions"><button class="btn btn-default">出库</button><button class="btn btn-primary">入库</button></div>
+  </div>
+  <div class="sheet">
+    <div class="sheet-head"><h2>今天的出入库</h2></div>
+    <table class="m-rec"><thead><tr><th class="gutter">#</th><th style="width:92px">时间</th><th style="width:72px">动作</th><th>物料</th><th class="t-num" style="width:96px">数量</th><th class="t-num" style="width:104px">剩余库存</th><th style="width:84px">经办人</th><th>说明</th></tr></thead><tbody><tr><td class="gutter">01</td><td class="num muted">14:08</td><td><span class="tag tag-danger">出库</span></td>
+   <td><div class="t-main">铝合金型材 6063-T5</div><div class="t-sub">40×40 · 6 米 / 根</div></td><td class="t-num neg">−60</td>
+   <td class="t-num">154</td><td>罗秀珍</td><td class="muted">销售出库 XS-07</td></tr><tr><td class="gutter">02</td><td class="num muted">11:32</td><td><span class="tag tag-ok">入库</span></td>
+   <td><div class="t-main">不锈钢拉丝管 201</div><div class="t-sub">φ25×1.2 · 6 米 / 根</div></td><td class="t-num ">+200</td>
+   <td class="t-num">638</td><td>李国强</td><td class="muted">采购到货验收</td></tr><tr><td class="gutter">03</td><td class="num muted">10:05</td><td><span class="tag tag-warn">领用</span></td>
+   <td><div class="t-main">镀锌平垫圈 M8</div><div class="t-sub">GB97 · 袋装 1000 片</div></td><td class="t-num neg">−2</td>
+   <td class="t-num">11</td><td>李国强</td><td class="muted">二号线装配领用</td></tr><tr><td class="gutter">04</td><td class="num muted">09:12</td><td><span class="tag tag-danger">报损</span></td>
+   <td><div class="t-main">冷轧钢板 SPCC</div><div class="t-sub">1.0mm × 1250 × 2500</div></td><td class="t-num neg">−1</td>
+   <td class="t-num">7</td><td>李国强</td><td class="muted">运输压弯，已拍照留档</td></tr><tr><td class="gutter">05</td><td class="num muted">08:30</td><td><span class="tag tag-info">调拨</span></td>
+   <td><div class="t-main">尼龙自锁螺母 M10</div><div class="t-sub">本色 · 袋装 200 只</div></td><td class="t-num neg">−12</td>
+   <td class="t-num">86</td><td>李国强</td><td class="muted">调往鑫利二厂 DH-01</td></tr></tbody></table>
+  </div>
+</section>
+
+<!-- ───────── 账户流水 ───────── -->
+<section class="screen" id="s-accounts">
+  <div class="page-head">
+    <div><h1>账户流水</h1><p>只统计销售收款，不是银行账户的全部余额；收款合计 − 退款合计 = 实际净收</p></div>
+    <div class="actions"><button class="btn btn-default">导出 CSV</button></div>
+  </div>
+  <div class="sheet">
+    <div class="sheet-head"><h2>收款账户汇总（本月）</h2></div>
+    <table class="m-acct"><thead><tr><th>账户</th><th class="t-num" style="width:124px">收款合计</th><th class="t-num" style="width:124px">退款合计</th><th class="t-num" style="width:124px">实际净收</th><th style="width:180px">占比</th><th class="t-act" style="width:88px"></th></tr></thead><tbody><tr><td><div class="t-main">工行 ·6842 对公</div><div class="t-sub">银行转账 · 启用</div></td><td class="t-num">214,600.00</td>
+   <td class="t-num neg">−2,400.00</td><td class="t-num" style="font-weight:600">212,200.00</td>
+   <td><span class="bar-track"><i style="width:100%"></i></span></td>
+   <td class="t-act"><button class="btn btn-ghost btn-sm">明细</button></td></tr><tr><td><div class="t-main">现金柜</div><div class="t-sub">现金 · 启用</div></td><td class="t-num">86,420.00</td>
+   <td class="t-num neg">−1,860.00</td><td class="t-num" style="font-weight:600">84,560.00</td>
+   <td><span class="bar-track"><i style="width:40%"></i></span></td>
+   <td class="t-act"><button class="btn btn-ghost btn-sm">明细</button></td></tr><tr><td><div class="t-main">微信收款</div><div class="t-sub">扫码 · 启用</div></td><td class="t-num">27,680.00</td>
+   <td class="t-num neg">0.00</td><td class="t-num" style="font-weight:600">27,680.00</td>
+   <td><span class="bar-track"><i style="width:13%"></i></span></td>
+   <td class="t-act"><button class="btn btn-ghost btn-sm">明细</button></td></tr><tr><td><div class="t-main">支付宝</div><div class="t-sub">扫码 · 已停用</div></td><td class="t-num">0.00</td>
+   <td class="t-num neg">0.00</td><td class="t-num" style="font-weight:600">0.00</td>
+   <td><span class="bar-track"><i style="width:1%"></i></span></td>
+   <td class="t-act"><button class="btn btn-ghost btn-sm">明细</button></td></tr></tbody><tfoot><tr><td>合计</td><td class="t-num">328,700.00</td><td class="t-num neg">−4,260.00</td><td class="t-num">324,440.00</td><td colspan="2"></td></tr></tfoot></table>
+  </div>
+</section>
+
+<!-- ───────── 业绩统计 ───────── -->
+<section class="screen" id="s-perf">
+  <div class="page-head">
+    <div><h1>业绩统计</h1><p>按部门和业务员算；退货要扣掉，作废的不算</p></div>
+    <div class="actions"><div class="segmented" role="tablist"><button role="tab" aria-selected="true">本月</button><button role="tab" aria-selected="false">本季</button><button role="tab" aria-selected="false">本年</button></div></div>
+  </div>
+  <div class="sheet">
+    <div class="sheet-head"><h2>业务员业绩</h2></div>
+    <table class="m-acct"><thead><tr><th class="gutter">#</th><th>业务员 / 部门</th><th class="t-num" style="width:76px">单据</th><th class="t-num" style="width:124px">应收款</th><th class="t-num" style="width:124px">已收款</th><th class="t-num" style="width:112px">欠款</th><th style="width:170px">完成度</th></tr></thead><tbody><tr><td class="gutter">01</td><td><div class="t-main">罗秀珍</div><div class="t-sub">销售一部</div></td>
+   <td class="t-num">17</td><td class="t-num">148,200.00</td><td class="t-num">142,200.00</td><td class="t-num neg">6,000.00</td>
+   <td><span class="bar-track"><i class="" style="width:98%"></i></span></td></tr><tr><td class="gutter">02</td><td><div class="t-main">吴志明</div><div class="t-sub">销售二部</div></td>
+   <td class="t-num">14</td><td class="t-num">119,600.00</td><td class="t-num">96,160.00</td><td class="t-num neg">23,440.00</td>
+   <td><span class="bar-track"><i class="" style="width:79%"></i></span></td></tr><tr><td class="gutter">03</td><td><div class="t-main">周丽娟</div><div class="t-sub">销售一部</div></td>
+   <td class="t-num">8</td><td class="t-num">77,400.00</td><td class="t-num">62,400.00</td><td class="t-num neg">15,000.00</td>
+   <td><span class="bar-track"><i class="" style="width:51%"></i></span></td></tr><tr><td class="gutter">04</td><td><div class="t-main">黄海峰</div><div class="t-sub">销售二部</div></td>
+   <td class="t-num">3</td><td class="t-num">41,220.00</td><td class="t-num">21,820.00</td><td class="t-num neg">19,400.00</td>
+   <td><span class="bar-track"><i class="alt" style="width:27%"></i></span></td></tr></tbody><tfoot><tr><td class="gutter" style="border-top:3px double var(--ink-3)"></td><td>合计 · 4 人</td><td class="t-num">42</td><td class="t-num">386,420.00</td><td class="t-num">322,580.00</td><td class="t-num neg">63,840.00</td><td></td></tr></tfoot></table>
+  </div>
+</section>
+
+<!-- ───────── 基础资料（通用字典） ───────── -->
+<section class="screen" id="s-basedata">
+  <div class="page-head">
+    <div><h1>基础资料</h1><p>全站下拉框里的选项都在这里统一维护。<b>没用过的可以直接删除</b>；用过的只能停用，老单据照常能查</p></div>
+    <div class="actions"><button class="btn btn-default">导入 / 导出</button></div>
+  </div>
+  <div class="dict">
+    <aside class="dict-side">
+      <div class="dict-label">选项清单</div>
+      <button class="dict-item is-on" data-dict="doctype"><span>单据类型</span><span class="dict-n">5</span></button>
+      <button class="dict-item" data-dict="account"><span>收款账户</span><span class="dict-n">5</span></button>
+      <button class="dict-item" data-dict="dept"><span>部门</span><span class="dict-n">4</span></button>
+      <button class="dict-item" data-dict="seller"><span>业务员</span><span class="dict-n">4</span></button>
+      <button class="dict-item" data-dict="category"><span>物料分类</span><span class="dict-n">6</span></button>
+      <button class="dict-item" data-dict="unit"><span>计量单位</span><span class="dict-n">7</span></button>
+      <button class="dict-item" data-dict="spec"><span>常用规格</span><span class="dict-n">6</span></button>
+      <div class="dict-tip">开单和建档时输入的新值，保存成功后会自动加进对应的清单。</div>
+    </aside>
+    <div class="sheet dict-main">
+    <div class="dict-pane is-on" data-pane="doctype">
+      <div class="sheet-head"><h2>单据类型</h2><span class="spacer muted" style="font-size:var(--t-11);padding-right:0">名称、要不要收款、排序、说明都能改。已经开过单的类型改收款规则会影响账，需要确认</span></div>
+      <table class="m-base"><thead><tr><th class="gutter">序</th><th class="">名称</th><th class="">要不要收款</th><th class="">状态</th><th class="t-num">已开单数</th><th class="">说明</th><th class="t-act" style="width:200px"></th></tr></thead>
+        <tbody><tr><td class="gutter"><span class="grip" title="拖动调整顺序">⠿</span><span class="seq">1</span></td><td class="t-main">销售单</td><td><button class="switch is-on" role="switch" aria-checked="true" aria-label="要不要收款"><span></span></button></td><td><span class="tag tag-ok">启用</span></td><td class="t-num">386</td><td class="muted">开单后自动减库存，并记一笔应收款</td><td class="t-act"><button class="btn btn-ghost btn-sm"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-edit"/></svg>编辑</button><button class="btn btn-ghost btn-sm">停用</button><span class="why" title="已经用过，删掉会让老单据对不上，所以只能停用">?</span></td></tr>
+          <tr><td class="gutter"><span class="grip" title="拖动调整顺序">⠿</span><span class="seq">2</span></td><td class="t-main">样品单</td><td><button class="switch " role="switch" aria-checked="false" aria-label="要不要收款"><span></span></button></td><td><span class="tag tag-ok">启用</span></td><td class="t-num">24</td><td class="muted">减库存但不记钱，留个底</td><td class="t-act"><button class="btn btn-ghost btn-sm"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-edit"/></svg>编辑</button><button class="btn btn-ghost btn-sm">停用</button><span class="why" title="已经用过，删掉会让老单据对不上，所以只能停用">?</span></td></tr>
+          <tr><td class="gutter"><span class="grip" title="拖动调整顺序">⠿</span><span class="seq">3</span></td><td class="t-main">调货单</td><td><button class="switch " role="switch" aria-checked="false" aria-label="要不要收款"><span></span></button></td><td><span class="tag tag-ok">启用</span></td><td class="t-num">31</td><td class="muted">厂内调货，只是个类型名称</td><td class="t-act"><button class="btn btn-ghost btn-sm"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-edit"/></svg>编辑</button><button class="btn btn-ghost btn-sm">停用</button><span class="why" title="已经用过，删掉会让老单据对不上，所以只能停用">?</span></td></tr>
+          <tr><td class="gutter"><span class="grip" title="拖动调整顺序">⠿</span><span class="seq">4</span></td><td class="t-main">寄售单</td><td><button class="switch " role="switch" aria-checked="false" aria-label="要不要收款"><span></span></button></td><td><span class="tag tag-ok">启用</span></td><td class="t-num">0</td><td class="muted">新建的类型，还没开过单</td><td class="t-act"><button class="btn btn-ghost btn-sm"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-edit"/></svg>编辑</button><button class="btn btn-ghost btn-sm">停用</button><button class="btn btn-danger btn-sm" data-open="del">删除</button></td></tr>
+          <tr><td class="gutter"><span class="grip" title="拖动调整顺序">⠿</span><span class="seq">5</span></td><td class="t-main">返修单</td><td><button class="switch " role="switch" aria-checked="false" aria-label="要不要收款"><span></span></button></td><td><span class="tag ">停用</span></td><td class="t-num">7</td><td class="muted">老单据还能查，不能再开新的</td><td class="t-act"><button class="btn btn-ghost btn-sm"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-edit"/></svg>编辑</button><button class="btn btn-ghost btn-sm">启用</button><span class="why" title="已经用过，删掉会让老单据对不上，所以只能停用">?</span></td></tr>
+          </tbody></table>
+      <div class="dict-foot"><button class="add-row"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-plus"/></svg>新增单据类型</button></div>
+    </div>
+    <div class="dict-pane" data-pane="account">
+      <div class="sheet-head"><h2>收款账户</h2><span class="spacer muted" style="font-size:var(--t-11);padding-right:0">账户名、类型、排序可改。改名不影响老单据上的记录</span></div>
+      <table class="m-base"><thead><tr><th class="gutter">序</th><th class="">名称</th><th class="">类型</th><th class="">状态</th><th class="t-num">本月实际净收</th><th class="">备注</th><th class="t-act" style="width:200px"></th></tr></thead>
+        <tbody><tr><td class="gutter"><span class="grip" title="拖动调整顺序">⠿</span><span class="seq">1</span></td><td class="t-main">工行 ·6842 对公</td><td class="muted">银行</td><td><span class="tag tag-ok">启用</span></td><td class="t-num">212,200.00</td><td class="muted">对公转账默认账户</td><td class="t-act"><button class="btn btn-ghost btn-sm"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-edit"/></svg>编辑</button><button class="btn btn-ghost btn-sm">停用</button><span class="why" title="已经用过，删掉会让老单据对不上，所以只能停用">?</span></td></tr>
+          <tr><td class="gutter"><span class="grip" title="拖动调整顺序">⠿</span><span class="seq">2</span></td><td class="t-main">现金柜</td><td class="muted">现金</td><td><span class="tag tag-ok">启用</span></td><td class="t-num">84,560.00</td><td class="muted">仓库前台保险柜</td><td class="t-act"><button class="btn btn-ghost btn-sm"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-edit"/></svg>编辑</button><button class="btn btn-ghost btn-sm">停用</button><span class="why" title="已经用过，删掉会让老单据对不上，所以只能停用">?</span></td></tr>
+          <tr><td class="gutter"><span class="grip" title="拖动调整顺序">⠿</span><span class="seq">3</span></td><td class="t-main">微信收款</td><td class="muted">扫码</td><td><span class="tag tag-ok">启用</span></td><td class="t-num">27,680.00</td><td class="muted">门店收款码</td><td class="t-act"><button class="btn btn-ghost btn-sm"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-edit"/></svg>编辑</button><button class="btn btn-ghost btn-sm">停用</button><span class="why" title="已经用过，删掉会让老单据对不上，所以只能停用">?</span></td></tr>
+          <tr><td class="gutter"><span class="grip" title="拖动调整顺序">⠿</span><span class="seq">4</span></td><td class="t-main">支付宝</td><td class="muted">扫码</td><td><span class="tag ">停用</span></td><td class="t-num">0.00</td><td class="muted">2026-08 起不再使用</td><td class="t-act"><button class="btn btn-ghost btn-sm"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-edit"/></svg>编辑</button><button class="btn btn-ghost btn-sm">启用</button><span class="why" title="已经用过，删掉会让老单据对不上，所以只能停用">?</span></td></tr>
+          <tr><td class="gutter"><span class="grip" title="拖动调整顺序">⠿</span><span class="seq">5</span></td><td class="t-main">建行 ·3371 对公</td><td class="muted">银行</td><td><span class="tag tag-ok">启用</span></td><td class="t-num">0.00</td><td class="muted">刚开户，还没用过</td><td class="t-act"><button class="btn btn-ghost btn-sm"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-edit"/></svg>编辑</button><button class="btn btn-ghost btn-sm">停用</button><span class="why" title="已经用过，删掉会让老单据对不上，所以只能停用">?</span></td></tr>
+          </tbody></table>
+      <div class="dict-foot"><button class="add-row"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-plus"/></svg>新增收款账户</button></div>
+    </div>
+    <div class="dict-pane" data-pane="dept">
+      <div class="sheet-head"><h2>部门</h2><span class="spacer muted" style="font-size:var(--t-11);padding-right:0">部门名、负责人、排序可改。改部门名不影响已算出的业绩</span></div>
+      <table class="m-base"><thead><tr><th class="gutter">序</th><th class="">名称</th><th class="">负责人</th><th class="">状态</th><th class="t-num">业务员</th><th class="t-num">本月业绩</th><th class="t-act" style="width:200px"></th></tr></thead>
+        <tbody><tr><td class="gutter"><span class="grip" title="拖动调整顺序">⠿</span><span class="seq">1</span></td><td class="t-main">销售一部</td><td class="muted">罗秀珍</td><td><span class="tag tag-ok">启用</span></td><td class="t-num">2</td><td class="t-num">225,600.00</td><td class="t-act"><button class="btn btn-ghost btn-sm"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-edit"/></svg>编辑</button><button class="btn btn-ghost btn-sm">停用</button><span class="why" title="已经用过，删掉会让老单据对不上，所以只能停用">?</span></td></tr>
+          <tr><td class="gutter"><span class="grip" title="拖动调整顺序">⠿</span><span class="seq">2</span></td><td class="t-main">销售二部</td><td class="muted">吴志明</td><td><span class="tag tag-ok">启用</span></td><td class="t-num">2</td><td class="t-num">160,820.00</td><td class="t-act"><button class="btn btn-ghost btn-sm"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-edit"/></svg>编辑</button><button class="btn btn-ghost btn-sm">停用</button><span class="why" title="已经用过，删掉会让老单据对不上，所以只能停用">?</span></td></tr>
+          <tr><td class="gutter"><span class="grip" title="拖动调整顺序">⠿</span><span class="seq">3</span></td><td class="t-main">仓储</td><td class="muted">李国强</td><td><span class="tag tag-ok">启用</span></td><td class="t-num">1</td><td class="t-num muted">—</td><td class="t-act"><button class="btn btn-ghost btn-sm"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-edit"/></svg>编辑</button><button class="btn btn-ghost btn-sm">停用</button><span class="why" title="已经用过，删掉会让老单据对不上，所以只能停用">?</span></td></tr>
+          <tr><td class="gutter"><span class="grip" title="拖动调整顺序">⠿</span><span class="seq">4</span></td><td class="t-main">外贸部</td><td class="muted">—</td><td><span class="tag tag-ok">启用</span></td><td class="t-num">0</td><td class="t-num">0.00</td><td class="t-act"><button class="btn btn-ghost btn-sm"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-edit"/></svg>编辑</button><button class="btn btn-ghost btn-sm">停用</button><button class="btn btn-danger btn-sm" data-open="del">删除</button></td></tr>
+          </tbody></table>
+      <div class="dict-foot"><button class="add-row"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-plus"/></svg>新增部门</button></div>
+    </div>
+    <div class="dict-pane" data-pane="seller">
+      <div class="sheet-head"><h2>业务员</h2><span class="spacer muted" style="font-size:var(--t-11);padding-right:0">姓名、所属部门、关联账号可改。老单据仍按开单当时的部门算业绩</span></div>
+      <table class="m-base"><thead><tr><th class="gutter">序</th><th class="">姓名</th><th class="">所属部门</th><th class="">状态</th><th class="t-num">本月业绩</th><th class="">关联账号</th><th class="t-act" style="width:200px"></th></tr></thead>
+        <tbody><tr><td class="gutter"><span class="grip" title="拖动调整顺序">⠿</span><span class="seq">1</span></td><td class="t-main">罗秀珍</td><td class="muted">销售一部</td><td><span class="tag tag-ok">启用</span></td><td class="t-num">148,200.00</td><td class="muted">luoxz · 开单员</td><td class="t-act"><button class="btn btn-ghost btn-sm"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-edit"/></svg>编辑</button><button class="btn btn-ghost btn-sm">停用</button><span class="why" title="已经用过，删掉会让老单据对不上，所以只能停用">?</span></td></tr>
+          <tr><td class="gutter"><span class="grip" title="拖动调整顺序">⠿</span><span class="seq">2</span></td><td class="t-main">吴志明</td><td class="muted">销售二部</td><td><span class="tag tag-ok">启用</span></td><td class="t-num">119,600.00</td><td class="muted">wuzm · 开单员</td><td class="t-act"><button class="btn btn-ghost btn-sm"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-edit"/></svg>编辑</button><button class="btn btn-ghost btn-sm">停用</button><span class="why" title="已经用过，删掉会让老单据对不上，所以只能停用">?</span></td></tr>
+          <tr><td class="gutter"><span class="grip" title="拖动调整顺序">⠿</span><span class="seq">3</span></td><td class="t-main">周丽娟</td><td class="muted">销售一部</td><td><span class="tag tag-ok">启用</span></td><td class="t-num">77,400.00</td><td class="muted">zhoulj · 开单员</td><td class="t-act"><button class="btn btn-ghost btn-sm"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-edit"/></svg>编辑</button><button class="btn btn-ghost btn-sm">停用</button><span class="why" title="已经用过，删掉会让老单据对不上，所以只能停用">?</span></td></tr>
+          <tr><td class="gutter"><span class="grip" title="拖动调整顺序">⠿</span><span class="seq">4</span></td><td class="t-main">黄海峰</td><td class="muted">销售二部</td><td><span class="tag ">停用</span></td><td class="t-num">41,220.00</td><td class="muted">—</td><td class="t-act"><button class="btn btn-ghost btn-sm"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-edit"/></svg>编辑</button><button class="btn btn-ghost btn-sm">启用</button><span class="why" title="已经用过，删掉会让老单据对不上，所以只能停用">?</span></td></tr>
+          </tbody></table>
+      <div class="dict-foot"><button class="add-row"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-plus"/></svg>新增业务员</button></div>
+    </div>
+    <div class="dict-pane" data-pane="category">
+      <div class="sheet-head"><h2>物料分类</h2><span class="spacer muted" style="font-size:var(--t-11);padding-right:0">只用来筛选和统计，改名和排序都不影响库存数字</span></div>
+      <table class="m-base"><thead><tr><th class="gutter">序</th><th class="">名称</th><th class="">状态</th><th class="t-num">物料数</th><th class="t-num">本月出库额</th><th class="">备注</th><th class="t-act" style="width:200px"></th></tr></thead>
+        <tbody><tr><td class="gutter"><span class="grip" title="拖动调整顺序">⠿</span><span class="seq">1</span></td><td class="t-main">紧固件</td><td><span class="tag tag-ok">启用</span></td><td class="t-num">62</td><td class="t-num">96,400.00</td><td class="muted">螺丝、螺母、垫圈</td><td class="t-act"><button class="btn btn-ghost btn-sm"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-edit"/></svg>编辑</button><button class="btn btn-ghost btn-sm">停用</button><span class="why" title="已经用过，删掉会让老单据对不上，所以只能停用">?</span></td></tr>
+          <tr><td class="gutter"><span class="grip" title="拖动调整顺序">⠿</span><span class="seq">2</span></td><td class="t-main">型材</td><td><span class="tag tag-ok">启用</span></td><td class="t-num">28</td><td class="t-num">118,600.00</td><td class="muted">铝型材、角钢</td><td class="t-act"><button class="btn btn-ghost btn-sm"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-edit"/></svg>编辑</button><button class="btn btn-ghost btn-sm">停用</button><span class="why" title="已经用过，删掉会让老单据对不上，所以只能停用">?</span></td></tr>
+          <tr><td class="gutter"><span class="grip" title="拖动调整顺序">⠿</span><span class="seq">3</span></td><td class="t-main">管材</td><td><span class="tag tag-ok">启用</span></td><td class="t-num">21</td><td class="t-num">84,200.00</td><td class="muted">不锈钢管、铜管</td><td class="t-act"><button class="btn btn-ghost btn-sm"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-edit"/></svg>编辑</button><button class="btn btn-ghost btn-sm">停用</button><span class="why" title="已经用过，删掉会让老单据对不上，所以只能停用">?</span></td></tr>
+          <tr><td class="gutter"><span class="grip" title="拖动调整顺序">⠿</span><span class="seq">4</span></td><td class="t-main">板材</td><td><span class="tag tag-ok">启用</span></td><td class="t-num">19</td><td class="t-num">62,800.00</td><td class="muted">冷轧板、不锈钢板</td><td class="t-act"><button class="btn btn-ghost btn-sm"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-edit"/></svg>编辑</button><button class="btn btn-ghost btn-sm">停用</button><span class="why" title="已经用过，删掉会让老单据对不上，所以只能停用">?</span></td></tr>
+          <tr><td class="gutter"><span class="grip" title="拖动调整顺序">⠿</span><span class="seq">5</span></td><td class="t-main">轴套类</td><td><span class="tag tag-ok">启用</span></td><td class="t-num">18</td><td class="t-num">24,420.00</td><td class="muted">铜套、轴承座</td><td class="t-act"><button class="btn btn-ghost btn-sm"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-edit"/></svg>编辑</button><button class="btn btn-ghost btn-sm">停用</button><span class="why" title="已经用过，删掉会让老单据对不上，所以只能停用">?</span></td></tr>
+          <tr><td class="gutter"><span class="grip" title="拖动调整顺序">⠿</span><span class="seq">6</span></td><td class="t-main">五金配件</td><td><span class="tag tag-ok">启用</span></td><td class="t-num">0</td><td class="t-num">0.00</td><td class="muted">刚建的分类</td><td class="t-act"><button class="btn btn-ghost btn-sm"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-edit"/></svg>编辑</button><button class="btn btn-ghost btn-sm">停用</button><button class="btn btn-danger btn-sm" data-open="del">删除</button></td></tr>
+          </tbody></table>
+      <div class="dict-foot"><button class="add-row"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-plus"/></svg>新增物料分类</button></div>
+    </div>
+    <div class="dict-pane" data-pane="unit">
+      <div class="sheet-head"><h2>计量单位</h2><span class="spacer muted" style="font-size:var(--t-11);padding-right:0">单位名和「允许小数位」可改。已经有库存的物料改小数位要走单独迁移</span></div>
+      <table class="m-base"><thead><tr><th class="gutter">序</th><th class="">名称</th><th class="">状态</th><th class="t-num">允许小数位</th><th class="t-num">用到的物料</th><th class="">备注</th><th class="t-act" style="width:200px"></th></tr></thead>
+        <tbody><tr><td class="gutter"><span class="grip" title="拖动调整顺序">⠿</span><span class="seq">1</span></td><td class="t-main">只</td><td><span class="tag tag-ok">启用</span></td><td class="t-num">0</td><td class="t-num">54</td><td class="muted">整数计量</td><td class="t-act"><button class="btn btn-ghost btn-sm"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-edit"/></svg>编辑</button><button class="btn btn-ghost btn-sm">停用</button><span class="why" title="已经用过，删掉会让老单据对不上，所以只能停用">?</span></td></tr>
+          <tr><td class="gutter"><span class="grip" title="拖动调整顺序">⠿</span><span class="seq">2</span></td><td class="t-main">袋</td><td><span class="tag tag-ok">启用</span></td><td class="t-num">0</td><td class="t-num">31</td><td class="muted">按包装袋</td><td class="t-act"><button class="btn btn-ghost btn-sm"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-edit"/></svg>编辑</button><button class="btn btn-ghost btn-sm">停用</button><span class="why" title="已经用过，删掉会让老单据对不上，所以只能停用">?</span></td></tr>
+          <tr><td class="gutter"><span class="grip" title="拖动调整顺序">⠿</span><span class="seq">3</span></td><td class="t-main">根</td><td><span class="tag tag-ok">启用</span></td><td class="t-num">0</td><td class="t-num">26</td><td class="muted">型材、管材</td><td class="t-act"><button class="btn btn-ghost btn-sm"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-edit"/></svg>编辑</button><button class="btn btn-ghost btn-sm">停用</button><span class="why" title="已经用过，删掉会让老单据对不上，所以只能停用">?</span></td></tr>
+          <tr><td class="gutter"><span class="grip" title="拖动调整顺序">⠿</span><span class="seq">4</span></td><td class="t-main">张</td><td><span class="tag tag-ok">启用</span></td><td class="t-num">0</td><td class="t-num">19</td><td class="muted">板材</td><td class="t-act"><button class="btn btn-ghost btn-sm"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-edit"/></svg>编辑</button><button class="btn btn-ghost btn-sm">停用</button><span class="why" title="已经用过，删掉会让老单据对不上，所以只能停用">?</span></td></tr>
+          <tr><td class="gutter"><span class="grip" title="拖动调整顺序">⠿</span><span class="seq">5</span></td><td class="t-main">米</td><td><span class="tag tag-ok">启用</span></td><td class="t-num">2</td><td class="t-num">12</td><td class="muted">可以截断卖</td><td class="t-act"><button class="btn btn-ghost btn-sm"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-edit"/></svg>编辑</button><button class="btn btn-ghost btn-sm">停用</button><span class="why" title="已经用过，删掉会让老单据对不上，所以只能停用">?</span></td></tr>
+          <tr><td class="gutter"><span class="grip" title="拖动调整顺序">⠿</span><span class="seq">6</span></td><td class="t-main">公斤</td><td><span class="tag tag-ok">启用</span></td><td class="t-num">3</td><td class="t-num">6</td><td class="muted">称重计量</td><td class="t-act"><button class="btn btn-ghost btn-sm"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-edit"/></svg>编辑</button><button class="btn btn-ghost btn-sm">停用</button><span class="why" title="已经用过，删掉会让老单据对不上，所以只能停用">?</span></td></tr>
+          <tr><td class="gutter"><span class="grip" title="拖动调整顺序">⠿</span><span class="seq">7</span></td><td class="t-main">打</td><td><span class="tag tag-ok">启用</span></td><td class="t-num">0</td><td class="t-num">0</td><td class="muted">建好还没用过</td><td class="t-act"><button class="btn btn-ghost btn-sm"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-edit"/></svg>编辑</button><button class="btn btn-ghost btn-sm">停用</button><button class="btn btn-danger btn-sm" data-open="del">删除</button></td></tr>
+          </tbody></table>
+      <div class="dict-foot"><button class="add-row"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-plus"/></svg>新增计量单位</button></div>
+    </div>
+    <div class="dict-pane" data-pane="spec">
+      <div class="sheet-head"><h2>常用规格</h2><span class="spacer muted" style="font-size:var(--t-11);padding-right:0">开单和建档时的输入提示。保存成功后自动记下来，也可以手工改</span></div>
+      <table class="m-base"><thead><tr><th class="gutter">序</th><th class="">规格值</th><th class="">状态</th><th class="t-num">用到的物料</th><th class="">最近使用</th><th class="">来源</th><th class="t-act" style="width:200px"></th></tr></thead>
+        <tbody><tr><td class="gutter"><span class="grip" title="拖动调整顺序">⠿</span><span class="seq">1</span></td><td class="t-main">M6×20</td><td><span class="tag tag-ok">启用</span></td><td class="t-num">8</td><td class="muted">今天 14:08</td><td class="muted">手工录入</td><td class="t-act"><button class="btn btn-ghost btn-sm"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-edit"/></svg>编辑</button><button class="btn btn-ghost btn-sm">停用</button><span class="why" title="已经用过，删掉会让老单据对不上，所以只能停用">?</span></td></tr>
+          <tr><td class="gutter"><span class="grip" title="拖动调整顺序">⠿</span><span class="seq">2</span></td><td class="t-main">M8</td><td><span class="tag tag-ok">启用</span></td><td class="t-num">6</td><td class="muted">今天 10:05</td><td class="muted">手工录入</td><td class="t-act"><button class="btn btn-ghost btn-sm"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-edit"/></svg>编辑</button><button class="btn btn-ghost btn-sm">停用</button><span class="why" title="已经用过，删掉会让老单据对不上，所以只能停用">?</span></td></tr>
+          <tr><td class="gutter"><span class="grip" title="拖动调整顺序">⠿</span><span class="seq">3</span></td><td class="t-main">φ12×15</td><td><span class="tag tag-ok">启用</span></td><td class="t-num">4</td><td class="muted">昨天 16:22</td><td class="muted">手工录入</td><td class="t-act"><button class="btn btn-ghost btn-sm"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-edit"/></svg>编辑</button><button class="btn btn-ghost btn-sm">停用</button><span class="why" title="已经用过，删掉会让老单据对不上，所以只能停用">?</span></td></tr>
+          <tr><td class="gutter"><span class="grip" title="拖动调整顺序">⠿</span><span class="seq">4</span></td><td class="t-main">40×40 · 6 米 / 根</td><td><span class="tag tag-ok">启用</span></td><td class="t-num">3</td><td class="muted">今天 14:08</td><td class="muted">自动收录</td><td class="t-act"><button class="btn btn-ghost btn-sm"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-edit"/></svg>编辑</button><button class="btn btn-ghost btn-sm">停用</button><span class="why" title="已经用过，删掉会让老单据对不上，所以只能停用">?</span></td></tr>
+          <tr><td class="gutter"><span class="grip" title="拖动调整顺序">⠿</span><span class="seq">5</span></td><td class="t-main">1.0mm × 1250 × 2500</td><td><span class="tag tag-ok">启用</span></td><td class="t-num">2</td><td class="muted">今天 09:12</td><td class="muted">自动收录</td><td class="t-act"><button class="btn btn-ghost btn-sm"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-edit"/></svg>编辑</button><button class="btn btn-ghost btn-sm">停用</button><span class="why" title="已经用过，删掉会让老单据对不上，所以只能停用">?</span></td></tr>
+          <tr><td class="gutter"><span class="grip" title="拖动调整顺序">⠿</span><span class="seq">6</span></td><td class="t-main">M4×10</td><td><span class="tag tag-ok">启用</span></td><td class="t-num">0</td><td class="muted">—</td><td class="muted">自动收录</td><td class="t-act"><button class="btn btn-ghost btn-sm"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-edit"/></svg>编辑</button><button class="btn btn-ghost btn-sm">停用</button><button class="btn btn-danger btn-sm" data-open="del">删除</button></td></tr>
+          </tbody></table>
+      <div class="dict-foot"><button class="add-row"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><use href="#i-plus"/></svg>新增常用规格</button></div>
+    </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────── 数据与备份 ───────── -->
+<section class="screen" id="s-backup">
+  <div class="page-head">
+    <div><h1>数据与备份</h1><p>数据存在「仓库主机」这台电脑上；备份含签字照片原图</p></div>
+    <div class="actions"><button class="btn btn-default">恢复备份</button><button class="btn btn-primary">立即备份</button></div>
+  </div>
+  <div class="sheet">
+    <div class="sheet-head"><h2>备份记录</h2></div>
+    <table class="m-base"><thead><tr><th class="gutter">#</th><th style="width:150px">时间</th><th style="width:96px">方式</th><th class="t-num" style="width:104px">大小</th><th style="width:120px">含凭证照片</th><th>存放位置</th><th class="t-act" style="width:96px"></th></tr></thead><tbody><tr><td class="gutter">01</td><td class="num">2026-10-09 06:30</td><td><span class="tag tag-ok">每日自动</span></td>
+   <td class="t-num">184.2 MB</td><td class="t-num">1,284 张</td><td class="muted num" style="font-size:var(--t-11)">D:\\ERP备份\\daily-261009.zip</td>
+   <td class="t-act"><button class="btn btn-ghost btn-sm">恢复</button></td></tr><tr><td class="gutter">02</td><td class="num">2026-10-08 06:30</td><td><span class="tag tag-ok">每日自动</span></td>
+   <td class="t-num">183.6 MB</td><td class="t-num">1,279 张</td><td class="muted num" style="font-size:var(--t-11)">D:\\ERP备份\\daily-261008.zip</td>
+   <td class="t-act"><button class="btn btn-ghost btn-sm">恢复</button></td></tr><tr><td class="gutter">03</td><td class="num">2026-10-05 22:10</td><td><span class="tag tag-info">手动</span></td>
+   <td class="t-num">181.0 MB</td><td class="t-num">1,251 张</td><td class="muted num" style="font-size:var(--t-11)">D:\\ERP备份\\manual-261005.zip</td>
+   <td class="t-act"><button class="btn btn-ghost btn-sm">恢复</button></td></tr><tr><td class="gutter">04</td><td class="num">2026-10-05 06:30</td><td><span class="tag tag-ok">每周自动</span></td>
+   <td class="t-num">180.9 MB</td><td class="t-num">1,249 张</td><td class="muted num" style="font-size:var(--t-11)">D:\\ERP备份\\weekly-w40.zip</td>
+   <td class="t-act"><button class="btn btn-ghost btn-sm">恢复</button></td></tr></tbody></table><div class="panel-body" style="border-top:1px solid var(--line-1);display:grid;grid-template-columns:repeat(3,1fr);gap:var(--s-4)">
+    <div class="field"><label for="f6">每日备份保留份数</label><input class="input t-num" id="f6" inputmode="decimal" aria-label="每日备份保留份数" value="14"></div>
+    <div class="field"><label for="f7">每周备份保留份数</label><input class="input t-num" id="f7" inputmode="decimal" aria-label="每周备份保留份数" value="8"></div>
+    <div class="field"><label for="f8">单份上限</label><input class="input" id="f8" value="512 MB" disabled></div>
+  </div>
+  <div class="panel-body" style="padding-top:0">
+    <span class="locked-note"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="square"><use href="#i-alert"/></svg>
+      当前 184.2 MB / 512 MB。超过上限会明确提示，不会生成无法恢复的备份。</span>
+  </div>
+  </div>
+</section>
+<!-- ───────── 单据详情 ───────── -->
+<section class="screen" id="s-docdetail">
+  <div class="page-head">
+    <div>
+      <button class="btn btn-ghost btn-sm" data-go="doclist" style="margin-left:-10px;margin-bottom:4px"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="square" aria-hidden="true"><use href="#i-back"/></svg>返回单据列表</button>
+      <h1>XS-261009-06 · 中山华晨五金制品</h1>
+      <p>销售单 · 销售二部 吴志明 开单 · 2026 年 10 月 9 日 11:12 · 当前第 2 版</p>
+    </div>
+    <div class="actions">
+      <button class="btn btn-ghost" data-open="void">作废</button>
+      <button class="btn btn-default" data-open="amend">修改单据</button>
+      <a class="btn btn-default" href="print.html" target="_blank" rel="noopener"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="square" aria-hidden="true"><use href="#i-print"/></svg>打印</a>
+      <button class="btn btn-primary" data-open="pay">登记收款</button>
+    </div>
+  </div>
+
+  <div class="detail">
+    <div>
+      <div class="sheet">
+        <div class="sheet-head"><h2>出货明细</h2>
+          <span class="spacer muted" style="font-size:var(--t-11);padding-right:0">确认时已减库存</span></div>
+        <table class="m-line2">
+          <thead><tr><th class="gutter">#</th><th>物料</th>
+            <th class="t-num" style="width:110px">数量</th><th class="t-num" style="width:110px">单价</th>
+            <th class="t-num" style="width:124px">金额</th></tr></thead>
+          <tbody>
+            <tr><td class="gutter">01</td>
+              <td><div class="t-main">尼龙自锁螺母 M10</div><div class="t-sub">本色 · 袋装 200 只 · LM-M10</div></td>
+              <td class="t-num">320 袋</td><td class="t-num">22.40</td><td class="t-num" style="font-weight:600">7,168.00</td></tr>
+            <tr><td class="gutter">02</td>
+              <td><div class="t-main">镀锌平垫圈 M8</div><div class="t-sub">GB97 · 袋装 1000 片 · DQ-M8</div></td>
+              <td class="t-num">180 袋</td><td class="t-num">14.80</td><td class="t-num" style="font-weight:600">2,664.00</td></tr>
+            <tr><td class="gutter">03</td>
+              <td><div class="t-main">不锈钢拉丝管 201</div><div class="t-sub">φ25×1.2 · 6 米 / 根 · GG-2512</div></td>
+              <td class="t-num">250 根</td><td class="t-num">58.60</td><td class="t-num" style="font-weight:600">14,650.00</td></tr>
+          </tbody>
+          <tfoot><tr><td class="gutter" style="border-top:3px double var(--ink-3)"></td>
+            <td colspan="2">3 行 · 合计 750 件</td><td class="t-num muted">货款小计</td>
+            <td class="t-num" style="font-size:var(--t-14)">24,482.00</td></tr></tfoot>
+        </table>
+      </div>
+
+      <div class="sheet mt">
+        <div class="sheet-head"><h2>收款记录</h2>
+          <span class="spacer muted" style="font-size:var(--t-11);padding-right:0">多次收款、拆账户收款都在这里</span></div>
+        <table class="m-paylog">
+          <thead><tr><th class="gutter">#</th><th style="width:132px">时间</th><th style="width:88px">类型</th>
+            <th>收款账户 / 经办人</th><th class="t-num" style="width:124px">金额</th><th style="width:96px">状态</th></tr></thead>
+          <tbody>
+            <tr><td class="gutter">01</td><td class="num muted">10-09 11:32</td>
+              <td><span class="tag tag-ok">收款</span></td>
+              <td><div class="t-main">现金柜</div><div class="t-sub">吴志明 · 客户当场付现</div></td>
+              <td class="t-num" style="color:var(--brand);font-weight:600">+16,000.00</td>
+              <td><span class="tag tag-ok">有效</span></td></tr>
+            <tr><td class="gutter">02</td><td class="num muted">10-09 10:46</td>
+              <td><span class="tag tag-warn">更正</span></td>
+              <td><div class="t-main">现金柜</div><div class="t-sub">陈建国 · 原录入 24,760 有误，冲销重开</div></td>
+              <td class="t-num muted"><s>+24,760.00</s></td>
+              <td><span class="tag tag-void">已冲销</span></td></tr>
+          </tbody>
+          <tfoot><tr><td class="gutter" style="border-top:3px double var(--ink-3)"></td>
+            <td colspan="3">实际收到合计</td><td class="t-num">16,000.00</td><td></td></tr></tfoot>
+        </table>
+      </div>
+
+      <div class="sheet mt">
+        <div class="sheet-head"><h2>修订历史</h2>
+          <span class="spacer muted" style="font-size:var(--t-11);padding-right:0">改了什么、谁改的、为什么，全部留痕且不可删除</span></div>
+        <div class="panel-body">
+          <div class="tl">
+            <div class="tl-item pay"><span class="tl-dot"><svg width="11" height="11" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" aria-hidden="true"><use href="#i-coin"/></svg></span>
+              <div><div class="tl-when">2026-10-09 11:32 · 吴志明</div>
+                <div class="tl-what">登记收款 · 现金柜</div>
+                <div class="tl-diff">实际收到 <s>0.00</s> → <b>16,000.00</b></div>
+                <div class="tl-why">客户当场付现 16,000，其余挂账</div></div></div>
+            <div class="tl-item edit"><span class="tl-dot"><svg width="11" height="11" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" aria-hidden="true"><use href="#i-edit"/></svg></span>
+              <div><div class="tl-when">2026-10-09 10:46 · 陈建国（最高权限）</div>
+                <div class="tl-what">修改收款金额 → 第 2 版</div>
+                <div class="tl-diff">已收款 <s>24,760.00</s> → <b>16,000.00</b></div>
+                <div class="tl-diff">欠款 <s>0.00</s> → <b>8,760.00</b></div>
+                <div class="tl-why">回单后核实：客户只付了 16,000，原录入有误。已冲销原流水并新增正确流水，库存不变。</div></div></div>
+            <div class="tl-item new"><span class="tl-dot"><svg width="11" height="11" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" aria-hidden="true"><use href="#i-check"/></svg></span>
+              <div><div class="tl-when">2026-10-09 11:12 · 吴志明</div>
+                <div class="tl-what">确认开单 · 第 1 版</div>
+                <div class="tl-detail">3 行 750 件，减库存成功；应收款 24,760.00</div></div></div>
+            <div class="tl-item"><span class="tl-dot"></span>
+              <div><div class="tl-when">2026-10-09 10:58 · 吴志明</div>
+                <div class="tl-what">新建草稿</div>
+                <div class="tl-detail">草稿不占库存、不记账</div></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <aside>
+      <div class="sheet">
+        <div class="sheet-head"><h2>金额与状态</h2></div>
+        <div class="panel-body">
+          <div style="display:flex;gap:6px;margin-bottom:var(--s-3)">
+            <span class="tag tag-ok">已确认</span><span class="tag tag-danger">部分收款</span><span class="tag">第 2 版</span>
+          </div>
+          <div class="amount-rows">
+            <div><span>货款小计</span><b>24,482.00</b></div>
+            <div><span>折扣 0%</span><b>0.00</b></div>
+            <div><span>抹零</span><b>−22.00</b></div>
+            <div class="big"><span>应收货款</span><b>24,460.00</b></div>
+            <div><span>实际收到</span><b>16,000.00</b></div>
+            <div class="owe"><span>客户还欠</span><b>8,760.00</b></div>
+          </div>
+          <button class="btn btn-primary" style="width:100%;margin-top:var(--s-4)" data-open="pay">登记收款</button>
+          <button class="btn btn-ghost" style="width:100%;margin-top:6px" data-open="refund">登记退款</button>
+        </div>
+      </div>
+
+      <div class="sheet mt">
+        <div class="sheet-head"><h2>客户与经办</h2></div>
+        <div class="panel-body">
+          <dl class="kv">
+            <dt>客户</dt><dd>中山华晨五金制品</dd>
+            <dt>联系人</dt><dd>黄经理 · 0760-8842 1937</dd>
+            <dt>送货地址</dt><dd>中山市小榄镇工业大道 37 号</dd>
+            <dt>部门</dt><dd>销售二部</dd>
+            <dt>业务员</dt><dd>吴志明</dd>
+            <dt>开单人</dt><dd>吴志明</dd>
+          </dl>
+        </div>
+      </div>
+
+      <div class="sheet mt">
+        <div class="sheet-head"><h2>签字凭证</h2>
+          <span class="spacer muted" style="font-size:var(--t-11);padding-right:0">欠款单必传</span></div>
+        <div class="panel-body">
+          <div class="photos">
+            <div class="photo"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="square" aria-hidden="true"><use href="#i-camera"/></svg>签收单.jpg</div>
+            <button class="photo"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" aria-hidden="true"><use href="#i-plus"/></svg>再加一张</button>
+          </div>
+          <p class="muted" style="margin-top:10px;font-size:var(--t-11);line-height:1.7">
+            原图随数据库一起备份。已确认单据的凭证只有最高权限能换，换了也会留痕。</p>
+        </div>
+      </div>
+    </aside>
+  </div>
+</section>
+
+
+  </main>
+</div>
+
+
+<!-- ───────── 浮层 ───────── -->
+<div class="scrim" id="m-pay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="pay-t">
+    <div class="modal-head">
+      <div><h2 id="pay-t">登记收款</h2><p>XS-261009-06 · 中山华晨五金制品 · 还欠 ¥8,760.00</p></div>
+      <button class="modal-x" data-close aria-label="关闭"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" aria-hidden="true"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="field-grid" style="grid-template-columns:1fr 1fr">
+        <div class="field"><label for="p1">收多少<span class="req">*</span></label>
+          <input class="input t-num" id="p1" inputmode="decimal" value="8,760.00"></div>
+        <div class="field"><label for="p2">收到哪个账户<span class="req">*</span></label>
+          <select class="input" id="p2"><option>现金柜</option><option>工行 ·6842 对公</option><option>微信收款</option></select></div>
+        <div class="field"><label for="p3">收款日期</label>
+          <input class="input" id="p3" type="date" value="2026-10-09"></div>
+        <div class="field"><label for="p4">经办人</label>
+          <input class="input" id="p4" value="陈建国" readonly></div>
+      </div>
+      <div class="field" style="margin-top:var(--s-3)"><label for="p5">备注</label>
+        <input class="input" id="p5" placeholder="例如：客户转账已到账，附回单截图"></div>
+      <div class="confirm-what" style="margin-top:var(--s-4)">
+        <dl><dt>收完之后</dt><dd>这张单变成「已结清」，客户欠款从 ¥8,760.00 变成 ¥0.00</dd></dl>
+        <dl><dt>账户变化</dt><dd>现金柜本月实际净收 +¥8,760.00</dd></dl>
+      </div>
+      <p class="muted" style="margin-top:var(--s-3);font-size:var(--t-12)">收款不会超过应收款。多收需要先改单据金额。</p>
+    </div>
+    <div class="modal-foot">
+      <span class="grow">操作会记入修订历史，不能删除</span>
+      <button class="btn btn-ghost" data-close>取消</button>
+      <button class="btn btn-primary" data-toast="已登记收款 ¥8,760.00，这张单已结清">确认收款</button>
+    </div>
+  </div>
+</div>
+
+<div class="scrim" id="m-refund" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="rf-t">
+    <div class="modal-head">
+      <div><h2 id="rf-t">登记退款</h2><p>退款只是记账，系统不会自动给客户打钱，请确认实际已退</p></div>
+      <button class="modal-x" data-close aria-label="关闭"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" aria-hidden="true"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="field-grid" style="grid-template-columns:1fr 1fr">
+        <div class="field"><label for="r1">退多少<span class="req">*</span></label>
+          <input class="input t-num" id="r1" inputmode="decimal" value="0.00"></div>
+        <div class="field"><label for="r2">从哪个账户退<span class="req">*</span></label>
+          <select class="input" id="r2"><option>现金柜</option><option>工行 ·6842 对公</option></select></div>
+      </div>
+      <div class="field" style="margin-top:var(--s-3)"><label for="r3">退款原因<span class="req">*</span></label>
+        <input class="input" id="r3" placeholder="必填。例如：客户退回 40 根，按原单折扣退款"></div>
+      <div class="confirm-what" style="margin-top:var(--s-4);background:var(--warn-soft);border-color:var(--warn-line)">
+        <dl><dt>注意</dt><dd>退款金额不能超过已经实际收到的 ¥16,000.00</dd></dl>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <span class="grow">操作会记入修订历史，不能删除</span>
+      <button class="btn btn-ghost" data-close>取消</button>
+      <button class="btn btn-primary" data-toast="已登记退款，账户流水同步更新">确认退款</button>
+    </div>
+  </div>
+</div>
+
+<div class="scrim" id="m-amend" hidden>
+  <div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="am-t">
+    <div class="modal-head">
+      <div><h2 id="am-t">修改单据</h2><p>只有最高权限能改已确认的单据。改完会生成第 3 版，库存和账目同步调整</p></div>
+      <button class="modal-x" data-close aria-label="关闭"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" aria-hidden="true"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="confirm-what">
+        <dl><dt>改数量</dt><dd>先把原来的出库冲回，再按新数量重新扣；库存不够会整单失败，不会改一半</dd></dl>
+        <dl><dt>改金额</dt><dd>应收款重算；如果改到比已经收到的钱还少，必须同时登记退款才能保存</dd></dl>
+        <dl><dt>改客户</dt><dd>欠款跟着转到新客户，已收款的实际账户不变，留一条更正记录</dd></dl>
+      </div>
+      <div class="field" style="margin-top:var(--s-4)"><label for="a1">修改原因<span class="req">*</span></label>
+        <input class="input" id="a1" placeholder="必填，会显示在修订历史里"></div>
+      <p class="muted" style="margin-top:var(--s-3);font-size:var(--t-12)">
+        别人正在改同一张单时，后保存的那次会被拦下并提示重新打开，不会互相覆盖。</p>
+    </div>
+    <div class="modal-foot">
+      <span class="grow">当前第 2 版 → 保存后第 3 版</span>
+      <button class="btn btn-ghost" data-close>取消</button>
+      <button class="btn btn-primary" data-toast="已进入修改模式">开始修改</button>
+    </div>
+  </div>
+</div>
+
+<div class="scrim" id="m-void" hidden>
+  <div class="modal danger" role="dialog" aria-modal="true" aria-labelledby="v-t">
+    <div class="modal-head">
+      <div><h2 id="v-t">作废这张单？</h2><p>作废之后不能再收款，但单据和历史会一直留着</p></div>
+      <button class="modal-x" data-close aria-label="关闭"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" aria-hidden="true"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="confirm-what">
+        <dl><dt>单据</dt><dd>XS-261009-06 · 中山华晨五金制品</dd></dl>
+        <dl><dt>库存</dt><dd>加回 320 袋 + 180 袋 + 250 根（已退过的不重复加回）</dd></dl>
+        <dl><dt>账目</dt><dd>应收款 24,460.00 冲销</dd></dl>
+        <dl><dt>已收的钱</dt><dd style="color:var(--danger)">已经收了 16,000.00，必须同时登记退款才能作废</dd></dl>
+      </div>
+      <div class="field" style="margin-top:var(--s-4)"><label for="v1">作废原因<span class="req">*</span></label>
+        <input class="input" id="v1" placeholder="必填，会显示在修订历史里"></div>
+    </div>
+    <div class="modal-foot">
+      <span class="grow">这一步不能撤销</span>
+      <button class="btn btn-ghost" data-close>我再想想</button>
+      <button class="btn btn-solid-danger" data-toast="已作废，库存已加回，请记得实际退款">确认作废</button>
+    </div>
+  </div>
+</div>
+
+<div class="scrim" id="m-del" hidden>
+  <div class="modal danger" role="dialog" aria-modal="true" aria-labelledby="d-t">
+    <div class="modal-head">
+      <div><h2 id="d-t">删除这个选项？</h2><p>它还没被任何单据用过，可以安全删除</p></div>
+      <button class="modal-x" data-close aria-label="关闭"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" aria-hidden="true"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="confirm-what">
+        <dl><dt>清单</dt><dd>单据类型</dd></dl>
+        <dl><dt>名称</dt><dd>寄售单</dd></dl>
+        <dl><dt>已开单数</dt><dd>0 张</dd></dl>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" data-close>取消</button>
+      <button class="btn btn-solid-danger" data-toast="已删除「寄售单」">删除</button>
+    </div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<nav class="tabbar" aria-label="主导航">
+  <button data-go="workbench" aria-current="page"><svg width="21" height="21" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"><use href="#i-board"/></svg>工作台</button>
+  <button data-go="inventory"><svg width="21" height="21" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"><use href="#i-box"/></svg>物料</button>
+  <button data-go="invoice" class="mid"><span class="fab"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="square"><use href="#i-plus"/></svg></span>开单</button>
+  <button data-go="finance"><svg width="21" height="21" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"><use href="#i-coin"/></svg>收款</button>
+  <button data-go="records"><svg width="21" height="21" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"><use href="#i-clock"/></svg>记录</button>
+</nav>
+</div>
+
+<script>
+/* ── 路由 ───────────────────────────────────────────────────────── */
+const titles = {
+  workbench:'工作台', inventory:'物料', invoice:'开单', doclist:'单据', customers:'客户',
+  returns:'退货', movement:'收发', stocktake:'清点', records:'记录',
+  finance:'收款', accounts:'账户', perf:'业绩', basedata:'基础资料',
+  system:'人员', backup:'备份', tokens:'规范', docdetail:'单据详情'
+};
+function go(id) {
+  if (!document.getElementById('s-' + id)) id = 'workbench';
+  document.querySelectorAll('.screen').forEach(s => s.classList.toggle('is-active', s.id === 's-' + id));
+  document.querySelectorAll('.nav-item, .tabbar button').forEach(n =>
+    n.dataset.go === id ? n.setAttribute('aria-current','page') : n.removeAttribute('aria-current'));
+  document.querySelector('[data-crumb]').textContent = titles[id] || id;
+  if (location.hash.slice(1) !== id) history.replaceState(null, '', '#' + id);
+  window.scrollTo({ top: 0 });
+  reveal(); indicators();
+}
+
+/* ── 权限：按角色增减菜单，不置灰、直接不渲染 ───────────────────── */
+const roleName = { admin:['陈','陈建国','管理员'], sales:['罗','罗秀珍','开单员 · 销售一部'], warehouse:['李','李国强','仓管'] };
+function applyRole(role) {
+  document.querySelectorAll('.nav-item[data-roles]').forEach(n =>
+    n.hidden = !n.dataset.roles.split(',').includes(role));
+  document.querySelectorAll('.nav-group').forEach(g =>
+    g.hidden = ![...g.querySelectorAll('.nav-item')].some(n => !n.hidden));
+  const [ini, name, title] = roleName[role];
+  document.querySelector('.avatar').textContent = ini;
+  document.querySelector('.user-name').textContent = name;
+  document.querySelector('.user-role').textContent = title;
+  const cur = document.querySelector('.nav-item[aria-current="page"]');
+  if (!cur || cur.hidden) go('workbench');
+}
+
+/* ── 主题 ───────────────────────────────────────────────────────── */
+const root = document.documentElement;
+document.getElementById('theme').onclick = () => {
+  root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
+};
+
+/* ── 分段控件滑动指示块 ─────────────────────────────────────────── */
+function indicators() {
+  document.querySelectorAll('.segmented').forEach(seg => {
+    let ind = seg.querySelector('.ind');
+    if (!ind) { ind = document.createElement('span'); ind.className = 'ind'; seg.prepend(ind); }
+    const on = seg.querySelector('[aria-selected="true"]');
+    if (!on) return;
+    ind.style.width = on.offsetWidth + 'px';
+    ind.style.transform = `translateX(${on.offsetLeft - 2}px)`;
+  });
+}
+
+/* ── 数字滚动：只在首次出现时跑一次，不循环 ─────────────────────── */
+function countUp(el) {
+  const raw = el.dataset.v || el.textContent;
+  const target = parseFloat(raw.replace(/[^\d.]/g, ''));
+  if (!isFinite(target)) return;
+  el.dataset.v = raw;
+  const dur = 760, t0 = performance.now();
+  const fmt = n => raw.replace(/[\d,]+(\.\d+)?/, n.toLocaleString('zh-CN', {
+    minimumFractionDigits: (raw.split('.')[1] || '').length ? 1 : 0,
+    maximumFractionDigits: (raw.split('.')[1] || '').length ? 1 : 0 }));
+  (function tick(t) {
+    const p = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - p, 3);
+    el.textContent = fmt(Math.round(target * e * 100) / 100);
+    if (p < 1) requestAnimationFrame(tick);
+  })(t0);
+}
+
+/* ── 入场：错峰淡入，每个元素只触发一次 ─────────────────────────── */
+const seen = new WeakSet();
+const io = new IntersectionObserver(es => es.forEach(e => {
+  if (!e.isIntersecting || seen.has(e.target)) return;
+  seen.add(e.target);
+  e.target.classList.add('is-in');
+  e.target.querySelectorAll('[data-count]').forEach(countUp);
+}), { threshold: 0.15 });
+function reveal() {
+  document.querySelectorAll('.screen.is-active .sheet, .screen.is-active .band, .screen.is-active .ledger')
+    .forEach((el, i) => { el.classList.add('reveal'); el.style.transitionDelay = (i * 55) + 'ms'; io.observe(el); });
+}
+
+/* ── 柱状图气泡 ─────────────────────────────────────────────────── */
+const tip = Object.assign(document.createElement('div'), { className: 'band-tip' });
+document.body.append(tip);
+document.addEventListener('mouseover', e => {
+  const bar = e.target.closest('.band-chart i');
+  if (!bar) return;
+  const r = bar.getBoundingClientRect();
+  tip.textContent = bar.title;
+  tip.style.left = (r.left + r.width / 2) + 'px';
+  tip.style.top = (r.top + scrollY) + 'px';
+  tip.classList.add('on');
+});
+document.addEventListener('mouseout', e => { if (e.target.closest('.band-chart i')) tip.classList.remove('on'); });
+
+/* ── 顶栏毛玻璃 ─────────────────────────────────────────────────── */
+addEventListener('scroll', () => document.querySelector('.topbar').classList.toggle('stuck', scrollY > 6), { passive: true });
+
+/* ── 浮层：弹窗 / 轻提示 / 物料选择器 ───────────────────────────── */
+let lastFocus = null;
+function openModal(id) {
+  const s = document.getElementById('m-' + id); if (!s) return;
+  lastFocus = document.activeElement;
+  s.hidden = false; document.body.style.overflow = 'hidden';
+  (s.querySelector('input, select, button:not(.modal-x)') || s.querySelector('.modal-x')).focus();
+}
+function closeModal(s) {
+  s = s || document.querySelector('.scrim:not([hidden])'); if (!s) return;
+  s.hidden = true; document.body.style.overflow = '';
+  lastFocus?.focus();
+}
+function toast(msg, kind) {
+  const box = document.getElementById('toasts');
+  const t = document.createElement('div');
+  t.className = 'toast ' + (kind || 'ok');
+  t.innerHTML = '<svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" aria-hidden="true"><use href="#i-check"/></svg>' + msg;
+  box.append(t);
+  setTimeout(() => t.remove(), 3600);
+}
+/* 焦点锁在弹窗里 */
+document.addEventListener('keydown', e => {
+  const s = document.querySelector('.scrim:not([hidden])'); if (!s) return;
+  if (e.key === 'Escape') { e.preventDefault(); closeModal(s); return; }
+  if (e.key !== 'Tab') return;
+  const f = [...s.querySelectorAll('a[href],button,input,select,textarea,[tabindex]:not([tabindex="-1"])')]
+    .filter(x => !x.disabled && x.offsetParent !== null);
+  if (!f.length) return;
+  const first = f[0], last = f[f.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+});
+
+/* 物料选择器 */
+const pick = { btn: null, pop: null };
+function pickClose() {
+  if (!pick.pop) return;
+  pick.pop.hidden = true; pick.btn.setAttribute('aria-expanded', 'false');
+}
+document.addEventListener('input', e => {
+  if (e.target.id !== 'pickq') return;
+  const q = e.target.value.trim().toLowerCase();
+  document.querySelectorAll('#pickpop .picker-opt').forEach(o => {
+    o.hidden = !!q && !o.textContent.toLowerCase().includes(q);
+  });
+});
+
+/* ── 可输入下拉 ─────────────────────────────────────────────────── */
+function comboClose(c) {
+  if (!c) return;
+  c.dataset.open = 'false';
+  c.querySelector('.combo-pop').hidden = true;
+  c.querySelector('input').setAttribute('aria-expanded', 'false');
+}
+function comboRender(c) {
+  const inp = c.querySelector('input'), pop = c.querySelector('.combo-pop');
+  const list = c.querySelector('.combo-list'), q = inp.value.trim();
+  let shown = 0, exact = false;
+  list.querySelectorAll('.combo-opt').forEach(o => {
+    const raw = o.dataset.raw || (o.dataset.raw = o.childNodes[0].textContent);
+    const hit = !q || raw.toLowerCase().includes(q.toLowerCase());
+    o.hidden = !hit; if (hit) shown++;
+    if (raw === q) exact = true;
+    o.childNodes[0].textContent = raw;
+    if (hit && q) {
+      const i = raw.toLowerCase().indexOf(q.toLowerCase());
+      if (i >= 0) {
+        const m = document.createElement('span');
+        m.innerHTML = raw.slice(0, i) + '<mark>' + raw.slice(i, i + q.length) + '</mark>' + raw.slice(i + q.length);
+        o.replaceChild(m, o.childNodes[0]);
+      }
+    }
+  });
+  c.querySelector('.combo-new')?.remove();
+  c.querySelector('.combo-empty')?.remove();
+  if (q && !exact) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'combo-new';
+    b.innerHTML = '<b>+ 新增「' + q + '」</b><span>保存单据成功后，自动加进「' + c.dataset.dict + '」清单</span>';
+    list.after(b);
+  } else if (!shown) {
+    const d = document.createElement('div');
+    d.className = 'combo-empty'; d.textContent = '没有匹配的选项';
+    list.after(d);
+  }
+}
+function comboOpen(c) {
+  document.querySelectorAll('.combo[data-open="true"]').forEach(o => o !== c && comboClose(o));
+  c.dataset.open = 'true';
+  c.querySelector('.combo-pop').hidden = false;
+  c.querySelector('input').setAttribute('aria-expanded', 'true');
+  comboRender(c);
+}
+function comboPick(c, text, isNew) {
+  const inp = c.querySelector('input');
+  inp.value = text;
+  c.querySelectorAll('.combo-opt').forEach(o => o.setAttribute('aria-selected', (o.dataset.raw || o.textContent) === text));
+  c.querySelector('.pending')?.remove();
+  if (isNew) {
+    const t = document.createElement('span');
+    t.className = 'pending'; t.textContent = '保存后加入清单';
+    c.closest('.field').querySelector('label').append(t);
+  }
+  comboClose(c); inp.focus();
+}
+document.addEventListener('input', e => {
+  const c = e.target.closest('.combo'); if (!c) return;
+  if (c.dataset.open !== 'true') comboOpen(c); else comboRender(c);
+});
+document.addEventListener('focusin', e => {
+  const c = e.target.closest('.combo');
+  document.querySelectorAll('.combo[data-open="true"]').forEach(o => o !== c && comboClose(o));
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && pick.pop && !pick.pop.hidden) { pickClose(); pick.btn.focus(); return; }
+  if (e.key === 'Escape') {
+    const open = document.querySelector('.combo[data-open="true"]');
+    if (open) { e.stopPropagation(); comboClose(open); return; }
+  }
+  const c = e.target.closest('.combo'); if (!c) return;
+  const items = [...c.querySelectorAll('.combo-opt:not([hidden]), .combo-new')];
+  const cur = items.findIndex(i => i.classList.contains('on'));
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (c.dataset.open !== 'true') return comboOpen(c);
+    const next = e.key === 'ArrowDown' ? Math.min(cur + 1, items.length - 1) : Math.max(cur - 1, 0);
+    items.forEach((i, n) => i.classList.toggle('on', n === next));
+    items[next]?.scrollIntoView({ block: 'nearest' });
+  } else if (e.key === 'Enter' && c.dataset.open === 'true') {
+    e.preventDefault();
+    const pick = items[cur] || items[0];
+    if (pick) comboPick(c, pick.classList.contains('combo-new') ? c.querySelector('input').value.trim() : (pick.dataset.raw || pick.textContent),
+                        pick.classList.contains('combo-new'));
+  }
+});
+
+/* ── 交互委托 ───────────────────────────────────────────────────── */
+document.addEventListener('click', e => {
+  /* 浮层优先：弹窗 / 关闭 / 轻提示 */
+  const op = e.target.closest('[data-open]');
+  if (op) { openModal(op.dataset.open); return; }
+  const tst = e.target.closest('[data-toast]');
+  if (tst) { closeModal(); toast(tst.dataset.toast); return; }
+  if (e.target.closest('[data-close]') || e.target.classList.contains('scrim')) { closeModal(); return; }
+
+  /* 物料选择器 */
+  const add = e.target.closest('#addline');
+  if (add) {
+    pick.btn = add; pick.pop = document.getElementById('pickpop');
+    const open = pick.pop.hidden;
+    pick.pop.hidden = !open; add.setAttribute('aria-expanded', String(open));
+    if (open) document.getElementById('pickq').focus();
+    return;
+  }
+  const po = e.target.closest('.picker-opt');
+  if (po) {
+    const zero = po.querySelector('.stk').classList.contains('zero');
+    const nm = po.querySelector('b').textContent;
+    pickClose();
+    toast(zero ? '「' + nm + '」库存为 0，不能开单' : '已添加「' + nm + '」', zero ? 'bad' : 'ok');
+    return;
+  }
+  if (!e.target.closest('.picker')) pickClose();
+
+  /* 可输入下拉 */
+  const caret = e.target.closest('.combo-caret');
+  if (caret) {
+    const c = caret.closest('.combo');
+    c.dataset.open === 'true' ? comboClose(c) : (comboOpen(c), c.querySelector('input').focus());
+    return;
+  }
+  const opt = e.target.closest('.combo-opt, .combo-new');
+  if (opt) {
+    const c = opt.closest('.combo');
+    comboPick(c, opt.classList.contains('combo-new') ? c.querySelector('input').value.trim() : (opt.dataset.raw || opt.textContent),
+              opt.classList.contains('combo-new'));
+    return;
+  }
+  if (!e.target.closest('.combo')) document.querySelectorAll('.combo[data-open="true"]').forEach(comboClose);
+
+  const t = e.target.closest('[data-go]');
+  if (t && !e.target.closest('.t-act')) { go(t.dataset.go); return; }
+  const seg = e.target.closest('.segmented [role="tab"]');
+  if (seg) {
+    seg.closest('.segmented').querySelectorAll('[role="tab"]').forEach(b => b.setAttribute('aria-selected', b === seg));
+    indicators(); return;
+  }
+  const sw = e.target.closest('.switch');
+  if (sw) {
+    const on = sw.getAttribute('aria-checked') !== 'true';
+    sw.setAttribute('aria-checked', on); sw.classList.toggle('is-on', on);
+    return;
+  }
+  const d = e.target.closest('.dict-item');
+  if (d) {
+    d.parentElement.querySelectorAll('.dict-item').forEach(x => x.classList.toggle('is-on', x === d));
+    document.querySelectorAll('.dict-pane').forEach(p => p.classList.toggle('is-on', p.dataset.pane === d.dataset.dict));
+    return;
+  }
+  const chip = e.target.closest('.chip');
+  if (chip) chip.parentElement.querySelectorAll('.chip').forEach(b => b.setAttribute('aria-pressed', b === chip));
+});
+document.addEventListener('click', e => {
+  const sz = e.target.closest('.size-switch button');
+  if (!sz) return;
+  root.dataset.size = sz.dataset.size;
+  sz.parentElement.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b === sz));
+  indicators();
+});
+root.dataset.size = 'md';
+document.getElementById('role').onchange = e => applyRole(e.target.value);
+addEventListener('resize', indicators);
+addEventListener('hashchange', () => go(location.hash.slice(1) || 'workbench'));
+
+applyRole('admin');
+go(location.hash.slice(1) || 'workbench');
+</script>
+</body>
+</html>

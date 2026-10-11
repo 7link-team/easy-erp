@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Easy ERP v2 · 原型视觉稿</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  body { margin:0; font-family:var(--font-ui); background:var(--paper-2); color:var(--ink-1); }
+  header { padding:48px 40px 28px; max-width:1400px; margin:0 auto; }
+  h1 { margin:0; font-size:30px; font-weight:650; letter-spacing:-.03em; }
+  header p { margin:8px 0 0; color:var(--ink-3); font-size:14px; }
+  .wrap { max-width:1400px; margin:0 auto; padding:0 40px 80px; }
+  h2 { margin:40px 0 18px; font-size:13px; font-weight:600; letter-spacing:.08em; color:var(--ink-3);
+       padding-bottom:10px; border-bottom:1px solid var(--line-2); }
+  .phones { display:flex; gap:28px; overflow-x:auto; padding:6px 0 14px; }
+  .phone { flex:none; }
+  .shell { width:390px; height:844px; padding:10px; border-radius:46px; background:#101314;
+           box-shadow:0 2px 0 #2b3133 inset, 0 30px 60px -24px rgba(12,18,20,.55); }
+  .shell iframe { width:370px; height:824px; border:0; border-radius:36px; background:var(--paper-0); display:block; }
+  .cap { margin-top:12px; font-size:13px; font-weight:600; }
+  .cap span { display:block; font-weight:400; font-size:12px; color:var(--ink-3); margin-top:2px; }
+  .desk { border:1px solid var(--line-2); border-radius:10px; overflow:hidden; background:var(--paper-0); }
+  .desk .bar { display:flex; align-items:center; gap:6px; padding:9px 12px; background:var(--paper-1);
+               border-bottom:1px solid var(--line-1); }
+  .desk .bar i { width:9px; height:9px; border-radius:50%; background:var(--line-3); }
+  .desk iframe { width:100%; height:820px; border:0; display:block; }
+</style></head><body>
+<header>
+  <h1>Easy ERP · 设计系统 v2</h1>
+  <p>17 屏可点击原型 · 5 个弹窗 · A4 打印稿。桌面高密度账册，手机原生 App 形态。字号三档、深浅主题、三种身份权限均可现场切换。</p>
+</header>
+<div class="wrap">
+  <h2>手机 · 390 × 844</h2>
+  <div class="phones">
+    <div class="phone"><div class="shell"><iframe src="prototype.html#workbench" title="工作台"></iframe></div>
+      <div class="cap">工作台<span>深色首屏 + 2×2 指标磁贴 + 单据流</span></div></div>
+    <div class="phone"><div class="shell"><iframe src="prototype.html#invoice" title="开单"></iframe></div>
+      <div class="cap">开单<span>逐行卡片 + 底部吸附结算条</span></div></div>
+    <div class="phone"><div class="shell"><iframe src="prototype.html#inventory" title="物料"></iframe></div>
+      <div class="cap">物料<span>名称规格 + 库存水位，右侧安全线</span></div></div>
+    <div class="phone"><div class="shell"><iframe src="prototype.html#finance" title="收款"></iframe></div>
+      <div class="cap">收款<span>欠款优先排序，账龄一眼可见</span></div></div>
+  </div>
+
+  <h2>桌面 · 1440 宽 · 单据详情（修订历史留痕）</h2>
+  <div class="desk"><div class="bar"><i></i><i></i><i></i></div>
+    <iframe src="prototype.html#docdetail" title="单据详情"></iframe></div>
+  <div class="cap" style="margin:12px 0 0">单据详情<span>出货明细 · 收款记录（含冲销）· 修订历史时间线 · 签字凭证</span></div>
+
+  <h2>桌面 · 1440 宽 · 开单</h2>
+  <div class="desk"><div class="bar"><i></i><i></i><i></i></div>
+    <iframe src="prototype.html#invoice" title="开单"></iframe></div>
+  <div class="cap" style="margin:12px 0 0">开单<span>可输入下拉 · 物料选择器（名称/编码/条码）· 超库存即时拦截 · 深色结算块</span></div>
+
+  <h2>桌面 · 1440 宽 · 工作台</h2>
+  <div class="desk"><div class="bar"><i></i><i></i><i></i></div>
+    <iframe src="prototype.html#workbench" title="桌面工作台"></iframe></div>
+  <div class="cap" style="margin:12px 0 0">工作台<span>侧栏可切换身份（管理员 / 开单员 / 仓管），菜单按权限增减；右上可切字号三档与深浅主题</span></div>
+
+  <h2>A4 打印单据</h2>
+  <div class="desk"><div class="bar"><i></i><i></i><i></i></div>
+    <iframe src="print.html" title="打印样稿" style="height:900px"></iframe></div>
+  <div class="cap" style="margin:12px 0 0">销售出货单<span>A4 纵向 · 黑白激光打印机 · 不依赖彩色 · 会计双线合计 · 作废水印章 · 可直接系统打印或存 PDF</span></div>
+</div>
+</body></html>

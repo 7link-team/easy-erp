@@ -353,7 +353,11 @@ export function NativeTools({ pageOpen = false }: { pageOpen?: boolean }) {
             void check(false);
         }}
       >
-        {info.mobile ? <Settings2 size={19} /> : <Download size={19} />}
+        {info.mobile ? (
+          <Settings2 aria-hidden="true" size={19} />
+        ) : (
+          <Download aria-hidden="true" size={19} />
+        )}
       </Button>
       {open && !pageOpen && (
         <Modal
@@ -408,7 +412,7 @@ export function NativeTools({ pageOpen = false }: { pageOpen?: boolean }) {
           )}
           {error && <Notice>{error}</Notice>}
           <p className="muted">稍后可从「版本更新」页面继续下载或安装。</p>
-          <div className="form-actions">
+          <div className="form-actions form-footer">
             {phase !== "installing" && (
               <Button onClick={() => setOpen(false)}>稍后再说</Button>
             )}

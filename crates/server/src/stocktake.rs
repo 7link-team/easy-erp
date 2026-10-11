@@ -17,9 +17,7 @@ use serde_json::{Value, json};
 
 pub async fn list(State(s): State<AppState>, headers: HeaderMap) -> Result<Json<Value>> {
     let actor = current(&s, &headers).await?;
-    if actor.role != "admin" && !actor.can_count {
-        return Err(ApiError::forbidden());
-    }
+    actor.require("stocktake.read")?;
     let rows = all(
         &s.db,
         "SELECT * FROM stocktakes ORDER BY created_at DESC LIMIT 50",
@@ -44,7 +42,7 @@ pub async fn start(
     Json(input): Json<Start>,
 ) -> Result<Json<Value>> {
     let actor = current(&s, &headers).await?;
-    actor.admin()?;
+    actor.require("stocktake.create")?;
     if input.item_ids.is_empty() || input.item_ids.len() > 100 {
         return Err(ApiError::bad("每次清点请选择 1–100 件物料。"));
     }
@@ -104,9 +102,7 @@ pub async fn count(
     Json(input): Json<Counts>,
 ) -> Result<Json<Value>> {
     let actor = current(&s, &headers).await?;
-    if actor.role != "admin" && (!actor.can_count || actor.role == "viewer") {
-        return Err(ApiError::forbidden());
-    }
+    actor.require("stocktake.count")?;
     if input.lines.is_empty() || input.lines.len() > 100 {
         return Err(ApiError::bad("请选择需要填写的物料。"));
     }
@@ -149,7 +145,7 @@ pub async fn finish(
     Json(input): Json<Finish>,
 ) -> Result<Json<Value>> {
     let actor = current(&s, &headers).await?;
-    actor.admin()?;
+    actor.require("stocktake.finish")?;
     let _lock = s.writes.lock().await;
     let txn = s.db.begin().await?;
     if one(

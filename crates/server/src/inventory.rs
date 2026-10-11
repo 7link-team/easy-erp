@@ -51,37 +51,27 @@ pub fn item(row: &sea_orm::QueryResult) -> Item {
             && row.try_get::<i64>("", "has_history").unwrap_or(1) == 0,
     }
 }
-#[derive(Deserialize, Default)]
+#[derive(Clone, Deserialize, Default)]
 pub struct Filter {
     pub q: Option<String>,
     pub page: Option<u64>,
     pub kind: Option<String>,
     pub low: Option<bool>,
+    pub ids: Option<String>,
+    pub item_id: Option<String>,
+    pub status: Option<String>,
+    pub sort: Option<String>,
 }
 pub async fn items(
     State(s): State<AppState>,
     headers: HeaderMap,
     Query(filter): Query<Filter>,
 ) -> Result<Json<JsonValue>> {
-    current(&s, &headers).await?;
-    let q = clean(filter.q.as_deref().unwrap_or(""), "搜索内容", 100, false)?;
-    let kind = filter.kind.unwrap_or_default();
+    current(&s, &headers).await?.require("items.read")?;
     let page = filter.page.unwrap_or(1).clamp(1, 1_000_000);
-    let search = format!(
-        "%{}%",
-        q.replace('\\', "\\\\")
-            .replace('%', "\\%")
-            .replace('_', "\\_")
-    );
-    let where_clause = "active=1 AND (name LIKE ? ESCAPE '\\' OR code LIKE ? ESCAPE '\\' OR barcode=?) AND (?='' OR kind=?) AND (?=0 OR (minimum>=0 AND balance<=minimum))";
-    let values: Vec<sea_orm::Value> = vec![
-        search.clone().into(),
-        search.into(),
-        q.into(),
-        kind.clone().into(),
-        kind.into(),
-        (filter.low.unwrap_or(false) as i64).into(),
-    ];
+    let (base, base_values) = item_search(&filter)?;
+    let counts = one(&s.db, &format!("SELECT COUNT(CASE WHEN active=1 THEN 1 END) AS active,COUNT(CASE WHEN active=1 AND minimum>=0 AND balance<=minimum THEN 1 END) AS low,COUNT(CASE WHEN active=1 AND balance=0 THEN 1 END) AS zero,COUNT(CASE WHEN active=0 THEN 1 END) AS archived FROM items WHERE {base}"), base_values).await?.unwrap();
+    let (where_clause, values, order) = item_filter(&filter)?;
     let count = one(
         &s.db,
         &format!("SELECT COUNT(*) AS total FROM items WHERE {where_clause}"),
@@ -91,10 +81,66 @@ pub async fn items(
     .unwrap();
     let mut paged = values;
     paged.push(((page - 1) * 50).into());
-    let rows=all(&s.db,&format!("SELECT items.*, (EXISTS(SELECT 1 FROM document_lines dl WHERE dl.item_id=items.id) OR EXISTS(SELECT 1 FROM stocktake_lines sl WHERE sl.item_id=items.id)) AS has_history, (SELECT COUNT(*) FROM stocktake_lines sl JOIN stocktakes st ON sl.stocktake_id=st.id WHERE sl.item_id=items.id AND st.status='open') AS counting FROM items WHERE {where_clause} ORDER BY created_at DESC,id LIMIT 50 OFFSET ?"),paged).await?;
+    let rows=all(&s.db,&format!("SELECT items.*, (EXISTS(SELECT 1 FROM document_lines dl WHERE dl.item_id=items.id) OR EXISTS(SELECT 1 FROM stocktake_lines sl WHERE sl.item_id=items.id)) AS has_history, (SELECT COUNT(*) FROM stocktake_lines sl JOIN stocktakes st ON sl.stocktake_id=st.id WHERE sl.item_id=items.id AND st.status='open') AS counting FROM items WHERE {where_clause} ORDER BY {order} LIMIT 50 OFFSET ?"),paged).await?;
     Ok(Json(
-        json!({"items":rows.iter().map(item).collect::<Vec<_>>(),"total":int(&count,"total"),"page":page}),
+        json!({"items":rows.iter().map(item).collect::<Vec<_>>(),"total":int(&count,"total"),"page":page,"counts":{"active":int(&counts,"active"),"low":int(&counts,"low"),"zero":int(&counts,"zero"),"archived":int(&counts,"archived")}}),
     ))
+}
+fn item_search(filter: &Filter) -> Result<(String, Vec<sea_orm::Value>)> {
+    let q = clean(filter.q.as_deref().unwrap_or(""), "搜索内容", 100, false)?;
+    let kind = filter.kind.clone().unwrap_or_default();
+    let search = format!(
+        "%{}%",
+        q.replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_")
+    );
+    let mut where_clause = "(name LIKE ? ESCAPE '\\' OR code LIKE ? ESCAPE '\\' OR spec LIKE ? ESCAPE '\\' OR barcode=?) AND (?='' OR kind=?)".to_string();
+    let mut values: Vec<sea_orm::Value> = vec![
+        search.clone().into(),
+        search.clone().into(),
+        search.into(),
+        q.into(),
+        kind.clone().into(),
+        kind.into(),
+    ];
+    if let Some(ids) = &filter.ids {
+        let ids: Vec<&str> = ids.split(',').collect();
+        if ids.is_empty() || ids.len() > 50 || ids.iter().any(|id| id.is_empty() || id.len() > 100)
+        {
+            return Err(ApiError::bad("每次最多查询 50 个有效物料编号。"));
+        }
+        where_clause.push_str(&format!(" AND id IN ({})", vec!["?"; ids.len()].join(",")));
+        values.extend(ids.into_iter().map(|id| id.to_string().into()));
+    }
+    Ok((where_clause, values))
+}
+pub(crate) fn item_filter(filter: &Filter) -> Result<(String, Vec<sea_orm::Value>, &'static str)> {
+    let (mut clause, values) = item_search(filter)?;
+    let status = filter
+        .status
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .unwrap_or(if filter.low.unwrap_or(false) {
+            "low"
+        } else {
+            "active"
+        });
+    clause.push_str(match status {
+        "active" => " AND active=1",
+        "low" => " AND active=1 AND minimum>=0 AND balance<=minimum",
+        "zero" => " AND active=1 AND balance=0",
+        "archived" => " AND active=0",
+        _ => return Err(ApiError::bad("物料状态筛选无效。")),
+    });
+    let order = match filter.sort.as_deref().unwrap_or("") {
+        "" | "newest" => "created_at DESC,id",
+        "stock_asc" => "balance ASC,code,id",
+        "stock_desc" => "balance DESC,code,id",
+        "name" => "name,code,id",
+        _ => return Err(ApiError::bad("物料排序方式无效。")),
+    };
+    Ok((clause, values, order))
 }
 #[derive(Deserialize)]
 pub struct ItemInput {
@@ -104,18 +150,23 @@ pub struct ItemInput {
     pub spec: String,
     pub kind: String,
     pub unit: String,
+    #[serde(default = "default_precision")]
     pub precision: i64,
     #[serde(default)]
     pub barcode: String,
     pub minimum: Option<String>,
     pub version: Option<i64>,
 }
+fn default_precision() -> i64 {
+    3
+}
 fn validate_item(input: &ItemInput) -> Result<()> {
     clean(&input.name, "物料名称", 100, true)?;
     clean(&input.spec, "规格", 100, false)?;
     clean(&input.unit, "单位", 16, true)?;
     clean(&input.barcode, "条码", 128, false)?;
-    if !domain::ITEM_KINDS.contains(&input.kind.as_str()) || !(0..=3).contains(&input.precision) {
+    clean(&input.kind, "物料类型", 100, false)?;
+    if !(0..=3).contains(&input.precision) {
         return Err(ApiError::bad("请选择有效类型及 0–3 位小数位数。"));
     }
     Ok(())
@@ -126,7 +177,7 @@ pub async fn create_item(
     Json(input): Json<ItemInput>,
 ) -> Result<Json<JsonValue>> {
     let actor = current(&s, &headers).await?;
-    actor.admin()?;
+    actor.require("items.create")?;
     validate_item(&input)?;
     let _lock = s.writes.lock().await;
     let txn = s.db.begin().await?;
@@ -141,6 +192,9 @@ pub(crate) async fn create_item_record(
     input: ItemInput,
 ) -> Result<String> {
     validate_item(&input)?;
+    let spec = crate::options::ensure(txn, "spec", &input.spec).await?;
+    let kind = crate::options::ensure(txn, "kind", &input.kind).await?;
+    let unit = crate::options::ensure(txn, "unit", &input.unit).await?;
     let iid = id();
     let code = input
         .code
@@ -161,9 +215,9 @@ pub(crate) async fn create_item_record(
             iid.clone().into(),
             code.into(),
             input.name.trim().into(),
-            input.spec.trim().into(),
-            input.kind.into(),
-            input.unit.trim().into(),
+            spec.into(),
+            kind.into(),
+            unit.into(),
             input.precision.into(),
             input.barcode.trim().into(),
             minimum.into(),
@@ -209,7 +263,7 @@ pub async fn update_item(
     Json(input): Json<ItemInput>,
 ) -> Result<Json<JsonValue>> {
     let actor = current(&s, &headers).await?;
-    actor.admin()?;
+    actor.require("items.update")?;
     validate_item(&input)?;
     let _lock = s.writes.lock().await;
     let txn = s.db.begin().await?;
@@ -241,7 +295,19 @@ pub async fn update_item(
         Some(v) => domain::quantity(v, input.precision, true)?,
         None => -1,
     };
-    execute(&txn,"UPDATE items SET code=?,name=?,spec=?,kind=?,unit=?,precision=?,barcode=?,minimum=?,version=version+1 WHERE id=?",vec![code.into(),input.name.trim().into(),input.spec.trim().into(),input.kind.into(),input.unit.trim().into(),input.precision.into(),input.barcode.trim().into(),minimum.into(),iid.clone().into()]).await?;
+    let mut values = Vec::new();
+    for (field, value) in [
+        ("spec", &input.spec),
+        ("kind", &input.kind),
+        ("unit", &input.unit),
+    ] {
+        values.push(if value.trim() == text(&old, field) {
+            value.trim().to_string()
+        } else {
+            crate::options::ensure(&txn, field, value).await?
+        });
+    }
+    execute(&txn,"UPDATE items SET code=?,name=?,spec=?,kind=?,unit=?,precision=?,barcode=?,minimum=?,version=version+1 WHERE id=?",vec![code.into(),input.name.trim().into(),values[0].clone().into(),values[1].clone().into(),values[2].clone().into(),input.precision.into(),input.barcode.trim().into(),minimum.into(),iid.clone().into()]).await?;
     audit(
         &txn,
         &actor,
@@ -259,7 +325,7 @@ pub async fn delete_item(
     Path(iid): Path<String>,
 ) -> Result<Json<JsonValue>> {
     let actor = current(&s, &headers).await?;
-    actor.admin()?;
+    actor.require("items.delete")?;
     let _lock = s.writes.lock().await;
     let txn = s.db.begin().await?;
     let old = one(
@@ -289,7 +355,7 @@ pub async fn archive_item(
     Path(iid): Path<String>,
 ) -> Result<Json<JsonValue>> {
     let actor = current(&s, &headers).await?;
-    actor.admin()?;
+    actor.require("items.delete")?;
     let _lock = s.writes.lock().await;
     let txn = s.db.begin().await?;
     ensure_not_counting(&txn, &iid).await?;
@@ -303,6 +369,40 @@ pub async fn archive_item(
         return Err(ApiError::conflict("只能停用库存为 0 的在用物料。"));
     }
     audit(&txn, &actor, "停用物料", &iid, json!({})).await?;
+    txn.commit().await?;
+    Ok(Json(json!({"ok":true})))
+}
+#[derive(Deserialize)]
+pub struct ItemVersion {
+    pub version: i64,
+}
+pub async fn restore_item(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Path(iid): Path<String>,
+    Json(input): Json<ItemVersion>,
+) -> Result<Json<JsonValue>> {
+    let _lock = s.writes.lock().await;
+    let actor = current(&s, &headers).await?;
+    actor.require("items.update")?;
+    let txn = s.db.begin().await?;
+    let result = execute(
+        &txn,
+        "UPDATE items SET active=1,version=version+1 WHERE id=? AND active=0 AND version=?",
+        vec![iid.clone().into(), input.version.into()],
+    )
+    .await?;
+    if result.rows_affected() != 1 {
+        return Err(ApiError::conflict("物料状态已变化，请刷新后重试。"));
+    }
+    audit(
+        &txn,
+        &actor,
+        "启用物料",
+        &iid,
+        json!({"previous_version":input.version}),
+    )
+    .await?;
     txn.commit().await?;
     Ok(Json(json!({"ok":true})))
 }
@@ -338,19 +438,16 @@ pub async fn movement(
 
 pub(crate) async fn post_movement(s: &AppState, actor: User, input: Movement) -> Result<JsonValue> {
     let kind = MovementKind::parse(&input.kind)?;
-    if kind.admin_only() {
-        actor.admin()?;
-    } else if actor.role != "admin"
-        && (actor.role == "viewer"
-            || (kind.incoming() && !actor.can_in)
-            || (!kind.incoming() && !actor.can_out))
-    {
-        return Err(ApiError::forbidden());
-    }
+    actor.require(if kind.admin_only() {
+        "movement.special"
+    } else if kind.incoming() {
+        "movement.in"
+    } else {
+        "movement.out"
+    })?;
     if matches!(kind, MovementKind::ReturnIn | MovementKind::ReturnOut)
         && input.reference_id.is_empty()
     {
-        actor.admin()?;
         clean(&input.note, "无原单退回原因", 500, true)?;
     }
     clean(&input.note, "备注", 500, kind == MovementKind::Scrap)?;
@@ -518,6 +615,16 @@ async fn check_return(
     quantity: i64,
     kind: MovementKind,
 ) -> Result<()> {
+    if one(
+        db,
+        "SELECT document_id FROM sales_inventory WHERE document_id=?",
+        vec![reference.into()],
+    )
+    .await?
+    .is_some()
+    {
+        return Err(ApiError::conflict("销售关联库存请从销售单办理退货。"));
+    }
     if !matches!(kind, MovementKind::ReturnIn | MovementKind::ReturnOut) {
         return Err(ApiError::bad("只有退回记录可以关联原单。"));
     }
@@ -531,24 +638,72 @@ async fn check_return(
     }
     Ok(())
 }
+pub(crate) fn document_filter(
+    filter: &Filter,
+    actor: &User,
+) -> Result<(String, Vec<sea_orm::Value>)> {
+    let q = clean(filter.q.as_deref().unwrap_or(""), "搜索内容", 100, false)?;
+    let mut clause = "(?=1 OR d.actor_id=?) AND (?='' OR instr(d.number,?)>0 OR instr(d.actor_name,?)>0 OR instr(d.person,?)>0 OR instr(d.note,?)>0 OR EXISTS(SELECT 1 FROM document_lines l WHERE l.document_id=d.id AND (instr(l.item_name,?)>0 OR instr(l.item_code,?)>0)))".to_string();
+    let mut values = vec![actor.can("records.all").into(), actor.id.clone().into()];
+    values.extend((0..7).map(|_| q.clone().into()));
+    if let Some(item_id) = filter.item_id.as_deref().filter(|id| !id.is_empty()) {
+        let item_id = clean(item_id, "物料", 100, true)?;
+        clause.push_str(" AND EXISTS(SELECT 1 FROM document_lines material WHERE material.document_id=d.id AND material.item_id=?)");
+        values.push(item_id.into());
+    }
+    clause.push_str(match filter.kind.as_deref().unwrap_or("") {
+        "" => "",
+        "in" => " AND d.kind IN ('receipt','finished','return_in','opening')",
+        "out" => " AND d.kind IN ('issue','shipment','return_out','scrap')",
+        "void" => " AND (d.kind='void' OR d.status='voided')",
+        "adjustment" => " AND d.kind='adjustment'",
+        "sales" => " AND d.kind='sales'",
+        _ => return Err(ApiError::bad("记录类型筛选无效。")),
+    });
+    Ok((clause, values))
+}
+pub(crate) fn audit_filter(filter: &Filter, actor: &User) -> Result<(String, Vec<sea_orm::Value>)> {
+    let q = clean(filter.q.as_deref().unwrap_or(""), "搜索内容", 100, false)?;
+    let action = clean(filter.kind.as_deref().unwrap_or(""), "操作类型", 100, false)?;
+    Ok(("(?=1 OR actor_id=?) AND (?='' OR instr(actor_name,?)>0 OR instr(action,?)>0 OR instr(details,?)>0 OR instr(object_id,?)>0) AND (?='' OR action=?)".into(), vec![actor.can("records.all").into(), actor.id.clone().into(),q.clone().into(),q.clone().into(),q.clone().into(),q.clone().into(),q.into(),action.clone().into(),action.into()]))
+}
 pub async fn documents(
     State(s): State<AppState>,
     headers: HeaderMap,
     Query(filter): Query<Filter>,
 ) -> Result<Json<JsonValue>> {
     let actor = current(&s, &headers).await?;
+    actor.require("records.read")?;
     let offset = (filter.page.unwrap_or(1).clamp(1, 1_000_000) - 1) * 50;
-    let actor_filter = if actor.role == "admin" {
-        String::new()
-    } else {
-        actor.id
-    };
-    let rows=all(&s.db,"SELECT * FROM documents WHERE (?='' OR actor_id=?) ORDER BY created_at DESC,id LIMIT 50 OFFSET ?",vec![actor_filter.clone().into(),actor_filter.into(),offset.into()]).await?;
+    let (clause, values) = document_filter(&filter, &actor)?;
+    let count = one(
+        &s.db,
+        &format!("SELECT COUNT(*) AS total FROM documents d WHERE {clause}"),
+        values.clone(),
+    )
+    .await?
+    .unwrap();
+    let mut paged = values;
+    paged.push(offset.into());
+    let rows=all(&s.db,&format!("SELECT d.* FROM documents d WHERE {clause} ORDER BY d.created_at DESC,d.id LIMIT 50 OFFSET ?"),paged).await?;
     let mut docs = vec![];
     for row in rows {
         docs.push(document(&s.db, row).await?);
     }
-    Ok(Json(json!({"items":docs})))
+    let selected_item = if actor.can("items.read") {
+        if let Some(id) = filter.item_id.as_deref().filter(|id| !id.is_empty()) {
+            one(&s.db, "SELECT name,code,spec FROM items WHERE id=?", vec![id.trim().into()])
+                .await?
+                .map(|row| json!({"name":text(&row,"name"),"code":text(&row,"code"),"spec":text(&row,"spec")}))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    Ok(Json(
+        json!({"items":docs,"total":int(&count,"total"),"selected_item":selected_item}),
+    ))
 }
 pub async fn document(db: &impl ConnectionTrait, row: sea_orm::QueryResult) -> Result<JsonValue> {
     let did = text(&row, "id");
@@ -568,7 +723,7 @@ pub async fn void_document(
     Json(input): Json<Reason>,
 ) -> Result<Json<JsonValue>> {
     let actor = current(&s, &headers).await?;
-    actor.admin()?;
+    actor.require("records.void")?;
     let reason = clean(&input.reason, "作废原因", 500, true)?;
     let _lock = s.writes.lock().await;
     let txn = s.db.begin().await?;
@@ -579,6 +734,21 @@ pub async fn void_document(
     )
     .await?
     .ok_or_else(ApiError::missing)?;
+    if !actor.can("records.all") && text(&old, "actor_id") != actor.id {
+        return Err(ApiError::forbidden());
+    }
+    if one(
+        &txn,
+        "SELECT document_id FROM sales_inventory WHERE document_id=?",
+        vec![did.clone().into()],
+    )
+    .await?
+    .is_some()
+    {
+        return Err(ApiError::conflict(
+            "销售关联库存请从销售单修订或作废，确保库存与收款一致。",
+        ));
+    }
     if text(&old, "status") != "posted"
         || ["void", "adjustment"].contains(&text(&old, "kind").as_str())
     {
@@ -670,13 +840,25 @@ pub async fn audits(
     Query(filter): Query<Filter>,
 ) -> Result<Json<JsonValue>> {
     let actor = current(&s, &headers).await?;
-    let uid = if actor.role == "admin" {
-        String::new()
-    } else {
-        actor.id
-    };
+    actor.require("records.read")?;
     let offset = (filter.page.unwrap_or(1).clamp(1, 1_000_000) - 1) * 50;
+    let (clause, values) = audit_filter(&filter, &actor)?;
+    let count = one(
+        &s.db,
+        &format!("SELECT COUNT(*) AS total FROM audit WHERE {clause}"),
+        values.clone(),
+    )
+    .await?
+    .unwrap();
+    let actions = all(
+        &s.db,
+        "SELECT DISTINCT action FROM audit WHERE (?=1 OR actor_id=?) ORDER BY action",
+        vec![actor.can("records.all").into(), actor.id.clone().into()],
+    )
+    .await?;
+    let mut paged = values;
+    paged.push(offset.into());
     Ok(Json(
-        json!({"items":all(&s.db,"SELECT * FROM audit WHERE (?='' OR actor_id=?) ORDER BY created_at DESC,id LIMIT 50 OFFSET ?",vec![uid.clone().into(),uid.into(),offset.into()]).await?.into_iter().map(audit_json).collect::<Vec<_>>()}),
+        json!({"items":all(&s.db,&format!("SELECT * FROM audit WHERE {clause} ORDER BY created_at DESC,id LIMIT 50 OFFSET ?"),paged).await?.into_iter().map(audit_json).collect::<Vec<_>>(),"total":int(&count,"total"),"actions":actions.iter().map(|row|text(row,"action")).collect::<Vec<_>>()}),
     ))
 }

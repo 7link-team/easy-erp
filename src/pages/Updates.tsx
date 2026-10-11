@@ -49,7 +49,7 @@ export default function Updates() {
     <div className="updates-page">
       <div className="page-heading">
         <div>
-          <h1>版本更新</h1>
+          <h1>版本</h1>
           <p>查看当前版本，选择合适的时间更新。</p>
         </div>
       </div>
@@ -106,7 +106,7 @@ export default function Updates() {
                   className="button primary"
                   onClick={() => void install()}
                 >
-                  <PackageCheck size={18} />
+                  <PackageCheck aria-hidden="true" size={18} />
                   安装并重启
                 </Button>
               ) : (
@@ -116,7 +116,7 @@ export default function Updates() {
                     disabled={busy}
                     onClick={() => void download()}
                   >
-                    <Download size={18} />
+                    <Download aria-hidden="true" size={18} />
                     {phase === "downloading" ? "正在下载…" : "下载更新"}
                   </Button>
                 )
@@ -127,7 +127,7 @@ export default function Updates() {
                   disabled={busy}
                   onClick={() => void check(false)}
                 >
-                  <RefreshCw size={18} />
+                  <RefreshCw aria-hidden="true" size={18} />
                   {phase === "checking" ? "正在检查…" : "检查更新"}
                 </Button>
               )}
@@ -145,7 +145,7 @@ export default function Updates() {
             {service.error && <Notice>{service.error}</Notice>}
             {!info && (
               <Button onClick={() => location.reload()}>
-                <RefreshCw size={18} />
+                <RefreshCw aria-hidden="true" size={18} />
                 刷新页面
               </Button>
             )}

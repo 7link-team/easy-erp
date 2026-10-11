@@ -1,9 +1,9 @@
+import TableImport from "../TableImport";
 import { Disclosure } from "../ui";
-import { Form, Select, Input, Button } from "../ui";
+import { Form, Input, Button } from "../ui";
 import { useEffect, useState } from "react";
 import { api, send, dateTime } from "../api";
 import {
-  TableScroll,
   Field,
   Modal,
   Notice,
@@ -11,6 +11,9 @@ import {
   form,
   useAction,
   useResource,
+  TableScroll,
+  Loading,
+  Empty,
 } from "../components";
 
 interface Schedule {
@@ -20,13 +23,20 @@ interface Backup {
   name: string;
   created_at: number;
   size: number;
+  snapshot_at: number | null;
+  source: string | null;
+  photo_count: number | null;
+  path: string;
+  metadata_error: boolean;
 }
-interface Preview {
-  id: string;
-  headers: string[];
-  rows: string[][];
-  errors: string[];
-}
+const backupSources = new Map([
+  ["manual", "手动"],
+  ["automatic", "每小时自动"],
+  ["restore", "恢复前保护"],
+  ["upgrade", "升级前保护"],
+  ["maintenance", "维护前保护"],
+  ["shutdown", "退出或升级前"],
+]);
 
 export default function Settings({
   revision,
@@ -42,10 +52,7 @@ export default function Settings({
   const [schedule, setSchedule] = useState<Schedule>({
     keep_days: 7,
   });
-  const [mode, setMode] = useState("items");
-  const [file, setFile] = useState<File>();
-  const [preview, setPreview] = useState<Preview>();
-  const { data, error } = useResource<{
+  const { data, error, loading } = useResource<{
     items: Backup[];
     schedule: Schedule;
     last_success: string;
@@ -58,7 +65,7 @@ export default function Settings({
     <>
       <div className="page-heading">
         <div>
-          <h1>数据与备份</h1>
+          <h1>备份</h1>
           <p>表格用于查看与交接；完整备份用于恢复整个库存账。</p>
           <Disclosure className="more" title="备份和导出有什么区别？">
             <p>
@@ -113,7 +120,9 @@ export default function Settings({
               )}
             </Field>
           </div>
-          <Submit busy={action.busy}>保存设置</Submit>
+          <div className="form-actions form-footer">
+            <Submit busy={action.busy}>保存设置</Submit>
+          </div>
         </Form>
         {data?.last_success && (
           <p className="hint">
@@ -127,8 +136,8 @@ export default function Settings({
       <section className="panel section-divider">
         <h2>完整备份与恢复</h2>
         <p>
-          包含库存、历史记录、账号与权限。请在保存库存的电脑上操作；建议把 ZIP
-          备份下载到 U 盘或另一台电脑，避免电脑损坏时数据和备份一起丢失。
+          包含库存、历史记录、账号、权限与凭证图片。请在保存库存的电脑上操作；建议把
+          ZIP 备份下载到 U 盘或另一台电脑，避免电脑损坏时数据和备份一起丢失。
         </p>
         <Button
           className="button primary"
@@ -144,172 +153,95 @@ export default function Settings({
           {action.busy ? "正在处理…" : "立即备份全部数据"}
         </Button>
         {error && <Notice>{error}</Notice>}
-        <div className="backup-list">
-          {data?.items.map((b) => (
-            <div className="document" key={b.name}>
-              <span>
-                {dateTime(b.created_at)}
-                <small>{Math.ceil(b.size / 1024)} KB</small>
-              </span>
-              <div className="row-actions">
-                <a
-                  className="button small"
-                  href={`/api/backups/${encodeURIComponent(b.name)}`}
-                >
-                  下载完整备份
-                </a>
-                <Button
-                  className="button small"
-                  aria-label={`恢复备份 ${b.name}`}
-                  onClick={() => {
-                    setRestoring(b);
-                    setConfirmation("");
-                    action.setError("");
-                  }}
-                >
-                  恢复这个备份
-                </Button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-      <section className="panel section-divider">
-        <h2>导入已有表格</h2>
-        <p>
-          先导入物料资料，再导入第一次使用时的库存数量。已有库存记录不能重新登记初始数量，请使用清点库存。
+        <p className="hint">
+          图片数量包含备份内保留的历史凭证。旧备份未记录的信息显示未知；列表信息不代替恢复时的完整校验。
         </p>
-        <Form
-          onSubmit={(e) =>
-            form(e, () =>
-              action.run(async () => {
-                if (!file) throw new Error("请先选择 .xlsx 或 CSV 文件。");
-                const body = new FormData();
-                body.append("file", file);
-                setPreview(
-                  await api<Preview>(`/imports/${mode}/preview`, {
-                    method: "POST",
-                    body,
-                  }),
-                );
-              }),
-            )
-          }
-        >
-          <Field label="导入内容" required>
-            {(p) => (
-              <Select
-                {...p}
-                value={mode}
-                onChange={(e) => {
-                  setMode(e.target.value);
-                  setPreview(undefined);
-                }}
-              >
-                <option value="items">物料资料</option>
-                <option value="opening">首次登记的库存数量</option>
-              </Select>
-            )}
-          </Field>
-          <div className="row-actions">
-            <a
-              className="button small"
-              href={`/api/templates/${mode}?format=xlsx`}
-            >
-              下载 Excel 模板
-            </a>
-            <a
-              className="button small"
-              href={`/api/templates/${mode}?format=csv`}
-            >
-              下载 CSV 模板
-            </a>
-          </div>
-          <Field
-            label="选择表格文件"
-            required
-            hint="支持 .xlsx、UTF-8 CSV，最大 5 MB，每次 1–100 行。不会直接覆盖已有库存。"
-          >
-            {(p) => (
-              <label className="file-picker" htmlFor={p.id}>
-                <span className="button">选择文件</span>
-                <span className="file-picker-name" role="status">
-                  {file?.name ?? "未选择文件"}
-                </span>
-                <Input
-                  {...p}
-                  type="file"
-                  accept=".xlsx,.csv"
-                  onChange={(e) => {
-                    setFile(e.target.files?.[0]);
-                    setPreview(undefined);
-                  }}
-                />
-              </label>
-            )}
-          </Field>
-          <Submit busy={action.busy}>预览并检查文件</Submit>
-        </Form>
-        {preview && (
-          <div className="section-divider">
-            <h3>导入预览 · {preview.rows.length} 行</h3>
-            {preview.errors.length ? (
-              <Notice>
-                <strong>
-                  有 {preview.errors.length} 处需要修改，尚未导入任何数据。
-                </strong>
-                <ul>
-                  {preview.errors.map((e) => (
-                    <li key={e}>{e}</li>
-                  ))}
-                </ul>
-              </Notice>
-            ) : (
-              <Notice success>文件检查通过。确认后才会保存到库存电脑。</Notice>
-            )}
+        {loading ? (
+          <Loading />
+        ) : !error && !data?.items.length ? (
+          <Empty>暂无完整备份，可点击“立即备份全部数据”生成。</Empty>
+        ) : (
+          !error && (
             <TableScroll>
-              <table>
+              <table className="backup-table" aria-label="备份记录">
                 <thead>
                   <tr>
-                    {preview.headers.map((h) => (
-                      <th key={h}>{h}</th>
-                    ))}
+                    <th>时间 / 文件</th>
+                    <th>方式</th>
+                    <th className="numeric">大小</th>
+                    <th className="numeric">凭证图片</th>
+                    <th>存放位置（库存主机）</th>
+                    <th className="ledger-actions">操作</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {preview.rows.slice(0, 10).map((row, i) => (
-                    <tr key={i}>
-                      {row.map((cell, j) => (
-                        <td key={j}>{cell || "—"}</td>
-                      ))}
+                  {data?.items.map((b) => (
+                    <tr key={b.name}>
+                      <td data-label="时间 / 文件">
+                        <strong>
+                          {dateTime(b.snapshot_at ?? b.created_at)}
+                        </strong>
+                        <small>{b.name}</small>
+                        {b.snapshot_at === null && (
+                          <small>文件修改时间；生成时间未知</small>
+                        )}
+                        {b.metadata_error && (
+                          <small className="field-error">
+                            无法读取备份信息，恢复时将检查文件。
+                          </small>
+                        )}
+                      </td>
+                      <td data-label="方式">
+                        {backupSources.get(b.source || "") || "未知"}
+                      </td>
+                      <td className="numeric" data-label="大小">
+                        {Math.ceil(b.size / 1024).toLocaleString()} KB
+                      </td>
+                      <td className="numeric" data-label="凭证图片">
+                        {b.photo_count === null
+                          ? "未知"
+                          : `${b.photo_count.toLocaleString()} 张`}
+                      </td>
+                      <td
+                        className="backup-path"
+                        data-label="存放位置（库存主机）"
+                      >
+                        {b.path}
+                      </td>
+                      <td className="ledger-actions">
+                        <div className="row-actions">
+                          <a
+                            className="button small"
+                            aria-label={`下载完整备份 ${b.name}`}
+                            href={`/api/backups/${encodeURIComponent(b.name)}`}
+                          >
+                            下载完整备份
+                          </a>
+                          <Button
+                            className="button small"
+                            aria-label={`恢复备份 ${b.name}`}
+                            disabled={action.busy}
+                            onClick={() => {
+                              setRestoring(b);
+                              setConfirmation("");
+                              action.setError("");
+                            }}
+                          >
+                            恢复这个备份
+                          </Button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </TableScroll>
-            {preview.rows.length > 10 && (
-              <p className="hint">
-                预览显示前 10 行，确认将导入全部 {preview.rows.length} 行。
-              </p>
-            )}
-            <div className="form-actions">
-              <Button
-                className="button primary"
-                disabled={action.busy || preview.errors.length > 0}
-                onClick={() =>
-                  action.run(async () => {
-                    await send(`/imports/${preview.id}/commit`, {});
-                    setMessage(`已导入 ${preview.rows.length} 行数据。`);
-                    setPreview(undefined);
-                    refresh();
-                  })
-                }
-              >
-                确认导入 {preview.rows.length} 行
-              </Button>
-            </div>
-          </div>
+          )
         )}
+      </section>
+      <section className="panel section-divider">
+        <h2>导入已有表格</h2>
+        <TableImport onImported={refresh} />
       </section>
       <section className="panel section-divider">
         <h2>导出表格</h2>
@@ -334,8 +266,10 @@ export default function Settings({
       {restoring && (
         <Modal title="恢复全部数据" onClose={() => setRestoring(undefined)}>
           <Notice>
-            将恢复到 {dateTime(restoring.created_at)}{" "}
-            的备份。之后新增的数据不会保留，所有账号需要重新登录。系统会先备份当前数据。
+            {restoring.snapshot_at === null
+              ? `此备份生成时间未知，文件修改时间为 ${dateTime(restoring.created_at)}。`
+              : `将恢复到 ${dateTime(restoring.snapshot_at)} 的备份。`}
+            恢复后，备份之后新增的数据不会保留，所有账号需要重新登录。系统会先备份当前数据。
           </Notice>
           <Form
             onSubmit={(e) =>
@@ -366,7 +300,7 @@ export default function Settings({
               )}
             </Field>
             {action.error && <Notice>{action.error}</Notice>}
-            <div className="form-actions">
+            <div className="form-actions form-footer">
               <Button
                 type="button"
                 className="button"

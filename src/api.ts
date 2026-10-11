@@ -32,12 +32,14 @@ export async function api<T>(
       0,
     );
   }
-  const data = await response
-    .json()
-    .catch(() => ({ error: "服务暂时无法完成操作，请稍后重试。" }));
+  if (response.status === 401 && path !== "/login")
+    window.dispatchEvent(new Event("erp:unauthorized"));
+  const data = await response.json().catch((error: unknown) => {
+    if (error instanceof DOMException && error.name === "AbortError")
+      throw error;
+    throw new ApiError("服务暂时无法完成操作，请稍后重试。", response.status);
+  });
   if (!response.ok) {
-    if (response.status === 401 && path !== "/login")
-      window.dispatchEvent(new Event("erp:unauthorized"));
     throw new ApiError(data.error ?? "操作失败，请重试。", response.status);
   }
   return data as T;
@@ -52,7 +54,9 @@ export interface User {
   id: string;
   username: string;
   name: string;
-  role: "admin" | "worker" | "viewer";
+  role: string;
+  role_name: string;
+  permissions: string[];
   can_in: boolean;
   can_out: boolean;
   can_count: boolean;
@@ -130,9 +134,10 @@ export const movementLabels: Record<string, string> = {
   opening: "首次登记库存",
   void: "作废调整",
   adjustment: "清点调整",
+  sales: "销售关联库存",
 };
 export const quantity = (n: number, precision: number) =>
-  (n / 1000).toFixed(precision);
+  (n / 1000).toFixed(precision).replace(/(\.\d*?[1-9])0+$|\.0+$/, "$1");
 export const dateTime = (n: number) =>
   new Intl.DateTimeFormat("zh-CN", {
     month: "2-digit",
@@ -141,3 +146,6 @@ export const dateTime = (n: number) =>
     minute: "2-digit",
     hour12: false,
   }).format(n);
+
+export const can = (user: User, permission: string) =>
+  user.role === "admin" || user.permissions.includes(permission);

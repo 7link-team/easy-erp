@@ -5,7 +5,16 @@ import { useConfirm } from "./ui";
 const pages = [
   "home",
   "inventory",
+  "invoice",
+  "sales",
+  "returns",
+  "finance",
+  "accounts",
+  "performance",
+  "customers",
+  "catalog",
   "records",
+  "movement",
   "stocktakes",
   "users",
   "settings",
@@ -14,6 +23,11 @@ const pages = [
   "out",
 ] as const;
 export type Page = (typeof pages)[number];
+export type Navigate = (
+  page: Page,
+  initialItem?: Item,
+  query?: Record<string, string>,
+) => Promise<boolean>;
 interface Route {
   page: Page;
   index: number;
@@ -25,6 +39,24 @@ const hashPage = (): Page => {
 };
 const address = (page: Page) =>
   `${location.pathname}${location.search}#/${page}`;
+
+/** Share the same query cleanup between in-app navigation and native links. */
+export function pageAddress(page: Page, query?: Record<string, string>) {
+  const params = new URLSearchParams(location.search);
+  if (!query?.sale_open) params.delete("sale_open");
+  if (!query?.sale_print) params.delete("sale_print");
+  if (page !== "inventory") params.delete("inventory_item");
+  if (page !== "customers") params.delete("customer_focus");
+  // Search/dashboard links target documents unless a record filter is explicit.
+  if (page === "sales" && query && !query.sales_records)
+    params.delete("sales_records");
+  for (const [key, value] of Object.entries(query ?? {})) {
+    if (value) params.set(key, value);
+    else params.delete(key);
+  }
+  const search = params.toString();
+  return `${location.pathname}${search ? `?${search}` : ""}#/${page}`;
+}
 
 /** Keep app navigation and browser Back in the same history, including form guards. */
 export function useNavigation(dirty: RefObject<boolean>) {
@@ -69,6 +101,7 @@ export function useNavigation(dirty: RefObject<boolean>) {
       current.current = target;
       setRoute(target);
       window.scrollTo(0, 0);
+      document.querySelector(".workspace")?.scrollTo(0, 0);
     };
     const unload = (event: BeforeUnloadEvent) => {
       if (dirty.current) {
@@ -83,14 +116,20 @@ export function useNavigation(dirty: RefObject<boolean>) {
       window.removeEventListener("beforeunload", unload);
     };
   }, [dirty]);
-  async function navigate(page: Page, initialItem?: Item) {
-    if (page === current.current.page && !initialItem) return;
-    if (dirty.current && !(await leave())) return;
+  async function navigate(
+    page: Page,
+    initialItem?: Item,
+    query?: Record<string, string>,
+  ) {
+    if (page === current.current.page && !initialItem && !query) return true;
+    if (dirty.current && !(await leave())) return false;
     const next = { page, initialItem, index: current.current.index + 1 };
-    history.pushState({ erpRoute: next }, "", address(page));
+    history.pushState({ erpRoute: next }, "", pageAddress(page, query));
     current.current = next;
     setRoute(next);
     window.scrollTo(0, 0);
+    document.querySelector(".workspace")?.scrollTo(0, 0);
+    return true;
   }
   function reset() {
     const next: Route = { page: "home", index: current.current.index };
@@ -101,6 +140,44 @@ export function useNavigation(dirty: RefObject<boolean>) {
   const back = () =>
     current.current.index > 0 ? history.back() : navigate("home");
   return { route, navigate, back, reset };
+}
+
+/** Keep ledger filters in shareable URLs without adding navigation entries per keystroke. */
+export function useQueryValue<T extends string | number>(
+  key: string,
+  fallback: T,
+) {
+  const read = () => {
+    const raw = new URLSearchParams(location.search).get(key);
+    if (raw === null) return fallback;
+    return (
+      typeof fallback === "number"
+        ? /^\d+$/.test(raw) &&
+          Number.isSafeInteger(Number(raw)) &&
+          Number(raw) > 0
+          ? Number(raw)
+          : fallback
+        : raw
+    ) as T;
+  };
+  const [value, setValue] = useState<T>(read);
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (value === fallback) params.delete(key);
+    else params.set(key, String(value));
+    const query = params.toString();
+    const next = `${location.pathname}${query ? `?${query}` : ""}${location.hash}`;
+    if (next !== `${location.pathname}${location.search}${location.hash}`) {
+      history.replaceState(history.state, "", next);
+      window.dispatchEvent(new Event("erp:querychange"));
+    }
+  }, [key, value, fallback]);
+  useEffect(() => {
+    const restore = () => setValue(read());
+    window.addEventListener("popstate", restore);
+    return () => window.removeEventListener("popstate", restore);
+  }, [key, fallback]);
+  return [value, setValue] as const;
 }
 
 /** iOS overlays its keyboard; keep sheets/actions inside the visible viewport. */

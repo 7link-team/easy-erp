@@ -37,12 +37,14 @@ pub async fn prepare_update(
         username: "system".into(),
         name: "退出或升级前备份".into(),
         role: "admin".into(),
+        role_name: "管理员".into(),
+        permissions: vec![],
         can_in: false,
         can_out: false,
         can_count: false,
         active: true,
     };
-    let backup = backup::create(&s, &actor).await?;
+    let backup = backup::create(&s, &actor, "shutdown").await?;
     s.updating.store(true, Ordering::Release);
     s.shutdown.notify_one();
     Ok(Json(

@@ -38,6 +38,9 @@ export default function WebAccess({ onClose }: { onClose: () => void }) {
               <span>{label}</span>
               <Input
                 aria-label={`${label}链接`}
+                name="web-address"
+                type="url"
+                spellCheck={false}
                 readOnly
                 value={address}
                 onFocus={(e) => e.target.select()}
@@ -70,7 +73,7 @@ export default function WebAccess({ onClose }: { onClose: () => void }) {
                   }
                 }}
               >
-                <ExternalLink size={16} />
+                <ExternalLink aria-hidden="true" size={16} />
                 打开
               </a>
               <Button
@@ -87,7 +90,7 @@ export default function WebAccess({ onClose }: { onClose: () => void }) {
                   }
                 }}
               >
-                <Copy size={16} />
+                <Copy aria-hidden="true" size={16} />
                 复制链接
               </Button>
             </div>
@@ -105,13 +108,13 @@ export default function WebAccess({ onClose }: { onClose: () => void }) {
           {message}
         </p>
       )}
-      <div className="form-actions">
+      <div className="form-actions form-footer">
         <Button
           className="button"
           disabled={loading}
           onClick={() => setRevision((r) => r + 1)}
         >
-          <RefreshCw size={16} />
+          <RefreshCw aria-hidden="true" size={16} />
           刷新地址
         </Button>
       </div>

@@ -1,10 +1,11 @@
-//! Tabular import/export adapters. Confirmed imports call the same inventory rules as forms.
+//! Tabular import/export adapters. Imports reuse inventory and reference-data form rules.
 use crate::{
-    auth::{clean, current},
+    auth::{User, clean, current},
     db::*,
     domain,
     error::{ApiError, Result},
     inventory::{self, ItemInput, Movement, MovementLine},
+    money, options as material_options, sales,
     state::AppState,
 };
 use axum::{
@@ -14,7 +15,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use calamine::{Reader, Xlsx};
-use sea_orm::TransactionTrait;
+use sea_orm::{ConnectionTrait, TransactionTrait};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{collections::HashSet, io::Cursor};
@@ -38,7 +39,11 @@ pub struct Options {
     #[serde(default = "default_format")]
     format: String,
     #[serde(default)]
-    q: String,
+    #[serde(flatten)]
+    filter: inventory::Filter,
+    from: Option<String>,
+    to: Option<String>,
+    customer_id: Option<String>,
 }
 fn default_format() -> String {
     "xlsx".into()
@@ -52,20 +57,227 @@ pub struct Preview {
     headers: Vec<String>,
     rows: Vec<Vec<String>>,
     errors: Vec<String>,
+    #[serde(default)]
+    department_ids: Vec<String>,
 }
 struct Table {
     headers: Vec<String>,
     rows: Vec<Vec<String>>,
 }
 fn expected(mode: &str) -> Result<Vec<String>> {
-    Ok(match mode {
+    let headers: &[&str] = match mode {
         "items" => ITEM_HEADERS,
         "opening" => OPENING_HEADERS,
-        _ => return Err(ApiError::bad("请选择物料资料或首次库存登记模板。")),
+        "customer" => &["客户名称", "联系人", "电话", "地址", "状态", "排序", "备注"],
+        "type" => &["单据类型", "是否计款", "状态", "排序", "备注"],
+        "account" => &["收款账户", "账户类型", "状态", "排序", "备注"],
+        "department" => &["部门名称", "负责人", "状态", "排序", "备注"],
+        "salesperson" => &["业务员姓名", "部门名称", "电话", "状态", "排序", "备注"],
+        "spec" => &["规格值", "状态", "排序", "说明"],
+        "kind" => &["物料分类", "状态", "排序", "说明"],
+        "unit" => &["计量单位", "状态", "排序", "说明"],
+        _ => return Err(ApiError::bad("导入类别无效，请重新选择。")),
+    };
+    Ok(headers.iter().map(|s| s.to_string()).collect())
+}
+fn reference_module(mode: &str) -> Option<&'static str> {
+    match mode {
+        "customer" => Some("customers"),
+        "account" => Some("accounts"),
+        "type" | "department" | "salesperson" => Some("catalog"),
+        "spec" | "kind" | "unit" => Some("options"),
+        _ => None,
     }
-    .iter()
-    .map(|s| s.to_string())
-    .collect())
+}
+fn authorize(actor: &User, mode: &str, action: &str) -> Result<()> {
+    if let Some(module) = reference_module(mode) {
+        actor.require(&format!("{module}.{action}"))
+    } else {
+        actor.admin()
+    }
+}
+fn choice(value: &str, yes: &str, no: &str) -> Result<bool> {
+    match value {
+        v if v == yes => Ok(true),
+        v if v == no => Ok(false),
+        _ => Err(ApiError::bad(format!("请填写“{yes}”或“{no}”。"))),
+    }
+}
+async fn import_reference(
+    db: &impl ConnectionTrait,
+    actor: &User,
+    mode: &str,
+    row: &[String],
+) -> Result<Option<String>> {
+    if row.len() != expected(mode)?.len()
+        && !(reference_module(mode) == Some("options") && row.len() == 1)
+        && !(["account", "department"].contains(&mode) && row.len() == 4)
+    {
+        return Err(ApiError::bad("列数与模板不一致。"));
+    }
+    if reference_module(mode) == Some("options") {
+        if one(
+            db,
+            "SELECT id FROM material_options WHERE field=? AND key=?",
+            vec![mode.into(), material_options::key(&row[0]).into()],
+        )
+        .await?
+        .is_some()
+        {
+            return Err(ApiError::bad("候选名称已存在，请在基础资料中修改。"));
+        }
+        material_options::save_record(
+            db,
+            actor,
+            material_options::Input {
+                id: String::new(),
+                field: mode.into(),
+                name: row[0].clone(),
+                version: 0,
+                active: row
+                    .get(1)
+                    .filter(|v| !v.is_empty())
+                    .map(|v| choice(v, "启用", "停用"))
+                    .transpose()?,
+                sort: row
+                    .get(2)
+                    .filter(|v| !v.is_empty())
+                    .map(|v| {
+                        v.parse::<i64>()
+                            .map_err(|_| ApiError::bad("排列顺序请填写 0–9999 的整数。"))
+                    })
+                    .transpose()?,
+                note: row.get(3).cloned(),
+            },
+            "import",
+        )
+        .await?;
+        return Ok(None);
+    }
+    let status_index = match mode {
+        "customer" => 4,
+        "type" => 2,
+        "account" | "department" if row.len() == 5 => 2,
+        "salesperson" => 3,
+        _ => 1,
+    };
+    let active = if row[status_index].is_empty() {
+        true
+    } else {
+        choice(&row[status_index], "启用", "停用")?
+    };
+    let sort = if row[status_index + 1].is_empty() {
+        0
+    } else {
+        row[status_index + 1]
+            .parse::<i64>()
+            .map_err(|_| ApiError::bad("排列顺序请填写 0–9999 的整数。"))?
+    };
+    let mut data = json!({"sort":sort, "note":row[status_index + 2]});
+    match mode {
+        "department" if row.len() == 5 => {
+            data["contact"] = json!(row[1]);
+        }
+        "account" if row.len() == 5 => {
+            data["account_type"] = json!(row[1]);
+        }
+        "customer" => {
+            data["contact"] = json!(row[1]);
+            data["phone"] = json!(row[2]);
+            data["address"] = json!(row[3]);
+        }
+        "type" => {
+            data["billable"] = json!(choice(&row[1], "是", "否")?);
+        }
+        "salesperson" => {
+            let department_name = material_options::key(&row[1]);
+            let departments = all(
+                db,
+                "SELECT id,name FROM sales_catalog WHERE kind='department' AND active=1",
+                vec![],
+            )
+            .await?;
+            let department = departments
+                .iter()
+                .find(|r| material_options::key(&text(r, "name")) == department_name)
+                .ok_or_else(|| {
+                    ApiError::bad("未找到启用的部门，请先维护或导入部门，再填写其完整名称。")
+                })?;
+            data["department_id"] = json!(text(department, "id"));
+            data["phone"] = json!(row[2]);
+        }
+        _ => {}
+    }
+    let department_id = data["department_id"].as_str().map(str::to_owned);
+    sales::save_catalog_record(
+        db,
+        actor,
+        sales::CatalogInput {
+            id: String::new(),
+            kind: mode.into(),
+            name: row[0].clone(),
+            active,
+            version: 0,
+            data,
+        },
+    )
+    .await?;
+    Ok(department_id)
+}
+async fn export_reference(
+    db: &impl ConnectionTrait,
+    mode: &str,
+    options: &Options,
+) -> Result<Table> {
+    let mut rows = vec![];
+    if reference_module(mode) == Some("options") {
+        for r in all(
+            db,
+            "SELECT name,active,sort,note FROM material_options WHERE field=? ORDER BY sort,name,id",
+            vec![mode.into()],
+        )
+        .await?
+        {
+            rows.push(vec![text(&r,"name"),if int(&r,"active")==1 {"启用"} else {"停用"}.into(),int(&r,"sort").to_string(),text(&r,"note")]);
+        }
+    } else {
+        let q = clean(
+            options.filter.q.as_deref().unwrap_or(""),
+            "搜索",
+            100,
+            false,
+        )?
+        .to_lowercase();
+        for r in all(db, "SELECT c.*,d.name AS department_name FROM sales_catalog c LEFT JOIN sales_catalog d ON d.id=json_extract(c.data,'$.department_id') AND d.kind='department' WHERE c.kind=? ORDER BY COALESCE(json_extract(c.data,'$.sort'),0),c.name", vec![mode.into()]).await? {
+            let data: Value = serde_json::from_str(&text(&r,"data")).map_err(|_| ApiError::bad("读取资料失败。"))?;
+            let value = |key: &str| data[key].as_str().unwrap_or("").to_owned();
+            if mode == "customer" {
+                if let Some(ref focused) = options.customer_id {
+                    if !focused.is_empty() && text(&r,"id") != *focused { continue; }
+                }
+                if options.customer_id.as_ref().is_none_or(|id| id.is_empty())
+                    && ![text(&r,"name"),value("contact"),value("phone")].iter().any(|v| v.to_lowercase().contains(&q)) { continue; }
+            }
+            let mut row = vec![text(&r,"name")];
+            match mode {
+                "account" => row.push(value("account_type")),
+                "department" => row.push(value("contact")),
+                "customer" => row.extend([value("contact"),value("phone"),value("address")]),
+                "type" => row.push(if data["billable"].as_bool().unwrap_or(false) {"是"} else {"否"}.into()),
+                "salesperson" => row.extend([text(&r,"department_name"),value("phone")]),
+                _ => {}
+            }
+            row.extend([if int(&r,"active") == 1 {"启用"} else {"停用"}.into(), data["sort"].as_i64().unwrap_or(0).to_string(), value("note")]);
+            rows.push(row);
+        }
+    }
+    if rows.len() > 50_000 {
+        return Err(ApiError::bad("资料超过 50000 行，请缩小范围。"));
+    }
+    Ok(Table {
+        headers: expected(mode)?,
+        rows,
+    })
 }
 pub async fn template(
     State(s): State<AppState>,
@@ -73,7 +285,7 @@ pub async fn template(
     Path(mode): Path<String>,
     Query(options): Query<Options>,
 ) -> Result<Response> {
-    current(&s, &headers).await?.admin()?;
+    authorize(&current(&s, &headers).await?, &mode, "create")?;
     render(
         Table {
             headers: expected(&mode)?,
@@ -162,12 +374,95 @@ pub async fn export(
     Query(options): Query<Options>,
 ) -> Result<Response> {
     let actor = current(&s, &headers).await?;
-    actor.admin()?;
+    authorize(&actor, &mode, "read")?;
     let txn = s.db.begin().await?;
     let table = match mode.as_str() {
+        mode if reference_module(mode).is_some() => export_reference(&txn, mode, &options).await?,
+        "sales" => {
+            let filter = sales::Filter {
+                q: options.filter.q.clone(),
+                status: options.filter.status.clone(),
+                from: options.from.clone(),
+                to: options.to.clone(),
+                customer_id: options.customer_id.clone(),
+                page: None,
+            };
+            let (clause, mut values, status) = sales::list_filter(&filter, &actor)?;
+            values.extend([status.clone().into(), status.into()]);
+            let records = all(&txn, &format!("SELECT data FROM sales WHERE {clause} AND (?='' OR status=?) ORDER BY created_at DESC,id LIMIT 50001"), values).await?;
+            if records.len() > 50_000 {
+                return Err(ApiError::bad(
+                    "单据超过 50000 张，请缩小搜索、日期或状态范围。",
+                ));
+            }
+            let mut rows = Vec::with_capacity(records.len());
+            for row in records {
+                let sale: sales::Sale = serde_json::from_str(&text(&row, "data"))
+                    .map_err(|_| ApiError::bad("读取单据失败。"))?;
+                let (amount, received) = sales::balances(&txn, &sale).await?;
+                let debt = amount - received;
+                let state = match sale.status.as_str() {
+                    "draft" => "草稿",
+                    "posted" => "已确认",
+                    "voided" => "已作废",
+                    _ => return Err(ApiError::bad("单据状态无效。")),
+                };
+                let collection = match sale.status.as_str() {
+                    "draft" => "未记账",
+                    "voided" => "已冲销",
+                    _ if !sale.billable => "不计款",
+                    _ if debt <= 0 => "已结清",
+                    _ if received > 0 => "部分收款",
+                    _ => "未收款",
+                };
+                rows.push(vec![
+                    sale.number,
+                    sale.type_name,
+                    sale.customer["name"].as_str().unwrap_or("").to_owned(),
+                    sale.business_date,
+                    state.into(),
+                    collection.into(),
+                    sale.actor_name,
+                    sale.department_name,
+                    sale.salesperson_name,
+                    money::display(sale.total),
+                    money::display(amount),
+                    money::display(received),
+                    money::display(debt),
+                    sale.note,
+                ]);
+            }
+            Table {
+                headers: [
+                    "单号",
+                    "类型",
+                    "客户",
+                    "业务日期",
+                    "单据状态",
+                    "收款状态",
+                    "开单人",
+                    "业绩部门",
+                    "部门业务员",
+                    "原单金额（元）",
+                    "当前应收（元）",
+                    "净实收（元）",
+                    "欠款（元）",
+                    "备注",
+                ]
+                .iter()
+                .map(|v| v.to_string())
+                .collect(),
+                rows,
+            }
+        }
         "items" => {
-            let q = clean(&options.q, "搜索", 100, false)?;
-            let rows=all(&txn,"SELECT * FROM items WHERE active=1 AND (?='' OR instr(name,?)>0 OR instr(code,?)>0) ORDER BY code",vec![q.clone().into(),q.clone().into(),q.into()]).await?;
+            let (clause, values, order) = inventory::item_filter(&options.filter)?;
+            let rows = all(
+                &txn,
+                &format!("SELECT * FROM items WHERE {clause} ORDER BY {order} LIMIT 50001"),
+                values,
+            )
+            .await?;
             if rows.len() > 50_000 {
                 return Err(ApiError::bad("导出超过 50000 行，请缩小筛选范围。"));
             }
@@ -202,9 +497,21 @@ pub async fn export(
             }
         }
         "documents" => {
-            let rows=all(&txn,"SELECT d.number,d.kind,d.actor_name,d.person,d.status,d.note,d.created_at,l.item_code,l.item_name,l.unit,l.precision,l.delta,l.balance_after FROM documents d JOIN document_lines l ON d.id=l.document_id ORDER BY d.created_at DESC LIMIT 50001",vec![]).await?;
+            let (mut clause, mut values) = inventory::document_filter(&options.filter, &actor)?;
+            if let Some(item_id) = options
+                .filter
+                .item_id
+                .as_deref()
+                .filter(|id| !id.is_empty())
+            {
+                clause.push_str(" AND l.item_id=?");
+                values.push(clean(item_id, "物料", 100, true)?.into());
+            }
+            let rows=all(&txn,&format!("SELECT d.number,d.kind,d.actor_name,d.person,d.status,d.note,d.created_at,l.item_code,l.item_name,l.unit,l.precision,l.delta,l.balance_after FROM documents d JOIN document_lines l ON d.id=l.document_id WHERE {clause} ORDER BY d.created_at DESC,d.id,l.id LIMIT 50001"),values).await?;
             if rows.len() > 50_000 {
-                return Err(ApiError::bad("记录超过 50000 行，请按日期分批导出。"));
+                return Err(ApiError::bad(
+                    "记录超过 50000 行，请缩小搜索或类型筛选范围。",
+                ));
             }
             Table {
                 headers: [
@@ -248,10 +555,13 @@ pub async fn export(
             }
         }
         "audit" => {
+            let (clause, values) = inventory::audit_filter(&options.filter, &actor)?;
             let rows = all(
                 &txn,
-                "SELECT * FROM audit ORDER BY created_at DESC LIMIT 50001",
-                vec![],
+                &format!(
+                    "SELECT * FROM audit WHERE {clause} ORDER BY created_at DESC,id LIMIT 50001"
+                ),
+                values,
             )
             .await?;
             if rows.len() > 50_000 {
@@ -372,7 +682,7 @@ pub async fn preview(
     mut multipart: Multipart,
 ) -> Result<Json<Preview>> {
     let actor = current(&s, &headers).await?;
-    actor.admin()?;
+    authorize(&actor, &mode, "create")?;
     let expected = expected(&mode)?;
     let field = multipart
         .next_field()
@@ -396,6 +706,24 @@ pub async fn preview(
             .map(|value| (*value).to_owned())
             .collect();
     }
+    if reference_module(&mode) == Some("options") && table.headers == expected[..1] {
+        table.headers = expected.clone();
+        for row in &mut table.rows {
+            if row.len() == 1 {
+                row.extend([String::new(), String::new(), String::new()]);
+            }
+        }
+    }
+    if (mode == "account" && table.headers == ["收款账户", "状态", "排序", "备注"])
+        || (mode == "department" && table.headers == ["部门名称", "状态", "排序", "备注"])
+    {
+        table.headers = expected.clone();
+        for row in &mut table.rows {
+            if row.len() == 4 {
+                row.insert(1, String::new());
+            }
+        }
+    }
     if table.headers != expected {
         return Err(ApiError::bad(format!(
             "表头与模板不符，需要：{}。",
@@ -404,67 +732,90 @@ pub async fn preview(
     }
     let mut result = Preview {
         id: id(),
-        actor_id: actor.id,
+        actor_id: actor.id.clone(),
         mode,
         created_at: now(),
         headers: table.headers,
         rows: table.rows,
         errors: vec![],
+        department_ids: vec![],
     };
-    let mut codes = HashSet::new();
-    let mut barcodes = HashSet::new();
-    for (index, row) in result.rows.iter().enumerate() {
-        let check: Result<()> = async {
-            if row.len() != result.headers.len() {
-                return Err(ApiError::bad("列数与模板不一致。"));
-            }
-            let code = clean(&row[0], "物料编码", 64, true)?.to_uppercase();
-            if !codes.insert(code.clone()) {
-                return Err(ApiError::bad("文件内物料编码重复。"));
-            }
-            let existing =
-                one(&s.db, "SELECT * FROM items WHERE code=?", vec![code.into()]).await?;
-            if result.mode == "items" {
-                if existing.is_some() {
-                    return Err(ApiError::bad("物料编码已存在，请在物料页面修改资料。"));
+    if reference_module(&result.mode).is_some() {
+        let _lock = s.writes.lock().await;
+        let txn = s.db.begin().await?;
+        for (index, row) in result.rows.iter().enumerate() {
+            let savepoint = txn.begin().await?;
+            match import_reference(&savepoint, &actor, &result.mode, row).await {
+                Ok(department_id) => {
+                    result
+                        .department_ids
+                        .push(department_id.unwrap_or_default());
+                    savepoint.commit().await?;
                 }
-                let input = row_item(row)?;
-                if !input.barcode.is_empty() && !barcodes.insert(input.barcode.clone()) {
-                    return Err(ApiError::bad("文件内条码重复。"));
+                Err(e) => {
+                    result.department_ids.push(String::new());
+                    savepoint.rollback().await?;
+                    result.errors.push(format!("第 {} 行：{}", index + 2, e.1));
                 }
-                if !input.barcode.is_empty()
-                    && one(
+            }
+        }
+        txn.rollback().await?;
+    } else {
+        let mut codes = HashSet::new();
+        let mut barcodes = HashSet::new();
+        for (index, row) in result.rows.iter().enumerate() {
+            let check: Result<()> = async {
+                if row.len() != result.headers.len() {
+                    return Err(ApiError::bad("列数与模板不一致。"));
+                }
+                let code = clean(&row[0], "物料编码", 64, true)?.to_uppercase();
+                if !codes.insert(code.clone()) {
+                    return Err(ApiError::bad("文件内物料编码重复。"));
+                }
+                let existing =
+                    one(&s.db, "SELECT * FROM items WHERE code=?", vec![code.into()]).await?;
+                if result.mode == "items" {
+                    if existing.is_some() {
+                        return Err(ApiError::bad("物料编码已存在，请在物料页面修改资料。"));
+                    }
+                    let input = row_item(row)?;
+                    if !input.barcode.is_empty() && !barcodes.insert(input.barcode.clone()) {
+                        return Err(ApiError::bad("文件内条码重复。"));
+                    }
+                    if !input.barcode.is_empty()
+                        && one(
+                            &s.db,
+                            "SELECT id FROM items WHERE barcode=?",
+                            vec![input.barcode.into()],
+                        )
+                        .await?
+                        .is_some()
+                    {
+                        return Err(ApiError::bad("条码已被其他物料使用。"));
+                    }
+                } else {
+                    let existing = existing
+                        .ok_or_else(|| ApiError::bad("没有找到物料，请先导入物料资料。"))?;
+                    domain::quantity(&row[1], int(&existing, "precision"), true)?;
+                    if one(
                         &s.db,
-                        "SELECT id FROM items WHERE barcode=?",
-                        vec![input.barcode.into()],
+                        "SELECT id FROM document_lines WHERE item_id=? LIMIT 1",
+                        vec![text(&existing, "id").into()],
                     )
                     .await?
                     .is_some()
-                {
-                    return Err(ApiError::bad("条码已被其他物料使用。"));
+                    {
+                        return Err(ApiError::bad(
+                            "该物料已有出入库记录，不能再次导入首次库存数量；请使用清点库存。",
+                        ));
+                    }
                 }
-            } else {
-                let existing =
-                    existing.ok_or_else(|| ApiError::bad("没有找到物料，请先导入物料资料。"))?;
-                domain::quantity(&row[1], int(&existing, "precision"), true)?;
-                if one(
-                    &s.db,
-                    "SELECT id FROM document_lines WHERE item_id=? LIMIT 1",
-                    vec![text(&existing, "id").into()],
-                )
-                .await?
-                .is_some()
-                {
-                    return Err(ApiError::bad(
-                        "该物料已有出入库记录，不能再次导入首次库存数量；请使用清点库存。",
-                    ));
-                }
+                Ok(())
             }
-            Ok(())
-        }
-        .await;
-        if let Err(e) = check {
-            result.errors.push(format!("第 {} 行：{}", index + 2, e.1));
+            .await;
+            if let Err(e) = check {
+                result.errors.push(format!("第 {} 行：{}", index + 2, e.1));
+            }
         }
     }
     let dir = s.data_dir.join("imports");
@@ -477,10 +828,14 @@ pub async fn preview(
     Ok(Json(result))
 }
 fn row_item(row: &[String]) -> Result<ItemInput> {
-    let precision = row[5]
-        .parse::<i64>()
-        .map_err(|_| ApiError::bad("小数位数请填 0、1、2 或 3。"))?;
-    if !(0..=3).contains(&precision) || !domain::ITEM_KINDS.contains(&row[3].as_str()) {
+    let precision = if row[5].trim().is_empty() {
+        3
+    } else {
+        row[5]
+            .parse::<i64>()
+            .map_err(|_| ApiError::bad("小数位数请填 0、1、2 或 3。"))?
+    };
+    if !(0..=3).contains(&precision) {
         return Err(ApiError::bad("类型或小数位数不正确。"));
     }
     if !row[7].is_empty() {
@@ -490,7 +845,7 @@ fn row_item(row: &[String]) -> Result<ItemInput> {
         code: Some(clean(&row[0], "物料编码", 64, true)?),
         name: clean(&row[1], "物料名称", 100, true)?,
         spec: clean(&row[2], "规格", 100, false)?,
-        kind: row[3].clone(),
+        kind: clean(&row[3], "物料类型", 100, false)?,
         unit: clean(&row[4], "单位", 16, true)?,
         precision,
         barcode: clean(&row[6], "条码", 128, false)?,
@@ -504,13 +859,13 @@ pub async fn commit(
     Path(job): Path<String>,
 ) -> Result<Json<Value>> {
     let actor = current(&s, &headers).await?;
-    actor.admin()?;
     if uuid::Uuid::parse_str(&job).is_err() {
         return Err(ApiError::bad("导入任务编号无效。"));
     }
     let bytes = tokio::fs::read(s.data_dir.join("imports").join(format!("{job}.json"))).await?;
     let preview: Preview = serde_json::from_slice(&bytes)
         .map_err(|_| ApiError::bad("导入预览已失效，请重新上传。"))?;
+    authorize(&actor, &preview.mode, "create")?;
     if preview.actor_id != actor.id {
         return Err(ApiError::forbidden());
     }
@@ -552,6 +907,9 @@ pub async fn commit(
         ));
     }
     let _lock = s.writes.lock().await;
+    // Permissions can change while an import waits for another writer.
+    let actor = current(&s, &headers).await?;
+    authorize(&actor, &preview.mode, "create")?;
     let txn = s.db.begin().await?;
     if let Some(old) = one(
         &txn,
@@ -562,18 +920,48 @@ pub async fn commit(
     {
         return Ok(Json(serde_json::from_str(&text(&old, "response")).unwrap()));
     }
-    for row in &preview.rows {
-        inventory::create_item_record(&txn, &actor, row_item(row)?).await?;
+    for (index, row) in preview.rows.iter().enumerate() {
+        if reference_module(&preview.mode).is_some() {
+            let department_id = import_reference(&txn, &actor, &preview.mode, row)
+                .await
+                .map_err(|e| {
+                    ApiError(
+                        e.0,
+                        format!("第 {} 行：{} 整批尚未导入，请重新预览。", index + 2, e.1),
+                    )
+                })?;
+            if preview.mode == "salesperson"
+                && department_id.as_ref() != preview.department_ids.get(index)
+            {
+                return Err(ApiError::conflict(format!(
+                    "第 {} 行：部门已变更，整批尚未导入，请重新预览。",
+                    index + 2
+                )));
+            }
+        } else {
+            inventory::create_item_record(&txn, &actor, row_item(row)?).await?;
+        }
     }
     let response = json!({"ok":true,"count":preview.rows.len()});
-    audit(&txn, &actor, "导入物料", &job, response.clone()).await?;
+    audit(
+        &txn,
+        &actor,
+        if preview.mode == "items" {
+            "导入物料"
+        } else {
+            "导入资料"
+        },
+        &job,
+        json!({"mode":preview.mode,"count":preview.rows.len()}),
+    )
+    .await?;
     execute(
         &txn,
         "INSERT INTO requests VALUES (?,?,?,?,?)",
         vec![
             job.into(),
             actor.id.into(),
-            "import-items".into(),
+            format!("import-{}", preview.mode).into(),
             response.to_string().into(),
             now().into(),
         ],
