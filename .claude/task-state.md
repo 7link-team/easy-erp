@@ -1,29 +1,34 @@
 # Task State
 
 ## Task / Objective
-用户授权：合并已通过验证的工作、清理已合并分支，E2E通过后正式发版。Direct执行，无需再次确认。
+用户授权：合并已通过验证的工作、清理已合并分支，E2E通过后正式发版。Direct执行，无子代理。
 
 ## Current Phase / Step
-RELEASE：准备v0.2.0版本提交，然后推标签触发完整构建；尚未正式发布。
+ACCEPTANCE：v0.2.0已正式发布并设为Latest；发布检查与公开下载验证全部通过。
 
 ## Completed
-- PR #1 exact head 9dcc84bc29b8762c92e12996144399e0ad08fd90，Actions38149881071全绿，Chromium与WebKit E2E通过，各启用平台构建通过。
-- 2026-10-12 PR #1以merge commit 47bc6ec合入main，已同步本地main。
-- 验证祖先关系后删除本地/远端feat/sales-and-receivables和fix/windows-install-scope，未删除未合并工作。
-- v0.2.0按本轮销售/收款/权限功能增量发布；同步应用版本和锁文件，发布说明docs/releases/v0.2.0.md。
+- PR #1 exact head 9dcc84bc29b8762c92e12996144399e0ad08fd90，Actions38149881071全绿；以merge commit 47bc6ec合入main。
+- 验证祖先关系后删除本地/远端feat/sales-and-receivables和fix/windows-install-scope；本地及远端只剩main，无未合并PR。
+- 版本提交3004f826fa85215eb8d44d28ba03930eeb77fa05及v0.2.0标签已推送。同步7个版本/锁文件，无依赖升级；发布说明docs/releases/v0.2.0.md。
+- 正式Release：https://github.com/7link-team/easy-erp/releases/tag/v0.2.0 ，2026-10-11T17:25:47Z发布，非draft/非prerelease、Latest。
 
-## Active Work / Verification
-本地npm run build、发布清单Node测试4项、Rust server/desktop cargo check --offline、版本一致性及git diff --check均PASS。两份Cargo锁文件只有自身包版本变化，无依赖升级。Self-review PASS；发布验收待tag CI和公开资产完成。下一步提交推送并创建v0.2.0标签。
+## Verification
+- 本地npm run build、发布清单Node测试4项、Rust server/desktop cargo check --offline、版本一致性及git diff --check PASS。
+- 正式标签Actions38157363466 SUCCESS，exact SHA3004f82。Chromium149/149、WebKit149/149；Windows/Linux checks、四桌面平台、Android正式签名、iOS模拟器、release全部成功。iOS真机未配置签名，按规则跳过。
+- Windows覆盖安装/原生更新/数据保留、iOS模拟器安装启动存活检查已在该CI通过。重复main构建38157169364/38157358487取消，由完整tag运行覆盖。
+- 23个发布资产已全部实际下载（281647188字节），大小、SHA256SUMS和GitHub资产digest全部一致。
+- 使用既有公开更新密钥与minisign-verify0.2.5验证四平台更新包签名全部PASS；与v0.1.4签名key ID一致，未换密钥。macOS两架构包内版本均0.2.0。
+- 发布后匿名latest/download/latest.json与已验证文件逐字节一致，version0.2.0/channel stable；四平台固定tag下载URL均HTTP200。GitHub latest API确认23资产、draft=false、prerelease=false。
+- 证据：/tmp/erp-v020-final-ci.json、erp-v020-chromium.log、erp-v020-webkit.log、erp-v020-actions-watch.log、erp-v020-assets/、erp-v020-public-latest.json。验收脚本/tmp/erp-v020-verify-assets.py（针对发布前草稿），验签工具/tmp/erp-v020-signature-check/。
 
-## Remaining Work / Next Action
-1. 收取本地检查结果，核对无依赖升级，提交版本文件与说明。
-2. 推main和v0.2.0标签；检查tag Actions全部必需job成功。
-3. 验证草稿的四平台签名、latest.json、SHA256SUMS和下载资产；正式发布并核对公开更新入口。
-4. 更新本检查点，工作树保持干净。
+## Reviews / Remaining Work / Next Action
+Self-review PASS：复用发布流程；仅版本和发布记录改动，无产品行为/依赖/签名变更，发布说明如实保留大库限制。
+Final acceptance PASS：合并、分支清理、E2E、多平台构建、正式发布、公开下载与更新入口均已完成。
+业务和发布动作无剩余；本检查点提交推送后交付结果。记录提交仅文档，使用[skip ci]避免重跑已完成的正式版本构建；发布标签保持3004f82不移动。
 
 ## Constraints / Known Limits
 不动真实库存数据库及原4280/4290/5173/5500服务。不换签名密钥。成本/库存均价与销售额目标不在交付范围。
-自动workflow仅生成草稿；用户本轮已经授权正式发布，需要最终发布Release。
+自动workflow仅生成草稿；本轮依据用户明确授权已正式发布v0.2.0。
 沿用既有发布脚本/流程，不弱化E2E或构建门禁。性能并非所有目标均达标，发布说明如实公开等待时间和备份容量。
 真实软键盘、断电/磁盘满、照片大库、持续多用户、完整桌面GUI升级和降级未作完整验收。
 
@@ -50,4 +55,4 @@ RELEASE：准备v0.2.0版本提交，然后推标签触发完整构建；尚未�
 未测照片大库、持续多会话、断电/真实磁盘写满、完整GUI升级或向旧版降级恢复。此轮未提交/推送/跑Actions。上一任务8487721与Actions38121838963成功不能替代本轮验证。
 
 ## Last Checkpoint
-2026-10-12：PR已合并、已合入分支已清理，正式发版执行中。
+2026-10-12（Asia/Singapore）：v0.2.0正式发布及匿名更新入口验收完成。
