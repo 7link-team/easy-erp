@@ -160,16 +160,17 @@ fn open_web_address(
         .unwrap()
         .clone()
         .ok_or("请先连接库存电脑。")?;
-    if destination.origin() != source.origin()
-        || !matches!(destination.scheme(), "http" | "https")
-        || !destination.username().is_empty()
-        || destination.password().is_some()
-        || destination.path() != "/"
-        || !crate::browser_address::print_query_allowed(&destination)
-        || !destination.fragment().is_some_and(|f| {
-            f.strip_prefix("/browser-login/")
-                .is_some_and(|t| t.len() == 64 && t.bytes().all(|b| b.is_ascii_hexdigit()))
-        })
+    if !crate::browser_address::project_url_allowed(&destination)
+        && (destination.origin() != source.origin()
+            || !matches!(destination.scheme(), "http" | "https")
+            || !destination.username().is_empty()
+            || destination.password().is_some()
+            || destination.path() != "/"
+            || !crate::browser_address::print_query_allowed(&destination)
+            || !destination.fragment().is_some_and(|f| {
+                f.strip_prefix("/browser-login/")
+                    .is_some_and(|t| t.len() == 64 && t.bytes().all(|b| b.is_ascii_hexdigit()))
+            }))
     {
         return Err("只能打开当前库存服务的打印地址。".into());
     }

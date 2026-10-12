@@ -380,7 +380,10 @@ async fn open_web_address(
     {
         return Err("当前窗口没有打开浏览器的权限。".into());
     }
-    let destination = browser_destination(&source, &address)?;
+    let destination = match url::Url::parse(&address) {
+        Ok(url) if crate::browser_address::project_url_allowed(&url) => url,
+        _ => browser_destination(&source, &address)?,
+    };
     let result = tauri::async_runtime::spawn_blocking(move || launch_browser(&destination))
         .await
         .map_err(|e| e.to_string())?;

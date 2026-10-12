@@ -35,6 +35,47 @@
 .update-details h2 {
   margin-top: 0;
 }
+.update-project {
+  margin-bottom: 20px;
+}
+.update-project h2 {
+  margin-top: 0;
+}
+.update-project-links {
+  border-top: 1px solid var(--border);
+}
+.update-project-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 4px;
+  color: var(--ink-1);
+  text-decoration: none;
+  border-bottom: 1px solid var(--border);
+}
+.update-project-link:last-child {
+  border-bottom: 0;
+}
+.update-project-link:hover {
+  background: var(--paper-0);
+  color: var(--primary);
+}
+.update-project-link > svg {
+  flex-shrink: 0;
+}
+.update-project-link > span {
+  flex: 1;
+  min-width: 0;
+}
+.update-project-link strong,
+.update-project-link small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.update-project-link small {
+  margin-top: 4px;
+  color: var(--muted);
+}
 .update-actions {
   display: flex;
   flex-wrap: wrap;

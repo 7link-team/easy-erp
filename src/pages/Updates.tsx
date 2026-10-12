@@ -1,8 +1,17 @@
-import { useEffect } from "react";
-import { Download, RefreshCw, ShieldCheck, PackageCheck } from "lucide-react";
+import { useEffect, useState, type MouseEvent } from "react";
+import {
+  Download,
+  RefreshCw,
+  ShieldCheck,
+  PackageCheck,
+  Code2,
+  ExternalLink,
+} from "lucide-react";
 import { useAppUpdates, UpdateRoutes, UpdateChannel } from "../NativeTools";
 import { Notice, useResource } from "../components";
 import { Button } from "../ui";
+import { nativeBrowser } from "../browserLogin";
+import { repository, homepage } from "../../package.json";
 import "./updates.css";
 
 export default function Updates() {
@@ -19,6 +28,19 @@ export default function Updates() {
     install,
   } = useAppUpdates();
   const service = useResource<{ version: string }>("/status", 0);
+  const [linkError, setLinkError] = useState("");
+  async function openProjectLink(event: MouseEvent<HTMLAnchorElement>) {
+    const native = nativeBrowser();
+    if (!native || (event.type === "auxclick" && event.button !== 1)) return;
+    event.preventDefault();
+    const address = event.currentTarget.href;
+    setLinkError("");
+    try {
+      await native.invoke("open_web_address", { address });
+    } catch {
+      setLinkError("未能打开浏览器，请复制下方地址访问。");
+    }
+  }
   useEffect(() => {
     setOpen(false);
   }, [setOpen]);
@@ -63,6 +85,38 @@ export default function Updates() {
           </span>
           <h2>{info?.version || service.data?.version || "正在读取版本…"}</h2>
           <p>{info ? "当前应用版本" : "当前库存服务版本"}</p>
+        </div>
+      </section>
+      <section
+        className="panel update-project"
+        aria-labelledby="project-links-title"
+      >
+        <h2 id="project-links-title">项目地址</h2>
+        <p className="muted">查看源码、更新说明和各平台安装包。</p>
+        {linkError && <Notice>{linkError}</Notice>}
+        <div className="update-project-links">
+          {[
+            { label: "源码仓库", url: repository.url, Icon: Code2 },
+            { label: "版本发布（Release）", url: homepage, Icon: Download },
+          ].map(({ label, url, Icon }) => (
+            <a
+              key={url}
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="update-project-link"
+              aria-label={`${label}（在新窗口打开）`}
+              onClick={openProjectLink}
+              onAuxClick={openProjectLink}
+            >
+              <Icon size={20} aria-hidden="true" />
+              <span>
+                <strong>{label}</strong>
+                <small>{url}</small>
+              </span>
+              <ExternalLink size={16} aria-hidden="true" />
+            </a>
+          ))}
         </div>
       </section>
       <section className="panel update-details" aria-busy={busy}>

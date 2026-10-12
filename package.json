@@ -2,6 +2,11 @@
   "name": "easy-erp",
   "version": "0.2.0",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/7link-team/easy-erp"
+  },
+  "homepage": "https://github.com/7link-team/easy-erp/releases",
   "type": "module",
   "scripts": {
     "tauri": "cd desktop && tauri",

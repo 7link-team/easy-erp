@@ -1,5 +1,15 @@
 # Task State
 
+## 当前任务：关于页项目地址（2026-10-12，已实现验证）
+用户要求关于页增加源码和Release地址。Direct；复用Updates页、现有native open_web_address及主题样式；package.json repository.url/homepage统一配置两个地址。
+已增加两行项目链接、完整可复制URL、外链提示和图标；新标签页/系统浏览器打开，错误显示复制地址提示，320px自动换行，两个面板间20px。
+桌面和移动端现有打开命令仅额外允许两个配置中的精确HTTPS地址；窗口/来源鉴权保留，不开放任意外链、不生成登录ticket。原库存打印/登录链接规则保持。
+验证PASS：最终npm build和server build；desktop/lib14项（含外链白名单正反例）；iOS x86_64 cargo check；Chromium现有更新流程12项；Chromium/WebKit专项真实浏览器弹窗URL、native调用桥模拟/失败提示、键盘焦点、320/1440深浅色8组布局。最后间距修改后双浏览器8组布局再次通过并复核截图。Prettier/rustfmt/diff检查PASS。
+证据/tmp/erp-about-{native-tests,mobile-check,ui-check,update-regression,final-build,final-layout}.log及/tmp/erp-about-*.png。系统浏览器实际唤起未做完整设备端GUI测试，native桥前端为模拟验证；iOS为编译检查，非真机运行。
+Self-review与本次功能Acceptance PASS；仅6个交付文件及本记录改动，无依赖升级。用户随后明确授权提交推送；本提交交付关于页新增入口及原生打开支持。本轮不发版，已发布v0.2.0不包含本次新增；后续发行应使用新版本，不覆盖旧资产。当前无需继续改码；推送触发的云端CI结果以该提交Actions为准，不将上轮v0.2.0测试当作本提交验证。
+
+---
+
 ## Task / Objective
 用户授权：合并已通过验证的工作、清理已合并分支，E2E通过后正式发版。Direct执行，无子代理。
 
