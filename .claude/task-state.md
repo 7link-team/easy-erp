@@ -1,11 +1,21 @@
 # Task State
 
-## 当前任务：提交推送、测试并发布v0.2.1（2026-10-12）
-用户已明确授权提交全部改动、测试通过后正式发版。Direct执行；复用既有标签构建/Release流程，不需再次确认。
-本版包含a3ff4e3关于页源码/Release入口，以及本轮生成文件归拢；前者Actions38189163931已全绿。发布说明docs/releases/v0.2.1.md，7个版本/锁文件同步0.2.1，无依赖升级。
-本地发布预检PASS：npm build、typecheck:e2e、发布清单4测试、Rust server/desktop cargo check --offline、版本一致性、Prettier/rustfmt/git diff --check。目录迁移与双浏览器/性能输出专项证据见下文，不冒充完整云端结果。
-Current Step / Next Action：提交并推main与v0.2.1标签；等待标签完整CI和草稿，再验证所有资产hash及四平台签名、正式发布、核对匿名latest入口。尚未正式发布v0.2.1。
-约束：不覆盖v0.2.0资产，不改签名身份，不动真实业务数据库/原有服务；只取消由同SHA标签构建覆盖的重复main构建。最终发布必须完成，不能只停留在草稿。
+## 当前任务：v0.2.1提交、测试与发布（2026-10-12，已完成）
+用户已明确授权全部提交推送、测试通过后正式发版。Direct执行；复用原发布流程，无子代理、无签名身份更换。
+已提交推送50ecfc5f7cded4868cf44069a89d43b9eac4d4f3及v0.2.1标签；包含a3ff4e3关于页入口和生成文件归拢。7个版本/锁文件同步0.2.1，无依赖升级。发布说明docs/releases/v0.2.1.md。
+正式Release：https://github.com/7link-team/easy-erp/releases/tag/v0.2.1 ，2026-10-12T02:23:22Z发布，Latest、非草稿、非预发布。
+
+## 当前版本验证
+- 本地npm build、typecheck:e2e、发布清单4测试、Rust server/desktop check、版本一致性及格式检查全部PASS。
+- 标签Actions38193789925 SUCCESS，exact SHA50ecfc5；Chromium149/149、WebKit149/149，Windows/Linux checks、四桌面平台、Android正式包、iOS模拟器和release全部通过。iOS真机未配置签名按规则跳过。重复main38193785510取消，完整tag验证保留。
+- 新报告路径已在真实CI验证：取回Chromium HTML报告与71张截图；iOS模拟器新证据路径随完整任务通过。
+- 实际下载全部23个资产（281732367字节），文件大小、SHA256SUMS与GitHub digest一致；四平台更新签名全部PASS，两架构macOS包内版本正确；与v0.2.0沿用同一更新key ID。
+- 发布后匿名latest/download/latest.json与已验收文件逐字节一致，version0.2.1/channel stable；四平台固定tag下载URL均HTTP200，GitHub latest API确认正式版及23资产。
+- 证据统一在build-artifacts/releases/v0.2.1/（ci.json、release.json、assets/、public-latest.json、验签工具入口等）及build-artifacts/logs/v0.2.1-*.log。旧/tmp验签二进制仅复用，不读取私钥。
+
+## Review / Next Action
+Self-review与Final Acceptance PASS：已提交推送、完整云端验证通过、正式发布和匿名下载/更新验收完成；未改库存数据和原有服务。仅此发布记录待提交推送，使用[skip ci]避免重复构建，发布标签固定50ecfc5。完成记录推送后无待执行工作。
+已知限制沿用v0.2.0；关于页系统浏览器完整设备GUI场景未全面验收，前端桥接测试、原生单测及多平台构建通过，具体范围见下文。
 
 ---
 
@@ -14,7 +24,7 @@ Current Step / Next Action：提交并推main与v0.2.1标签；等待标签完�
 已将根目录16份playwright-report*及test-results原样迁至build-artifacts/playwright/archive/，tmp迁至build-artifacts/tmp/，tsconfig.tsbuildinfo迁至build-artifacts/cache/；设计截图迁至build-artifacts/screenshots/archive/design-system-v2/。此前文档/检查点中的tmp/...证据现需到build-artifacts/tmp/...查找；保留历史报告的原始测量内容。
 生成配置：Playwright按chromium/webkit分report与results；16处硬编码截图使用test.info().outputPath；TypeScript缓存固定到build-artifacts/cache/；截图/性能/iOS模拟器脚本及Actions附件路径同步，README和设计目录说明更新。node_modules、dist、target、desktop/target及标准发布产物位置保持。
 验证：npm build、typecheck:e2e PASS；Chromium2/WebKit2既有用例PASS，各自HTML报告与3张截图均落新目录，根目录未再生成报告/截图/tsbuildinfo；1000单性能输出烟测PASS、integrity ok。Node/Python语法与CI生成/上传路径一致性检查PASS；性能浏览器3个页面输出烟测PASS，截图及结果均位于新建build-artifacts/tmp/performance-*目录。未运行完整云端CI或iOS模拟器，仅调整其证据路径并静态核对。
-Self-review与本次范围Acceptance PASS：旧资料完整移动，生成器与CI使用统一路径，标准构建及业务服务未动。当前无待执行修复；改动尚未提交推送。
+Self-review与本次范围Acceptance PASS：旧资料完整移动，生成器与CI使用统一路径，标准构建及业务服务未动。当前无待执行修复；已随50ecfc5提交推送并发布v0.2.1。
 
 ---
 
@@ -24,7 +34,7 @@ Self-review与本次范围Acceptance PASS：旧资料完整移动，生成器与
 桌面和移动端现有打开命令仅额外允许两个配置中的精确HTTPS地址；窗口/来源鉴权保留，不开放任意外链、不生成登录ticket。原库存打印/登录链接规则保持。
 验证PASS：最终npm build和server build；desktop/lib14项（含外链白名单正反例）；iOS x86_64 cargo check；Chromium现有更新流程12项；Chromium/WebKit专项真实浏览器弹窗URL、native调用桥模拟/失败提示、键盘焦点、320/1440深浅色8组布局。最后间距修改后双浏览器8组布局再次通过并复核截图。Prettier/rustfmt/diff检查PASS。
 证据/tmp/erp-about-{native-tests,mobile-check,ui-check,update-regression,final-build,final-layout}.log及/tmp/erp-about-*.png。系统浏览器实际唤起未做完整设备端GUI测试，native桥前端为模拟验证；iOS为编译检查，非真机运行。
-Self-review与本次功能Acceptance PASS；仅6个交付文件及本记录改动，无依赖升级。用户随后明确授权提交推送；本提交交付关于页新增入口及原生打开支持。本轮不发版，已发布v0.2.0不包含本次新增；后续发行应使用新版本，不覆盖旧资产。当前无需继续改码；推送触发的云端CI结果以该提交Actions为准，不将上轮v0.2.0测试当作本提交验证。
+Self-review与本次功能Acceptance PASS；仅6个交付文件及本记录改动，无依赖升级。用户随后明确授权提交推送；本提交交付关于页新增入口及原生打开支持。关于页a3ff4e3已提交推送且Actions38189163931通过；本次新增已随v0.2.1正式发布，未覆盖v0.2.0资产。
 
 ---
 
