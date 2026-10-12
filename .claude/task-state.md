@@ -134,3 +134,7 @@ Verification: 服务单元10/10及真实CLI集成5/5最终PASS（recovery-server
 Review: web-design-guidelines范围仅新增更新/维护UI，通过；报告build-artifacts/tmp/recovery-guidelines-review.md。补充Windows可写sync句柄与关闭journal、断电清理顺序防御；进程中断单测覆盖，真实断电/磁盘满和Windows实机未测。桌面维护UI使用mock bridge，后端CLI+停服API为真实进程，原生整条GUI维护未实机执行。
 不影响用户当前测试窗口：原4291服务/bundle/数据库/Cookie未修改，dist未替换；本轮前端产物在build-artifacts/tmp/recovery-web。新维护功能需以后构建新版桌面才会进入用户当前安装包。
 Next: 最终检查后提交所有已审查源码/测试/README/状态与desktop Cargo.lock，推送origin/main，确认远端SHA及Actions启动。不要发版（本轮只要求提交推送）。
+
+Delivery checkpoint — 2026-10-12
+实现提交21e0ff9d6a0d1826ae4542c60094087a6f11f36c已推送origin/main，远端SHA核对一致。GitHub Actions38244820238已启动（in_progress），尚不能宣称云端通过；本地验证证据如上。此记录仅文档，随[skip ci]提交推送，不重跑/取消实现提交的验证。当前用户桌面仍为先前本地测试版，本轮未重启或发版。
+Remaining: 实现与提交推送无待办；云端构建结果待GitHub完成。下一步如需发版，先核对上述Actions与新桌面设备验收，不把本地CLI/桥模拟当作Windows实机验证。
