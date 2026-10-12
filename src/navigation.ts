@@ -27,11 +27,14 @@ export type Navigate = (
   page: Page,
   initialItem?: Item,
   query?: Record<string, string>,
+  options?: { replace?: boolean },
 ) => Promise<boolean>;
+export type Back = (fallback?: Page, query?: Record<string, string>) => void;
 interface Route {
   page: Page;
   index: number;
   initialItem?: Item;
+  previousPage?: Page;
 }
 const hashPage = (): Page => {
   const candidate = location.hash.replace(/^#\/?/, "");
@@ -63,6 +66,7 @@ export function pageAddress(page: Page, query?: Record<string, string>) {
   const params = new URLSearchParams(location.search);
   if (page === "records") params.delete("records_tab");
   if (!query?.sale_open) params.delete("sale_open");
+  if (!query?.sale_edit) params.delete("sale_edit");
   if (!query?.sale_print) params.delete("sale_print");
   if (page !== "inventory") params.delete("inventory_item");
   if (page !== "customers") params.delete("customer_focus");
@@ -86,10 +90,15 @@ export function useNavigation(dirty: RefObject<boolean>) {
       description: "还有未提交的内容，离开后这些内容不会保存。",
       confirmLabel: "确认离开",
     });
-  const [route, setRoute] = useState<Route>(() => ({
-    page: hashPage(),
-    index: 0,
-  }));
+  const [route, setRoute] = useState<Route>(() => {
+    const page = hashPage();
+    const saved = history.state?.erpRoute as Route | undefined;
+    return saved?.page === page &&
+      Number.isSafeInteger(saved.index) &&
+      saved.index >= 0
+      ? saved
+      : { page, index: 0 };
+  });
   const current = useRef(route);
   useEffect(() => {
     history.replaceState(
@@ -119,6 +128,7 @@ export function useNavigation(dirty: RefObject<boolean>) {
       restoring = false;
       current.current = target;
       setRoute(target);
+      window.dispatchEvent(new Event("erp:navigate"));
       window.scrollTo(0, 0);
       document.querySelector(".workspace")?.scrollTo(0, 0);
     };
@@ -139,13 +149,32 @@ export function useNavigation(dirty: RefObject<boolean>) {
     page: Page,
     initialItem?: Item,
     query?: Record<string, string>,
+    options?: { replace?: boolean },
   ) {
-    if (page === current.current.page && !initialItem && !query) return true;
+    const destination = pageAddress(page, query);
+    if (
+      page === current.current.page &&
+      !initialItem &&
+      destination === `${location.pathname}${location.search}${location.hash}`
+    )
+      return true;
     if (dirty.current && !(await leave())) return false;
-    const next = { page, initialItem, index: current.current.index + 1 };
-    history.pushState({ erpRoute: next }, "", pageAddress(page, query));
+    const next = {
+      page,
+      initialItem,
+      index: current.current.index + (options?.replace ? 0 : 1),
+      previousPage: options?.replace
+        ? current.current.previousPage
+        : current.current.page,
+    };
+    history[options?.replace ? "replaceState" : "pushState"](
+      { erpRoute: next },
+      "",
+      destination,
+    );
     current.current = next;
     setRoute(next);
+    window.dispatchEvent(new Event("erp:navigate"));
     window.scrollTo(0, 0);
     document.querySelector(".workspace")?.scrollTo(0, 0);
     return true;
@@ -156,8 +185,10 @@ export function useNavigation(dirty: RefObject<boolean>) {
     current.current = next;
     setRoute(next);
   }
-  const back = () =>
-    current.current.index > 0 ? history.back() : navigate("home");
+  const back: Back = (fallback = "home", query) => {
+    if (current.current.index > 0) history.back();
+    else void navigate(fallback, undefined, query, { replace: true });
+  };
   return { route, navigate, back, reset };
 }
 
@@ -193,8 +224,8 @@ export function useQueryValue<T extends string | number>(
   }, [key, value, fallback]);
   useEffect(() => {
     const restore = () => setValue(read());
-    window.addEventListener("popstate", restore);
-    return () => window.removeEventListener("popstate", restore);
+    window.addEventListener("erp:navigate", restore);
+    return () => window.removeEventListener("erp:navigate", restore);
   }, [key, fallback]);
   return [value, setValue] as const;
 }

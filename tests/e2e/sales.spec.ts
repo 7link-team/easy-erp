@@ -521,7 +521,10 @@ test("真实界面多品类开单、收款、打印、手机版式与离开保�
   await page.getByLabel(`${secondName} 数量`, { exact: false }).fill("20.5");
   await page.getByLabel(`${secondName} 单价`, { exact: false }).fill("100");
   await page.getByLabel("抹零金额", { exact: false }).fill("50");
-  await page.getByRole("button", { name: "返回单据", exact: true }).click();
+  await page
+    .locator(".sale-editor")
+    .getByRole("button", { name: /^返回/ })
+    .click();
   await expect(
     page.getByRole("dialog", { name: "离开开单页面？" }),
   ).toBeVisible();
@@ -776,63 +779,59 @@ test("长清单分页打印保留明细表头，草稿与重复打印不扣库�
   expect(await itemBalance(page.request, item.name)).toBe(100000);
 });
 
-test("原生打印转到系统浏览器，自动登录并打开同一张单", async ({
+test("桌面打印调用当前窗口系统打印，失败可重试且不打开浏览器", async ({
   page,
-  browser,
+  context,
 }) => {
   const { input } = await fixture(page.request);
   const sale = await command(page.request, { action: "confirm", input });
   await page.goto(`/?sale_print=${sale.id}#/sales`);
   await expect(page.locator(".sales-print-sheet")).toBeVisible();
+  let browserTickets = 0;
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/browser-login")
+      browserTickets++;
+  });
   await page.evaluate(() => {
+    Object.assign(window, { nativePrintCalls: 0, failPrint: true });
     (window as unknown as { __TAURI__: unknown }).__TAURI__ = {
       core: {
-        invoke: async (command: string, args: { address?: string }) => {
-          if (command === "open_web_address") {
-            (window as Window & { printedAddress?: string }).printedAddress =
-              args.address;
-            return null;
+        invoke: async (command: string) => {
+          if (command === "print_document") {
+            const state = window as unknown as {
+              nativePrintCalls: number;
+              failPrint: boolean;
+            };
+            state.nativePrintCalls++;
+            if (state.failPrint) throw new Error("系统打印暂时不可用");
+            return;
           }
-          return { enabled: false };
+          if (command === "open_web_address") throw new Error("不应打开浏览器");
+          return { enabled: false, mobile: false };
         },
       },
     };
   });
-  // Trigger a render after installing the native bridge.
-  await page.getByRole("button", { name: "关闭预览", exact: true }).click();
-  await page.getByRole("button", { name: "打印预览", exact: true }).click();
-  await page
-    .getByRole("button", { name: "在系统浏览器打印", exact: true })
-    .click();
-  await expect
-    .poll(() =>
-      page.evaluate(
-        () =>
-          (window as Window & { printedAddress?: string }).printedAddress || "",
-      ),
-    )
-    .toMatch(/^http:\/\/127\.0\.0\.1:4289/);
-  const destination = await page.evaluate(
-    () => (window as unknown as { printedAddress: string }).printedAddress,
-  );
-  const url = new URL(destination);
-  expect(url.origin).toBe("http://127.0.0.1:4289");
-  expect(url.searchParams.get("sale_print")).toBe(sale.id);
-  expect(url.hash).toMatch(/^#\/browser-login\/[a-f0-9]{64}$/);
-  const context = await browser.newContext();
-  try {
-    const external = await context.newPage();
-    await external.goto(destination);
-    await expect(
-      external.getByRole("dialog", { name: "单据打印预览", exact: true }),
-    ).toBeVisible();
-    await expect(external.locator(".sales-print-sheet")).toContainText(
-      sale.number,
-    );
-    expect(external.url()).not.toContain("browser-login");
-  } finally {
-    await context.close();
-  }
+  const print = page.getByRole("button", {
+    name: "系统打印 / 保存 PDF",
+    exact: true,
+  });
+  await print.click();
+  await expect(page.getByRole("alert")).toContainText("系统打印暂时不可用");
+  await page.evaluate(() => {
+    (window as unknown as { failPrint: boolean }).failPrint = false;
+  });
+  await print.click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  expect(
+    await page.evaluate(
+      () =>
+        (window as unknown as { nativePrintCalls: number }).nativePrintCalls,
+    ),
+  ).toBe(2);
+  expect(browserTickets).toBe(0);
+  expect(context.pages()).toHaveLength(1);
+  await expect(page.locator(".sales-print-sheet")).toContainText(sale.number);
 });
 
 test("部门业务员归属、跨部门校验、历史快照及业绩退货作废", async ({
@@ -961,7 +960,10 @@ test("部门业务员归属、跨部门校验、历史快照及业绩退货作�
   const row = page
     .getByRole("table", { name: "业绩归属汇总" })
     .getByRole("row")
-    .filter({ hasText: other.name });
+    .filter({ hasText: other.name })
+    .filter({
+      has: page.getByRole("cell", { name: colleague.name, exact: true }),
+    });
   await expect(row).toContainText("¥800.00");
   sale = await command(request, {
     action: "void",
@@ -971,10 +973,10 @@ test("部门业务员归属、跨部门校验、历史快照及业绩退货作�
   });
   finance = await (await request.get("/api/sales/finance")).json();
   expect(
-    finance.performance.some(
+    finance.performance.find(
       (p: { salesperson_id: string }) => p.salesperson_id === colleague.id,
     ),
-  ).toBe(false);
+  ).toMatchObject({ count: 0, due: 0, paid: 0, debt: 0 });
   expect(await itemBalance(request, item.name)).toBe(100000);
 });
 
@@ -1097,7 +1099,7 @@ test("账户筛选对账与 CSV 退款保持数值", async ({ request, page }) =
   });
   await page.getByRole("button", { name: "刷新数据", exact: true }).click();
   await started;
-  await page.getByRole("button", { name: "返回收款", exact: true }).click();
+  await page.getByRole("button", { name: "返回客户对账", exact: true }).click();
   releaseRefresh();
   await Promise.all([delivered, ended]);
   await page.evaluate(
@@ -1110,10 +1112,9 @@ test("账户筛选对账与 CSV 退款保持数值", async ({ request, page }) =
   page.off("requestfailed", onRequestEnd);
   await page.unroute(detailUrl);
   await expect(
-    page.getByRole("button", { name: "返回收款", exact: true }),
+    page.getByRole("button", { name: "返回客户对账", exact: true }),
   ).toHaveCount(0);
-  await page.getByLabel("搜索对账客户", { exact: true }).fill(customer.name);
-  await page.getByRole("button", { name: customer.name, exact: true }).click();
+  await expect(ledger).toBeVisible();
   await ledger.getByRole("button", { name: sale.number, exact: true }).click();
   await page.getByRole("button", { name: "登记收款", exact: true }).click();
   const payment = page.getByRole("dialog", { name: "登记收款", exact: true });
@@ -1127,9 +1128,8 @@ test("账户筛选对账与 CSV 退款保持数值", async ({ request, page }) =
     .fill("财务客户对账补收");
   await payment.getByRole("button", { name: "登记收款", exact: true }).click();
   await expect(payment).toHaveCount(0);
-  await page.getByRole("button", { name: "返回收款", exact: true }).click();
-  await page.getByLabel("搜索对账客户", { exact: true }).fill(customer.name);
-  await page.getByRole("button", { name: customer.name, exact: true }).click();
+  await page.getByRole("button", { name: "返回客户对账", exact: true }).click();
+  await expect(ledger).toBeVisible();
   await expect(
     ledger.getByRole("table", { name: "客户单据对账" }),
   ).toContainText("¥960.00");
@@ -1999,4 +1999,54 @@ test("凭证移除先确认，取消保留当前凭证，确认后保留历史�
   expect(latest.attachments).toHaveLength(1);
   expect(latest.attachments[0].active).toBe(false);
   expect(latest.debt).toBe(sale.debt);
+});
+
+test("移动端打印仍使用已鉴权的浏览器链接", async ({ page, browser }) => {
+  const { input } = await fixture(page.request);
+  const sale = await command(page.request, { action: "confirm", input });
+  await page.addInitScript(() => {
+    (window as unknown as { __TAURI__: unknown }).__TAURI__ = {
+      core: {
+        invoke: async (command: string, args: { address?: string }) => {
+          if (command === "open_web_address") {
+            (window as unknown as { printedAddress: string }).printedAddress =
+              args.address || "";
+            return;
+          }
+          if (command === "print_document")
+            throw new Error("移动端不能调用桌面打印");
+          return { enabled: false, mobile: true, version: "0.2.1" };
+        },
+      },
+    };
+  });
+  await page.goto(`/?sale_print=${sale.id}#/sales`);
+  await page
+    .getByRole("button", { name: "在系统浏览器打印", exact: true })
+    .click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as unknown as { printedAddress: string }).printedAddress ||
+          "",
+      ),
+    )
+    .toContain("browser-login");
+  const address = await page.evaluate(
+    () => (window as unknown as { printedAddress: string }).printedAddress,
+  );
+  const url = new URL(address);
+  expect(url.searchParams.get("sale_print")).toBe(sale.id);
+  const context = await browser.newContext();
+  try {
+    const external = await context.newPage();
+    await external.goto(address);
+    await expect(external.locator(".sales-print-sheet")).toContainText(
+      sale.number,
+    );
+    expect(external.url()).not.toContain("browser-login");
+  } finally {
+    await context.close();
+  }
 });

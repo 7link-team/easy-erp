@@ -619,3 +619,19 @@
     display: none;
   }
 }
+
+.performance-sort {
+  display: inline-flex;
+  align-items: center;
+  justify-content: inherit;
+  gap: 6px;
+  min-height: 36px;
+  padding: 4px 0;
+  color: inherit;
+  font: inherit;
+  font-weight: inherit;
+  border: 0;
+  background: transparent;
+}
+.performance-sort svg { flex-shrink: 0; }
+.performance-sort:hover { color: var(--brand-ink); }

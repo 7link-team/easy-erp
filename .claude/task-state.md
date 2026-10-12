@@ -94,3 +94,43 @@ Final acceptance PASS：合并、分支清理、E2E、多平台构建、正式�
 
 ## Last Checkpoint
 2026-10-12（Asia/Singapore）：v0.2.0正式发布及匿名更新入口验收完成。
+
+## Active Task — 2026-10-12 导航返回、桌面打印与业绩
+Phase: ACCEPTANCE / Direct；实现、自查与本轮需求验收 PASS，无子代理。
+用户要求：连续跳转逐级返回；左侧菜单进入列表；桌面原生打印；零业绩部门/业务员显示并可排序；查明抹零记录、欠款修改权限及凭证备份。
+完成：详情/编辑/对账纳入统一history，刷新保留索引；菜单按实时URL清理子页面并保留筛选，同URL不重复入栈；保存后替换历史并清dirty，保留未保存确认；入库完成返回来源。原生print_document验证窗口和服务origin，移动端沿用浏览器。业绩按现有档案/历史归属补零，六列升降序、URL保存、稳定排序。
+权限与数据结论：原客户需求第23行明确单后抹零/欠款调整需独立高级权限。实际后端按对应操作权限+本人或sales.all范围校验；管理员可操作，开单人无自动越权。抹零保存在单据和修订前后快照；凭证为inventory.sqlite的sales_attachments BLOB，完整备份恢复包含历史照片。未引入授信额度/成本/目标或新权限。
+Verification PASS：npm run build、npm run typecheck:e2e、Rust服务7项、桌面14项、桌面构建；Chromium扩大82/82和WebKit扩大82/82；最后实时菜单query及打印平台info时序调整后，双浏览器各10/10专项PASS。Prettier、两个cargo fmt --check及git diff --check PASS。无后台测试待收。
+UI复核：本轮返回/排序/打印按web-design-guidelines核查，320/375/768/1024/1440×深浅色10组无顶栏/页面溢出，键盘排序和aria-sort PASS。报告build-artifacts/tmp/navigation-guidelines-review.md。
+原生打印：macOS隔离smoke页实际调用正式命令并打开系统打印对话框，截图build-artifacts/screenshots/native-print-dialog.png及native-print-sheet.png；前端按钮桥由E2E分别覆盖。未发送实体打印任务，未验Windows实机打印。4293/4294临时服务已清理，临时脚本未进入产品源码/dist。
+运行环境：desktop/target/debug/bundle/macos/库存管理.app，桌面PID48322；测试服务PID48241，0.0.0.0:4291，--web-dir=dist，原测试库build-artifacts/tmp/desktop-v0.2.1-test保留。connection.json为remote http://127.0.0.1:4291/。防火墙授权已完成，本机及192.168.0.89:4291/api/status最终均200。未动原4280/4290/5173服务和真实数据。
+Self-review / Acceptance: PASS，复用现有架构，无依赖/版本/schema/权限语义变化，18个改动文件均在范围内。
+Next: 用户在当前本地测试桌面验收，必要时刷新加载最终dist；不强制重启以免打断用户操作。代码尚未提交/推送/发版，本轮未要求发布；正式发版需正常完整构建bundle以包含最终前端。
+Last checkpoint: 2026-10-12，最终专项结果全部收齐，服务健康。
+
+## Follow-up — 重启后要求登录（2026-10-12）
+Phase: ACCEPTANCE / Direct；只读排查完成，无产品修改。
+已证实原因：macOS持久Cookie文件中的erp_session尚未到期，但其SHA256不匹配当前desktop-v0.2.1-test会话，精确匹配navigation-visual/inventory.sqlite的会话（created_at=1791791340330，2026-10-12 15:49新加坡时间），与原生打印smoke时间一致。smoke在同一桌面WebView profile内登录127.0.0.1:4293，覆盖原127.0.0.1:4291的同名Cookie（Cookie不按端口隔离）；不是正常重启清除会话。未输出/保存明文会话令牌。
+当前实现：会话存SQLite；Cookie有Max-Age且WebView使用持久默认存储；未勾记住登录8小时无操作过期，勾选为30天无操作过期。地址仍为127.0.0.1:4291，当前服务与数据正常。
+Next: 向用户说明测试隔离失误导致的一次性掉登录；当前服务重新登录后可恢复。不擅自重启用户窗口、不改变会话策略。后续原生smoke须用独立WebView数据存储或独立hostname；不同端口不是Cookie隔离。未额外做桌面登录后重启实测，不能宣称已实测该流程。
+
+## Follow-up — 登录后首次点单据报错、刷新恢复（2026-10-12）
+Phase: ACCEPTANCE / Direct；原因复现，无业务代码改动。
+旧窗口入口index-_uDaBl65.js引用Sales-C5Gj2Ybk.js；当前dist为index-CZWS-fnf.js/Sales-C6YF9cZU.js。最终构建替换dist后保留旧桌面窗口，首次懒加载单据请求旧资源失败，触发现有ErrorBoundary。此前为避免打断用户没有刷新窗口，但漏掉了这个跨构建一致性问题。
+Verification: 独立Chromium/WebKit上下文模拟旧入口+当前服务资源，两者均复现恢复页并捕获vite:preloadError（Chromium明确请求已删除的Sales-C5Gj2Ybk.js）；点击重新打开均恢复单据列表，随后各2次往返工作台/单据无新增错误。证据build-artifacts/tmp/stale-sales-repro.json、stale-sales-repro.mjs及screenshots/stale-sales-*.png。测试上下文独立，结束只注销各自会话，没有使用或改动桌面Cookie、窗口、单据数据、dist或运行服务。
+Next: 用户已刷新恢复，继续验收当前窗口。本轮不再覆盖运行服务的dist；后续本地验收服务使用固定构建快照，构建其他改动不影响已打开的验收窗口。无后台测试，未提交/发布。
+
+## Active Task — 2026-10-12 空闲更新提示与本机数据维护
+Phase: IMPLEMENTATION / Hybrid。用户授权补齐更新空闲提示、启动失败仍可重置/恢复、数据与备份分别清空。已确认重置回首次使用（业务/图片/账号/设置全清），保留备份；按钮及说明必须明确“不含备份数据”。照片备份是重点验收。
+分工：idle_updates完成NativeTools及update E2E并typecheck；desktop_recovery实现桌面launcher维护UI/native/文件选择（必要新增dialog插件），CLI共享契约；recovery_tests编写离线CLI真实集成测试。主代理负责服务CLI/备份复用/停服API/集成验收。
+设计：CLI --recovery-action list/reset/restore/clear-backups；三个确认短语，数据目录锁排斥运行服务。prepare-recovery复用本机控制token，排空请求后停服，独立于旧升级备份流程。恢复复用ZIP/hash/schema/库存/销售/权限校验，stage验证成功后持久维护记录替换，启动重入可继续未完成操作，备份不进替换文件白名单。
+进度：服务cargo check PASS；桌面cargo check PASS，launcher mock UI3项PASS；更新typecheck/E2E typecheck PASS。真实CLI/照片roundtrip及浏览器更新专项待跑。
+约束：绝不操作用户真实库或4291桌面Cookie；当前服务仍指向dist，不覆盖dist。新前端构建至build-artifacts/tmp/recovery-web，E2E服务通过ERP_WEB_DIR加载。Rust编译在target，不替换用户当前运行bundle。不提交/发布。
+Next: 完成维护中断恢复单测，跑cargo CLI集成测试（照片、坏库、锁、确认、备份独立），再隔离前端update/launcher及原备份E2E、规范复核。Windows真实设备维护未测需如实说明。
+
+Checkpoint — 本机维护与更新最终验收
+Phase: ACCEPTANCE / Hybrid。全部需求实现，最终自查PASS，用户新增明确授权“全部提交推送”。
+Verification: 服务单元10/10及真实CLI集成5/5最终PASS（recovery-server-final.log）；JPEG/PNG照片往返和库存金额一致、两类清空隔离、sessions失效、坏库/坏备份/锁/确认均通过。桌面原14项+新增路径安全2项通过；双浏览器launcher共10项+最终4项通过。Chromium本轮27项首轮26过，1项冻结时钟阻塞懒加载（未进入业务断言）修测试时钟后定点1/1PASS；WebKit最终29/29PASS。Node门禁6/6PASS，前端隔离构建/类型/格式通过。
+Review: web-design-guidelines范围仅新增更新/维护UI，通过；报告build-artifacts/tmp/recovery-guidelines-review.md。补充Windows可写sync句柄与关闭journal、断电清理顺序防御；进程中断单测覆盖，真实断电/磁盘满和Windows实机未测。桌面维护UI使用mock bridge，后端CLI+停服API为真实进程，原生整条GUI维护未实机执行。
+不影响用户当前测试窗口：原4291服务/bundle/数据库/Cookie未修改，dist未替换；本轮前端产物在build-artifacts/tmp/recovery-web。新维护功能需以后构建新版桌面才会进入用户当前安装包。
+Next: 最终检查后提交所有已审查源码/测试/README/状态与desktop Cargo.lock，推送origin/main，确认远端SHA及Actions启动。不要发版（本轮只要求提交推送）。

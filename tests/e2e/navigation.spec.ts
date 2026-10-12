@@ -367,7 +367,7 @@ test("退货筛选后搜索单据和工作台链接进入单据列表，返回�
   await expect(page.locator(".sale-detail")).toContainText(sales[0].number);
   await page.getByRole("button", { name: "返回列表", exact: true }).click();
   await expect(
-    records.getByRole("button", { name: "单据", exact: true }),
+    records.getByRole("button", { name: "退货记录", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
   await page.goto("/?sales_records=void#/home");
   await page
@@ -500,4 +500,148 @@ test("单据与财务、库存与操作历史各有唯一页面，旧库存链�
   await expect(
     page.locator(".home-ledger-cell").filter({ hasText: "今日库存操作" }),
   ).toHaveAttribute("href", /#\/movement$/);
+});
+
+test("连续返回：单据详情进入历史，菜单回列表，刷新后仍可逐级返回", async ({
+  page,
+}) => {
+  const tag = `返回-${randomUUID().slice(0, 8)}`;
+  const item = await post(page.request, "/items", {
+    name: tag,
+    kind: "成品",
+    unit: "件",
+  });
+  const customer = await post(page.request, "/sales/catalog", {
+    kind: "customer",
+    name: tag,
+  });
+  const sale = await post(page.request, "/sales/commands", {
+    request_id: randomUUID(),
+    action: "save",
+    input: {
+      type_id: "sale",
+      customer_id: customer.id,
+      business_date: "2026-10-12",
+      lines: [{ item_id: item.id, quantity: "1", price: "10" }],
+    },
+  });
+  await page.goto("/#/inventory");
+  const nav = page.getByRole("navigation", { name: "主要导航" });
+  await nav.getByRole("link", { name: "单据", exact: true }).click();
+  await page.getByLabel("搜索销售单").fill(tag);
+  const row = page
+    .getByRole("table", { name: "销售单据列表" })
+    .getByRole("row")
+    .filter({ hasText: sale.number });
+  await row.getByRole("button", { name: "查看", exact: true }).click();
+  await expect(page.locator(".sale-detail")).toContainText(sale.number);
+  await page.goBack();
+  await expect(page.getByLabel("搜索销售单")).toHaveValue(tag);
+  await row.getByRole("button", { name: "查看", exact: true }).click();
+  await nav.getByRole("link", { name: "单据", exact: true }).click();
+  await expect(page.getByLabel("搜索销售单")).toHaveValue(tag);
+  await row.getByRole("button", { name: "查看", exact: true }).click();
+  await page.reload();
+  await expect(page.locator(".sale-detail")).toContainText(sale.number);
+  await page
+    .locator(".topbar")
+    .getByRole("button", { name: "返回上一页", exact: true })
+    .click();
+  await expect(page.getByLabel("搜索销售单")).toHaveValue(tag);
+});
+
+test("连续返回：物料明细入库完成后回原列表，再返回物料筛选", async ({
+  page,
+}) => {
+  const tag = `来源-${randomUUID().slice(0, 8)}`;
+  const item = await post(page.request, "/items", {
+    name: tag,
+    kind: "成品",
+    unit: "件",
+  });
+  await page.goto(`/?inventory_q=${encodeURIComponent(tag)}#/inventory`);
+  const row = page.getByRole("row").filter({ hasText: tag });
+  await row.getByRole("link", { name: "明细", exact: true }).click();
+  await expect(page).toHaveURL(/#\/movement$/);
+  await page.getByRole("button", { name: "入库", exact: true }).first().click();
+  await page.getByRole("button", { name: "添加一行", exact: true }).click();
+  await page.getByRole("button", { name: `选择${tag}`, exact: true }).click();
+  await page.getByLabel("入库数量", { exact: false }).fill("2");
+  await page.getByRole("button", { name: "确认入库", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "入库已完成" })).toBeVisible();
+  await page
+    .locator(".complete")
+    .getByRole("button", { name: "返回上一页", exact: true })
+    .click();
+  await expect(page).toHaveURL(
+    new RegExp(`movement_item=${item.id}.*#/movement$`),
+  );
+  await page
+    .locator(".topbar")
+    .getByRole("button", { name: "返回上一页", exact: true })
+    .click();
+  await expect(page).toHaveURL(/#\/inventory$/);
+  await expect(page.getByLabel("搜索物料", { exact: true })).toHaveValue(tag);
+});
+
+test("单据菜单退出新建时保护未保存内容，确认后回列表", async ({ page }) => {
+  await page.goto("/#/sales");
+  const menu = page
+    .getByRole("navigation", { name: "主要导航" })
+    .getByRole("link", { name: "单据", exact: true });
+  await page.getByRole("button", { name: "新建单据", exact: true }).click();
+  await page.getByLabel("备注 选填", { exact: true }).fill("不能丢失的备注");
+  const url = page.url();
+  await menu.click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "取消", exact: true })
+    .click();
+  await expect(page).toHaveURL(url);
+  await expect(page.getByLabel("备注 选填", { exact: true })).toHaveValue(
+    "不能丢失的备注",
+  );
+  await page
+    .locator(".topbar")
+    .getByRole("button", { name: "返回上一页", exact: true })
+    .click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "取消", exact: true })
+    .click();
+  await expect(page).toHaveURL(url);
+  await expect(page.getByLabel("备注 选填", { exact: true })).toHaveValue(
+    "不能丢失的备注",
+  );
+  await menu.click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "确认离开", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "单据", exact: true }),
+  ).toBeVisible();
+  await expect(page.locator(".sale-editor")).toHaveCount(0);
+});
+
+test("当前单据菜单保留刚修改的记录筛选且不重复增加返回层级", async ({
+  page,
+}) => {
+  await page.goto("/#/sales");
+  await page
+    .getByRole("group", { name: "单据记录筛选" })
+    .getByRole("button", { name: "退货记录", exact: true })
+    .click();
+  const menu = page
+    .getByRole("navigation", { name: "主要导航" })
+    .getByRole("link", { name: "单据", exact: true });
+  await expect(menu).toHaveAttribute("href", /sales_records=return/);
+  const index = await page.evaluate(() => history.state.erpRoute.index);
+  await menu.click();
+  await expect(
+    page
+      .getByRole("group", { name: "单据记录筛选" })
+      .getByRole("button", { name: "退货记录", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  expect(await page.evaluate(() => history.state.erpRoute.index)).toBe(index);
 });

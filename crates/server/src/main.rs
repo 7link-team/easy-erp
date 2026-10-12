@@ -11,6 +11,7 @@ mod migration;
 mod money;
 mod network;
 mod options;
+mod recovery;
 mod roles;
 mod sales;
 mod state;
@@ -39,6 +40,13 @@ use tower_http::{
 #[derive(Parser)]
 #[command(version, about = "库存管理后台服务")]
 struct Config {
+    /// Maintain local data without starting HTTP, even if the database is broken.
+    #[arg(long, conflicts_with_all = ["backup_only", "migrate_data_to"])]
+    recovery_action: Option<recovery::Action>,
+    #[arg(long, requires = "recovery_action")]
+    recovery_backup: Option<PathBuf>,
+    #[arg(long, requires = "recovery_action", default_value = "")]
+    confirmation: String,
     /// Create a standard ZIP backup without starting HTTP or running migrations.
     #[arg(long)]
     backup_only: bool,
@@ -67,6 +75,10 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
     let cfg = Config::parse();
+    if cfg.recovery_action == Some(recovery::Action::List) {
+        println!("{}", recovery::list(&cfg.data_dir).await?);
+        return Ok(());
+    }
     if let Some(target) = &cfg.migrate_data_to {
         anyhow::ensure!(
             cfg.data_dir.join("inventory.sqlite").is_file(),
@@ -80,12 +92,16 @@ async fn main() -> anyhow::Result<()> {
     if cfg.backup_only && !cfg.data_dir.join("inventory.sqlite").exists() {
         return Ok(());
     }
+    if cfg.recovery_action.is_some() {
+        recovery::directory_or_absent(&cfg.data_dir)?;
+    }
     std::fs::create_dir_all(&cfg.data_dir)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&cfg.data_dir, std::fs::Permissions::from_mode(0o700))?;
     }
+    recovery::regular_or_absent(&cfg.data_dir.join("server.lock"))?;
     let lock = std::fs::OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -94,6 +110,20 @@ async fn main() -> anyhow::Result<()> {
         .open(cfg.data_dir.join("server.lock"))?;
     lock.try_lock_exclusive()
         .map_err(|_| anyhow::anyhow!("该数据目录已有服务运行，不能重复启动。"))?;
+    if let Some(action) = cfg.recovery_action {
+        println!(
+            "{}",
+            recovery::run(
+                &cfg.data_dir,
+                action,
+                cfg.recovery_backup.as_deref(),
+                &cfg.confirmation
+            )
+            .await?
+        );
+        return Ok(());
+    }
+    recovery::finish_pending(&cfg.data_dir)?;
     if cfg.backup_only || cfg.migrate_data_to.is_some() {
         let path = cfg.data_dir.canonicalize()?.join("inventory.sqlite");
         let mut options = ConnectOptions::new("sqlite://inventory");
@@ -208,6 +238,10 @@ async fn main() -> anyhow::Result<()> {
             "/api/desktop/prepare-update",
             post(desktop_control::prepare_update),
         )
+        .route(
+            "/api/desktop/prepare-recovery",
+            post(desktop_control::prepare_recovery),
+        )
         .route("/api/web-addresses", get(network::list))
         .route("/api/setup", post(auth::setup))
         .route("/api/login", post(auth::login))
@@ -304,7 +338,9 @@ async fn main() -> anyhow::Result<()> {
                 }
                 if matches!(
                     req.uri().path(),
-                    "/api/backups/restore" | "/api/desktop/prepare-update"
+                    "/api/backups/restore"
+                        | "/api/desktop/prepare-update"
+                        | "/api/desktop/prepare-recovery"
                 ) {
                     return next.run(req).await;
                 }

@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useRef,
@@ -39,7 +40,7 @@ function useUpdateController(dirty: RefObject<boolean>) {
   const [update, setUpdate] = useState<Update>();
   const [phase, setPhase] = useState<Phase>("idle");
   const [changingChannel, setChangingChannel] = useState(false);
-  const [open, setOpen] = useState(false);
+  const [open, setDialogOpen] = useState(false);
   const [error, setError] = useState("");
   const [routes, setRoutes] = useState<
     Partial<Record<"check" | "download", RouteStatus>>
@@ -50,6 +51,27 @@ function useUpdateController(dirty: RefObject<boolean>) {
     fallback?: boolean;
   }>();
   const initialized = useRef(false);
+  const operation = useRef<"check" | "channel" | "download" | "install" | null>(
+    null,
+  );
+  const manualCheck = useRef(false);
+  const currentUpdate = useRef<Update | undefined>(undefined);
+  const currentChannel = useRef("stable");
+  const dialogOpen = useRef(false);
+  const pendingPrompt = useRef<string | null>(null);
+  const dismissedVersions = useRef(new Set<string>());
+  const lastActivity = useRef(Date.now());
+  const setOpen = useCallback((value: boolean) => {
+    dialogOpen.current = value;
+    pendingPrompt.current = null;
+    if (value && operation.current === "check") manualCheck.current = true;
+    if (!value && currentUpdate.current?.version) {
+      dismissedVersions.current.add(
+        `${currentChannel.current}:${currentUpdate.current.version}`,
+      );
+    }
+    setDialogOpen(value);
+  }, []);
   const confirm = useConfirm();
   const native = nativeBrowser();
   const busy =
@@ -57,7 +79,14 @@ function useUpdateController(dirty: RefObject<boolean>) {
     ["checking", "downloading", "installing"].includes(phase);
 
   async function changeChannel(channel: "stable" | "preview") {
-    if (busy || !native || channel === (info?.channel ?? "stable")) return;
+    if (
+      busy ||
+      operation.current ||
+      !native ||
+      channel === (info?.channel ?? "stable")
+    )
+      return;
+    operation.current = "channel";
     setChangingChannel(true);
     try {
       if (
@@ -72,36 +101,60 @@ function useUpdateController(dirty: RefObject<boolean>) {
         return;
       setError("");
       await native.invoke("set_update_channel", { channel });
+      currentChannel.current = channel;
+      currentUpdate.current = undefined;
+      pendingPrompt.current = null;
       setInfo((previous) => (previous ? { ...previous, channel } : previous));
       setUpdate(undefined);
       setProgress(undefined);
       setRoutes({});
       setPhase("idle");
+      operation.current = null;
       await check(false);
     } catch (e) {
       setError(`切换渠道失败：${String(e)}`);
     } finally {
+      operation.current = null;
       setChangingChannel(false);
     }
   }
 
   async function check(automatic: boolean) {
     if (!native) return;
+    if (!automatic) {
+      manualCheck.current = true;
+      setOpen(true);
+    }
+    if (operation.current || (automatic && phase === "ready")) return;
+    operation.current = "check";
+    manualCheck.current = !automatic;
     setPhase("checking");
-    setError("");
-    let nextPhase: Phase = "idle";
+    if (!automatic) setError("");
+    let nextPhase: Phase =
+      phase === "ready" && currentUpdate.current ? "ready" : "idle";
     try {
       const next = (await native.invoke("check_update", {
         automatic,
       })) as Update;
       if (next?.skipped) return;
+      currentUpdate.current = next;
       setUpdate(next);
-      if (next?.ready) nextPhase = "ready";
-      if (!automatic || (next?.version && !next.cached && !dirty.current))
-        setOpen(true);
+      nextPhase = next?.ready ? "ready" : "idle";
+      const versionKey = next?.version
+        ? `${currentChannel.current}:${next.version}`
+        : null;
+      pendingPrompt.current =
+        automatic &&
+        !manualCheck.current &&
+        !dialogOpen.current &&
+        versionKey &&
+        !dismissedVersions.current.has(versionKey)
+          ? versionKey
+          : null;
     } catch (e) {
-      if (!automatic) setError(String(e));
+      if (manualCheck.current) setError(String(e));
     } finally {
+      operation.current = null;
       setPhase(nextPhase);
     }
   }
@@ -113,6 +166,7 @@ function useUpdateController(dirty: RefObject<boolean>) {
       .then((value) => {
         const details = value as NativeInfo | undefined;
         if (!details?.version) return;
+        currentChannel.current = details.channel ?? "stable";
         setInfo(details);
         if (details.enabled && !details.mobile) void check(true);
       })
@@ -124,6 +178,51 @@ function useUpdateController(dirty: RefObject<boolean>) {
     const timer = setInterval(() => void check(true), 60 * 60_000);
     return () => clearInterval(timer);
   }, [info?.enabled, info?.mobile, phase, changingChannel]);
+  useEffect(() => {
+    const activity = () => {
+      lastActivity.current = Date.now();
+    };
+    const events = [
+      "pointerdown",
+      "pointermove",
+      "keydown",
+      "wheel",
+      "touchstart",
+      "touchmove",
+      "focus",
+      "blur",
+    ];
+    for (const event of events)
+      window.addEventListener(event, activity, {
+        capture: true,
+        passive: true,
+      });
+    document.addEventListener("visibilitychange", activity);
+    return () => {
+      for (const event of events)
+        window.removeEventListener(event, activity, true);
+      document.removeEventListener("visibilitychange", activity);
+    };
+  }, []);
+  useEffect(() => {
+    if (!pendingPrompt.current || open || busy) return;
+    // dirty is a ref: poll while a version is pending so saving/cancelling can
+    // release the prompt without another network check or provider render.
+    const timer = setInterval(() => {
+      if (
+        document.visibilityState !== "visible" ||
+        dirty.current ||
+        operation.current ||
+        document.querySelector('[role="dialog"], dialog[open]')
+      ) {
+        lastActivity.current = Date.now();
+        return;
+      }
+      if (pendingPrompt.current && Date.now() - lastActivity.current >= 30_000)
+        setOpen(true);
+    }, 1_000);
+    return () => clearInterval(timer);
+  }, [update, open, busy, dirty, setOpen]);
   useEffect(() => {
     const listener = (event: Event) =>
       setProgress((event as CustomEvent).detail);
@@ -145,6 +244,9 @@ function useUpdateController(dirty: RefObject<boolean>) {
   }, []);
 
   async function download() {
+    if (!native || operation.current) return;
+    operation.current = "download";
+    pendingPrompt.current = null;
     setPhase("downloading");
     setError("");
     setProgress(undefined);
@@ -154,13 +256,17 @@ function useUpdateController(dirty: RefObject<boolean>) {
     } catch (e) {
       setError(String(e));
       setPhase("idle");
+    } finally {
+      operation.current = null;
     }
   }
   async function install() {
+    if (!native || operation.current) return;
     if (dirty.current) {
       setError("还有未提交的收发内容，请先完成或取消当前操作，再安装更新。");
       return;
     }
+    operation.current = "install";
     if (
       !(await confirm({
         title: "安装更新并重启？",
@@ -168,9 +274,12 @@ function useUpdateController(dirty: RefObject<boolean>) {
           "若这台电脑保存库存，应用会先备份并暂停库存服务，同事会短暂无法操作。请先通知同事保存内容。",
         confirmLabel: "备份并安装更新",
       }))
-    )
+    ) {
+      operation.current = null;
       return;
+    }
     if (dirty.current) {
+      operation.current = null;
       setError("请先处理未提交的内容。");
       return;
     }
@@ -181,6 +290,8 @@ function useUpdateController(dirty: RefObject<boolean>) {
     } catch (e) {
       setError(String(e));
       setPhase("idle");
+    } finally {
+      operation.current = null;
     }
   }
   async function connection() {

@@ -13,7 +13,7 @@ use tauri_plugin_updater::Update;
 
 #[derive(Default)]
 pub struct Updates {
-    operation: tokio::sync::Mutex<()>,
+    pub(crate) operation: tokio::sync::Mutex<()>,
     pending: Mutex<Option<(Update, Option<tempfile::NamedTempFile>)>>,
 }
 

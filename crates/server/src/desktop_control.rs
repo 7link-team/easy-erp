@@ -52,6 +52,31 @@ pub async fn prepare_update(
     ))
 }
 
+/// Explicit local maintenance must also work when a safety backup cannot be made.
+/// The launcher confirms the destructive action and the offline worker holds the
+/// directory lock; this endpoint only drains requests and stops the service.
+pub async fn prepare_recovery(
+    State(s): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+) -> Result<Json<Value>> {
+    let provided = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .unwrap_or_default();
+    if !peer.ip().is_loopback() || !authorized(s.desktop_token.as_deref(), provided) {
+        return Err(ApiError::forbidden());
+    }
+    let _maintenance = s.maintenance.write().await;
+    if s.updating.load(Ordering::Acquire) {
+        return Err(ApiError::conflict("库存服务正在维护，请稍后重试。"));
+    }
+    s.updating.store(true, Ordering::Release);
+    s.shutdown.notify_one();
+    Ok(Json(json!({"instance_id":s.instance_id})))
+}
+
 fn authorized(expected: Option<&str>, supplied: &str) -> bool {
     let Some(expected) = expected else {
         return false;

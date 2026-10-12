@@ -895,7 +895,9 @@ test("退货作废汇总保留历史应收和实际退款，原单往返保留�
       ),
     ).toBeTruthy();
     await page.screenshot({
-      path: test.info().outputPath(`returns-${testInfo.project.name}-${width}.png`),
+      path: test
+        .info()
+        .outputPath(`returns-${testInfo.project.name}-${width}.png`),
     });
   }
   await filters.getByRole("button", { name: "作废记录", exact: true }).click();
@@ -1538,4 +1540,94 @@ test("物料明细按单据分页，停用物料仍能核对且无记录物料�
   await expect(
     page.getByText("没有符合筛选条件的出入库记录。", { exact: true }),
   ).toBeVisible();
+});
+
+test("零业绩部门和业务员显示为零，表头可排序且刷新保留", async ({ page }) => {
+  const tag = `零业绩-${randomUUID().slice(0, 8)}`;
+  const dept = await post(page.request, "/sales/catalog", {
+    kind: "department",
+    name: `${tag}-部门`,
+  });
+  const empty = await post(page.request, "/sales/catalog", {
+    kind: "department",
+    name: `${tag}-空部门`,
+  });
+  const zero = await post(page.request, "/sales/catalog", {
+    kind: "salesperson",
+    name: `${tag}-甲`,
+    data: { department_id: dept.id },
+  });
+  const seller = await post(page.request, "/sales/catalog", {
+    kind: "salesperson",
+    name: `${tag}-乙`,
+    data: { department_id: dept.id },
+  });
+  const customer = await post(page.request, "/sales/catalog", {
+    kind: "customer",
+    name: tag,
+  });
+  const material = await item(page.request, tag, "");
+  await movement(page.request, material.id, "receipt", "2");
+  await post(page.request, "/sales/commands", {
+    request_id: randomUUID(),
+    action: "confirm",
+    input: {
+      type_id: "sale",
+      customer_id: customer.id,
+      department_id: dept.id,
+      salesperson_id: seller.id,
+      business_date: "2020-01-01",
+      lines: [{ item_id: material.id, quantity: "1", price: "20" }],
+    },
+  });
+  const month = await (
+    await page.request.get(
+      "/api/sales/finance?entries=false&performance_period=month",
+    )
+  ).json();
+  for (const id of [zero.id, seller.id]) {
+    expect(
+      month.performance.find(
+        (p: { salesperson_id: string }) => p.salesperson_id === id,
+      ),
+    ).toMatchObject({ count: 0, due: 0, paid: 0, debt: 0 });
+  }
+  expect(
+    month.performance.find(
+      (p: { department_id: string }) => p.department_id === empty.id,
+    ),
+  ).toMatchObject({ count: 0, due: 0, paid: 0, debt: 0 });
+  await page.goto("/#/performance");
+  const region = page.getByRole("region", { name: "部门业绩", exact: true });
+  await chooseSelect(
+    region.getByRole("combobox", { name: "业绩部门" }),
+    dept.id,
+  );
+  const rows = region.getByRole("table").locator("tbody tr");
+  await expect(rows).toHaveCount(2);
+  await expect(rows.filter({ hasText: zero.name })).toContainText("¥0.00");
+  await region.getByRole("button", { name: "全部", exact: true }).click();
+  const amount = region.getByRole("columnheader", {
+    name: "业绩金额",
+    exact: true,
+  });
+  await amount.getByRole("button").click();
+  await expect(amount).toHaveAttribute("aria-sort", "descending");
+  await expect(rows.first()).toContainText(seller.name);
+  await amount.getByRole("button").click();
+  await expect(amount).toHaveAttribute("aria-sort", "ascending");
+  await expect(rows.first()).toContainText(zero.name);
+  await page.reload();
+  await expect(amount).toHaveAttribute("aria-sort", "ascending");
+  await expect(rows.first()).toContainText(zero.name);
+  await expect(region.getByRole("table").locator("tfoot")).toContainText(
+    "¥20.00",
+  );
+  await chooseSelect(
+    region.getByRole("combobox", { name: "业绩部门" }),
+    empty.id,
+  );
+  await expect(rows).toHaveCount(1);
+  await expect(rows).toContainText(empty.name);
+  await expect(rows).toContainText("¥0.00");
 });

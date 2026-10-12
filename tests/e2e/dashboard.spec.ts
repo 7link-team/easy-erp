@@ -216,7 +216,11 @@ test("工作台真实月度账款、每日金额、业绩、60天提醒与今日
         }
         if (size === "md")
           await page.screenshot({
-            path: test.info().outputPath(`dashboard-${testInfo.project.name}-${width}-${theme}.png`),
+            path: test
+              .info()
+              .outputPath(
+                `dashboard-${testInfo.project.name}-${width}-${theme}.png`,
+              ),
             fullPage: true,
           });
       }
@@ -227,11 +231,15 @@ test("工作台真实月度账款、每日金额、业绩、60天提醒与今日
     .first()
     .click();
   await expect(
-    page.getByRole("button", { name: "返回列表", exact: true }),
+    page
+      .locator(".sale-detail")
+      .getByRole("button", { name: "返回上一页", exact: true }),
   ).toBeVisible();
   await page.reload();
   await expect(
-    page.getByRole("button", { name: "返回列表", exact: true }),
+    page
+      .locator(".sale-detail")
+      .getByRole("button", { name: "返回上一页", exact: true }),
   ).toBeVisible();
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.getByRole("button", { name: "修订单据", exact: true }).click();
@@ -260,7 +268,11 @@ test("工作台真实月度账款、每日金额、业绩、60天提醒与今日
     .getByRole("link")
     .first()
     .click();
-  await page.getByRole("button", { name: "返回列表", exact: true }).click();
+  await page
+    .locator(".sale-detail")
+    .getByRole("button", { name: "返回上一页", exact: true })
+    .click();
+  await expect(page).toHaveURL(/#\/home$/);
   expect(new URL(page.url()).searchParams.has("sale_open")).toBeFalsy();
   await page.goto("/#/home");
   await page

@@ -1,6 +1,9 @@
 fn main() {
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
         tauri_build::AppManifest::new().commands(&[
+            "recovery_list",
+            "recovery_select_backup",
+            "recovery_execute",
             "connection_settings",
             "set_autostart",
             "connect_host",
@@ -9,6 +12,7 @@ fn main() {
             "show_launcher",
             "open_browser",
             "open_web_address",
+            "print_document",
             "update_info",
             "check_update",
             "set_update_channel",

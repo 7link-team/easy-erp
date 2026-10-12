@@ -1809,6 +1809,32 @@ UNION ALL SELECT 'monthly',department_id,salesperson_id,'','',0,SUM(due),0,''
             }
         }
     }
+    // A department without people or sales still needs a visible zero row.
+    for row in &catalog_rows {
+        let id = text(row, "id");
+        if text(row, "kind") == "department"
+            && !performance_choices
+                .keys()
+                .any(|(department, _)| department == &id)
+        {
+            performance_choices.insert(
+                (id.clone(), String::new()),
+                json!({
+                    "department_id":id,"department_name":text(row,"name"),
+                    "salesperson_id":"","salesperson_name":""
+                }),
+            );
+        }
+    }
+    for (key, choice) in &performance_choices {
+        performance.entry(key.clone()).or_insert_with(|| {
+            let mut value = choice.clone();
+            for metric in ["count", "due", "paid", "debt"] {
+                value[metric] = json!(0);
+            }
+            value
+        });
+    }
     let q = clean(filter.q.as_deref().unwrap_or(""), "搜索", 100, false)?;
     let cash_filter = CashFilter {
         account_id: Some(q.clone()),

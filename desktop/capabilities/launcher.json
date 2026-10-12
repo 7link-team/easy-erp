@@ -6,6 +6,9 @@
   "windows": ["launcher"],
   "permissions": [
     "core:default",
+    "allow-recovery-list",
+    "allow-recovery-select-backup",
+    "allow-recovery-execute",
     "allow-connection-settings",
     "allow-set-autostart",
     "allow-connect-host",

@@ -1,7 +1,22 @@
-import { useQueryValue } from "../navigation";
+import {
+  useQueryValue,
+  type Back,
+  type Navigate,
+  type Page,
+} from "../navigation";
 import { can } from "../api";
 import { useEffect, useRef, useState, type ComponentProps } from "react";
-import { Plus, Search, Printer, ArrowLeft, Trash2, Pencil } from "lucide-react";
+import {
+  Plus,
+  Search,
+  Printer,
+  ArrowLeft,
+  Trash2,
+  Pencil,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+} from "lucide-react";
 import {
   Button,
   Tabs,
@@ -328,6 +343,7 @@ function SaleEditor({
   onDirtyChange,
   onCatalogCreated,
   initialItem,
+  backLabel = "返回单据",
 }: {
   user: User;
   sale?: Sale;
@@ -337,6 +353,7 @@ function SaleEditor({
   onDirtyChange: (v: boolean) => void;
   onCatalogCreated: (entry: CatalogEntry) => void;
   initialItem?: Item;
+  backLabel?: string;
 }) {
   const initial: SaleInput = {
     customer_id: sale?.customer_id || "",
@@ -531,8 +548,10 @@ function SaleEditor({
       ...payload,
       request_id: request.current!.id,
     });
+    const saved = await api<Sale>(`/sales/${result.id}`);
+    setChanged(false);
     onDirtyChange(false);
-    onDone(await api<Sale>(`/sales/${result.id}`));
+    onDone(saved);
   }
   const materialPicker = (
     p: { id: string; "aria-describedby"?: string },
@@ -587,7 +606,7 @@ function SaleEditor({
         <h1>{sale ? (posted ? "修订单据" : "编辑草稿") : "新建单据"}</h1>
         <Button className="button" onClick={onClose}>
           <ArrowLeft size={16} aria-hidden="true" />
-          返回单据
+          {backLabel}
         </Button>
       </div>
       <Form
@@ -1824,14 +1843,22 @@ function FinancePanel({
   onSelect,
   section,
   navigationIndex = 0,
+  onCustomer,
+  onCloseCustomer,
 }: {
   user: User;
   revision: number;
   onSelect: (id: string) => void;
   section?: "debts" | "accounts" | "performance";
   navigationIndex?: number;
+  onCustomer: (id: string) => void;
+  onCloseCustomer: () => void;
 }) {
-  const [customer, setCustomer] = useState<Finance["customers"][number]>();
+  const [customerId] = useQueryValue<string>("finance_customer", "");
+  const [performanceSort, setPerformanceSort] = useQueryValue<string>(
+    "finance_performance_sort",
+    "department_name:asc",
+  );
   const [customerFilter, setCustomerFilter] = useQueryValue<string>(
     "finance_customers",
     "all",
@@ -1904,6 +1931,7 @@ function FinancePanel({
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     });
   const data = resource.data;
+  const customer = data?.customers.find((entry) => entry.id === customerId);
   const customers = (data?.customers ?? [])
     .filter(
       (c) =>
@@ -1997,11 +2025,40 @@ function FinancePanel({
     .sort(
       (a, b) => a[1].localeCompare(b[1], "zh-CN") || a[0].localeCompare(b[0]),
     );
-  const performance = data.performance.filter(
-    (row) =>
-      matches(performanceDepartment, row.department_id) &&
-      matches(performancePerson, row.salesperson_id),
-  );
+  const performanceColumns = [
+    ["department_name", "部门"],
+    ["salesperson_name", "业务员"],
+    ["count", "单数"],
+    ["due", "业绩金额"],
+    ["paid", "净实收"],
+    ["debt", "欠款"],
+  ] as const;
+  const [sortField, sortDirection] = performanceSort.split(":");
+  const sortKey =
+    performanceColumns.find(([key]) => key === sortField)?.[0] ??
+    "department_name";
+  const descending = sortDirection === "desc";
+  const performance = data.performance
+    .filter(
+      (row) =>
+        matches(performanceDepartment, row.department_id) &&
+        matches(performancePerson, row.salesperson_id),
+    )
+    .sort((a, b) => {
+      const left = a[sortKey],
+        right = b[sortKey];
+      const compared =
+        typeof left === "number" && typeof right === "number"
+          ? left - right
+          : String(left).localeCompare(String(right), "zh-CN");
+      return (
+        (descending ? -compared : compared) ||
+        a.department_name.localeCompare(b.department_name, "zh-CN") ||
+        a.salesperson_name.localeCompare(b.salesperson_name, "zh-CN") ||
+        a.department_id.localeCompare(b.department_id) ||
+        a.salesperson_id.localeCompare(b.salesperson_id)
+      );
+    });
   const performanceTotal = performance.reduce(
     (sum, row) => ({
       count: sum.count + row.count,
@@ -2203,7 +2260,7 @@ function FinancePanel({
                       {can(user, "sales.read") ? (
                         <Button
                           className="text-button"
-                          onClick={() => setCustomer(c)}
+                          onClick={() => onCustomer(c.id)}
                         >
                           {c.name}
                         </Button>
@@ -2242,7 +2299,7 @@ function FinancePanel({
                       {can(user, "sales.read") ? (
                         <Button
                           className="button small"
-                          onClick={() => setCustomer(c)}
+                          onClick={() => onCustomer(c.id)}
                         >
                           对账
                         </Button>
@@ -2647,12 +2704,40 @@ function FinancePanel({
             <table aria-label="业绩归属汇总">
               <thead>
                 <tr>
-                  <th>部门</th>
-                  <th>业务员</th>
-                  <th className="numeric">单数</th>
-                  <th className="numeric">业绩金额</th>
-                  <th className="numeric">净实收</th>
-                  <th className="numeric">欠款</th>
+                  {performanceColumns.map(([key, label], index) => (
+                    <th
+                      key={key}
+                      scope="col"
+                      className={index > 1 ? "numeric" : undefined}
+                      aria-sort={
+                        sortKey === key
+                          ? descending
+                            ? "descending"
+                            : "ascending"
+                          : "none"
+                      }
+                    >
+                      <Button
+                        className="performance-sort"
+                        onClick={() =>
+                          setPerformanceSort(
+                            `${key}:${sortKey === key ? (descending ? "asc" : "desc") : index > 1 ? "desc" : "asc"}`,
+                          )
+                        }
+                      >
+                        {label}
+                        {sortKey === key ? (
+                          descending ? (
+                            <ArrowDown size={14} aria-hidden="true" />
+                          ) : (
+                            <ArrowUp size={14} aria-hidden="true" />
+                          )
+                        ) : (
+                          <ArrowUpDown size={14} aria-hidden="true" />
+                        )}
+                      </Button>
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
@@ -2676,9 +2761,15 @@ function FinancePanel({
                 <tr>
                   <td colSpan={2}>筛选合计</td>
                   <td className="numeric">{performanceTotal.count}</td>
-                  <td className="numeric">¥{moneyText(performanceTotal.due)}</td>
-                  <td className="numeric">¥{moneyText(performanceTotal.paid)}</td>
-                  <td className="numeric">¥{moneyText(performanceTotal.debt)}</td>
+                  <td className="numeric">
+                    ¥{moneyText(performanceTotal.due)}
+                  </td>
+                  <td className="numeric">
+                    ¥{moneyText(performanceTotal.paid)}
+                  </td>
+                  <td className="numeric">
+                    ¥{moneyText(performanceTotal.debt)}
+                  </td>
                 </tr>
               </tfoot>
             </table>
@@ -2692,7 +2783,7 @@ function FinancePanel({
             data.customers.find((c) => c.id === customer.id) || customer
           }
           revision={revision}
-          onClose={() => setCustomer(undefined)}
+          onClose={onCloseCustomer}
           onSelect={onSelect}
         />
       )}
@@ -2872,6 +2963,10 @@ export default function Sales({
   onOpenList,
   financeSection,
   navigationIndex = 0,
+  navigate,
+  back,
+  routePage,
+  previousPage,
 }: {
   view?: "sales" | "finance" | "customers" | "catalog" | "returns";
   initialItem?: Item;
@@ -2879,6 +2974,10 @@ export default function Sales({
   onOpenList?: (id?: string) => void;
   financeSection?: "debts" | "accounts" | "performance";
   navigationIndex?: number;
+  navigate: Navigate;
+  back: Back;
+  routePage: Page;
+  previousPage?: Page;
   user: User;
   revision: number;
   refresh: () => void;
@@ -2918,18 +3017,15 @@ export default function Sales({
   const [listTo, setListTo] = useQueryValue<string>("sales_to", "");
   const [page, setPage] = useQueryValue<number>("sales_page", 1);
   const [selected, setSelected] = useState<Sale>();
-  const [openSaleId, setOpenSaleId] = useQueryValue<string>("sale_open", "");
-  const [editing, setEditing] = useState(startNew || !!initialItem);
-  const [prefill, setPrefill] = useState(initialItem);
+  const [openSaleId] = useQueryValue<string>("sale_open", "");
+  const [editSale] = useQueryValue<string>("sale_edit", "");
+  const editing = startNew || editSale === "1";
   const [config, setConfig] = useState<{
     kind: CatalogEntry["kind"];
     entry?: CatalogEntry;
   }>();
   const [local, setLocal] = useState(0);
-  const [ledgerCustomerId, setLedgerCustomerId] = useQueryValue<string>(
-    "customer_ledger",
-    "",
-  );
+  const [ledgerCustomerId] = useQueryValue<string>("customer_ledger", "");
   const [customerSearch, setCustomerSearch] = useQueryValue<string>(
     "customer_q",
     "",
@@ -3002,18 +3098,38 @@ export default function Sales({
     setLocal((n) => n + 1);
     refresh();
   };
-  const select = (id: string, edit = false) =>
-    action.run(async () => {
-      setSelected(await api<Sale>(`/sales/${id}`));
-      setEditing(edit);
-    });
+  const detailQuery = (id: string) => ({
+    sale_open: id,
+    sale_edit: "",
+    sales_records: recordKind,
+  });
+  const select = async (id: string, edit = false) => {
+    if (!(await navigate(routePage, undefined, detailQuery(id)))) return;
+    if (edit)
+      await navigate(routePage, undefined, {
+        ...detailQuery(id),
+        sale_edit: "1",
+      });
+  };
+  const selectedId = startNew
+    ? ""
+    : openSaleId ||
+      new URLSearchParams(location.search).get("sale_print") ||
+      "";
   useEffect(() => {
-    const id = new URLSearchParams(location.search).get("sale_print");
-    if (startNew) return;
-    if (id) void select(id);
-    else if ((view === "sales" || returnsView) && openSaleId)
-      void select(openSaleId);
-  }, [openSaleId]);
+    setSelected(undefined);
+    action.setError("");
+    if (!selectedId) return;
+    const controller = new AbortController();
+    void api<Sale>(`/sales/${selectedId}`, { signal: controller.signal })
+      .then((sale) => {
+        if (!controller.signal.aborted) setSelected(sale);
+      })
+      .catch((error: Error) => {
+        if (!controller.signal.aborted) action.setError(error.message);
+      });
+    return () => controller.abort();
+  }, [selectedId]);
   useEffect(() => {
     const id = selected?.id;
     if (!id || editing) return;
@@ -3025,11 +3141,6 @@ export default function Sales({
       .catch(() => {});
     return () => controller.abort();
   }, [revision, selected?.id, editing]);
-  useEffect(() => {
-    if (!financeSection) return;
-    setSelected(undefined);
-    setEditing(false);
-  }, [financeSection, navigationIndex]);
   const confirm = useConfirm();
   const closeEditor = async () => {
     if (
@@ -3041,9 +3152,10 @@ export default function Sales({
       }))
     ) {
       onDirtyChange(false);
-      setEditing(false);
-      setPrefill(undefined);
-      if (startNew) onOpenList?.();
+      back(
+        startNew ? "sales" : routePage,
+        selected ? detailQuery(selected.id) : undefined,
+      );
     }
   };
   const [configKind, setConfigKind] = useState<
@@ -3238,8 +3350,7 @@ export default function Sales({
                 <Button
                   className="button primary"
                   onClick={() => {
-                    setSelected(undefined);
-                    setEditing(true);
+                    void navigate("invoice");
                   }}
                 >
                   <Plus aria-hidden="true" size={18} />
@@ -3280,42 +3391,64 @@ export default function Sales({
             {catalog.error || action.error || customerFinance.error}
           </Notice>
         )}
-        {editing ? (
+        {selectedId && selected?.id !== selectedId ? (
+          action.error ? null : (
+            <Loading />
+          )
+        ) : editing ? (
           <SaleEditor
             key={selected?.id || "new"}
             sale={selected}
-            initialItem={selected ? undefined : prefill}
+            initialItem={selected ? undefined : initialItem}
             user={user}
             catalog={entries}
             onDirtyChange={onDirtyChange}
             onCatalogCreated={catalogCreated}
             onClose={() => void closeEditor()}
+            backLabel={
+              startNew
+                ? previousPage === "sales"
+                  ? "返回列表"
+                  : "返回上一页"
+                : "返回单据"
+            }
             onDone={(s) => {
               changed(s);
-              setPrefill(undefined);
-              setEditing(false);
               if (startNew) onOpenList?.(s.id);
+              else back(routePage, detailQuery(s.id));
             }}
           />
         ) : selected ? (
           <Detail
             onCatalogCreated={catalogCreated}
             backLabel={
-              view === "customers"
-                ? "返回客户对账"
-                : financeView
-                  ? "返回收款"
-                  : "返回列表"
+              previousPage && previousPage !== routePage
+                ? "返回上一页"
+                : view === "customers" ||
+                    new URLSearchParams(location.search).has("finance_customer")
+                  ? "返回客户对账"
+                  : financeView
+                    ? "返回收款"
+                    : "返回列表"
             }
             sale={selected}
             user={user}
             catalog={entries}
-            onEdit={() => setEditing(true)}
+            onEdit={() =>
+              void navigate(routePage, undefined, {
+                ...detailQuery(selected.id),
+                sale_edit: "1",
+              })
+            }
             onChange={changed}
-            onClose={() => {
-              setSelected(undefined);
-              setOpenSaleId("");
-            }}
+            onClose={() =>
+              back(routePage, {
+                sale_open: "",
+                sale_print: "",
+                sale_edit: "",
+                sales_records: recordKind,
+              })
+            }
           />
         ) : listView && adjustmentAction ? (
           <AdjustmentsLedger
@@ -3583,6 +3716,10 @@ export default function Sales({
             user={user}
             revision={revision + local}
             onSelect={(id) => void select(id)}
+            onCustomer={(id) =>
+              void navigate(routePage, undefined, { finance_customer: id })
+            }
+            onCloseCustomer={() => back(routePage, { finance_customer: "" })}
           />
         ) : (
           <Tabs
@@ -3964,7 +4101,9 @@ export default function Sales({
                                           !!customerFinance.error
                                         }
                                         onClick={() =>
-                                          setLedgerCustomerId(c.id)
+                                          void navigate(routePage, undefined, {
+                                            customer_ledger: c.id,
+                                          })
                                         }
                                       >
                                         {can(user, "sales.all")
@@ -4081,7 +4220,7 @@ export default function Sales({
             }}
             revision={revision + local}
             onSelect={(id) => void select(id)}
-            onClose={() => setLedgerCustomerId("")}
+            onClose={() => back(routePage, { customer_ledger: "" })}
           />
         )}
       {config && (

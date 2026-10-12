@@ -1,20 +1,28 @@
 import { test, expect, type Page } from "@playwright/test";
 
-async function start(page: Page, mobile = false) {
-  await page.addInitScript((mobile) => {
+async function start(page: Page, mobile = false, automaticUpdate?: { version: string; cached?: boolean; ready?: boolean }) {
+  await page.addInitScript(({ mobile, automaticUpdate }) => {
     (window as any).__installed = false;
+    (window as any).__automaticUpdate = automaticUpdate;
+    (window as any).__automaticChecks = 0;
     (window as any).__TAURI__ = { core: { invoke: async (command: string, args: any) => {
       if (command === "update_info") return { version: "0.1.0", enabled: !mobile, mobile, channel: sessionStorage.getItem("test_update_channel") || "stable" };
       if (command === "set_update_channel") { sessionStorage.setItem("test_update_channel", args.channel); return; }
       if (command === "mobile_disconnect") { (window as any).__disconnected = true; return; }
-      if (command === "check_update") return args.automatic ? { skipped: true } : { enabled: true, version: sessionStorage.getItem("test_update_channel") === "preview" ? "0.3.0-beta.1" : "0.2.0", notes: "更新验收" };
+      if (command === "check_update") {
+        if (args.automatic) {
+          (window as any).__automaticChecks++;
+          return (window as any).__automaticUpdate ?? { skipped: true };
+        }
+        return { enabled: true, version: sessionStorage.getItem("test_update_channel") === "preview" ? "0.3.0-beta.1" : "0.2.0", notes: "更新验收" };
+      }
       if (command === "download_update") {
         window.dispatchEvent(new CustomEvent("erp:update-progress", { detail: { downloaded: 100, total: 100 } }));
         return;
       }
       if (command === "install_update") { (window as any).__installed = true; throw new Error("安装失败测试，库存服务已恢复"); }
     } } };
-  }, mobile);
+  }, { mobile, automaticUpdate });
   const status = await (await page.request.get("/api/status")).json();
   if (!status.initialized) await page.request.post("/api/setup", {
     headers: { "X-ERP-Request": "1" },
@@ -26,6 +34,137 @@ async function start(page: Page, mobile = false) {
   await page.getByRole("button", { name: "登录", exact: true }).click();
   await expect(page.getByRole("navigation")).toBeVisible();
 }
+
+async function freezeClock(page: Page) {
+  const time = new Date("2026-10-12T01:00:00Z");
+  await page.clock.install({ time });
+  await page.clock.pauseAt(time);
+}
+
+test("缓存的新版本等连续空闲后提示，键盘鼠标触摸都会重新计时", async ({ page }) => {
+  await freezeClock(page);
+  await start(page, false, { version: "0.2.0", cached: true });
+  const dialog = page.getByRole("dialog", { name: "应用更新", exact: true });
+  await expect(dialog).toHaveCount(0);
+  for (const event of ["keydown", "pointermove", "pointerdown", "wheel", "touchstart", "touchmove"]) {
+    await page.clock.fastForward(29_000);
+    await expect(dialog).toHaveCount(0);
+    await page.evaluate(event => window.dispatchEvent(new Event(event)), event);
+  }
+  await page.clock.fastForward(29_000);
+  await expect(dialog).toHaveCount(0);
+  await page.clock.fastForward(2_000);
+  await expect(dialog).toContainText("发现新版本 0.2.0");
+});
+
+test("有未提交内容时发现的更新在操作结束后补提示，不再联网检查", async ({ page }) => {
+  await freezeClock(page);
+  await start(page);
+  // Let React's lazy route/Suspense timers finish before freezing the idle clock.
+  await page.clock.resume();
+  await page.getByRole("link", { name: /我要入库/ }).click();
+  const note = page.getByLabel("备注或原因", { exact: false });
+  await note.fill("等待操作结束再更新");
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1_000));
+  await page.evaluate(() => { (window as any).__automaticUpdate = { version: "0.2.0" }; });
+  await page.clock.fastForward(60 * 60_000);
+  await expect.poll(() => page.evaluate(() => (window as any).__automaticChecks)).toBe(2);
+  await page.clock.fastForward(60_000);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(note).toHaveValue("等待操作结束再更新");
+  await note.fill("");
+  await page.clock.fastForward(29_000);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.clock.fastForward(2_000);
+  await expect(page.getByRole("dialog", { name: "应用更新", exact: true })).toBeVisible();
+  expect(await page.evaluate(() => (window as any).__automaticChecks)).toBe(2);
+});
+
+test("隐藏窗口恢复及其他对话框关闭后重新等待空闲", async ({ page }) => {
+  await freezeClock(page);
+  await start(page, false, { version: "0.2.0" });
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await page.clock.fastForward(60_000);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await page.clock.fastForward(29_000);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.evaluate(() => {
+    const dialog = document.createElement("dialog");
+    dialog.id = "test-existing-dialog";
+    document.body.append(dialog);
+    dialog.showModal();
+  });
+  await page.clock.fastForward(60_000);
+  await expect(page.getByRole("dialog", { name: "应用更新", exact: true })).toHaveCount(0);
+  await page.evaluate(() => document.getElementById("test-existing-dialog")!.remove());
+  await page.clock.fastForward(29_000);
+  await expect(page.getByRole("dialog", { name: "应用更新", exact: true })).toHaveCount(0);
+  await page.clock.fastForward(2_000);
+  await expect(page.getByRole("dialog", { name: "应用更新", exact: true })).toBeVisible();
+});
+
+test("稍后不重复提示同一版本，下一版本仍会在空闲时提示", async ({ page }) => {
+  await freezeClock(page);
+  await start(page, false, { version: "0.2.0" });
+  await page.clock.fastForward(31_000);
+  await page.getByRole("button", { name: "稍后再说", exact: true }).click();
+  await page.evaluate(() => { (window as any).__automaticUpdate = { version: "0.2.0", cached: true }; });
+  await page.clock.fastForward(60 * 60_000);
+  await expect.poll(() => page.evaluate(() => (window as any).__automaticChecks)).toBe(2);
+  await page.clock.fastForward(31_000);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.evaluate(() => { (window as any).__automaticUpdate = { version: "0.3.0" }; });
+  await page.clock.fastForward(60 * 60_000);
+  await expect.poll(() => page.evaluate(() => (window as any).__automaticChecks)).toBe(3);
+  await page.clock.fastForward(2_000);
+  await expect(page.getByRole("dialog", { name: "应用更新", exact: true })).toContainText("发现新版本 0.3.0");
+});
+
+test("手动立即打开缓存更新，已下载状态跨自动检查时段保留", async ({ page }) => {
+  await freezeClock(page);
+  await start(page, false, { version: "0.2.0", cached: true, ready: true });
+  await page.getByRole("button", { name: "检查应用更新", exact: true }).click();
+  await expect(page.getByRole("button", { name: "安装并重启", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "稍后再说", exact: true }).click();
+  await page.clock.fastForward(2 * 60 * 60_000);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.getByRole("button", { name: "检查应用更新", exact: true }).click();
+  await expect(page.getByRole("button", { name: "安装并重启", exact: true })).toBeVisible();
+  expect(await page.evaluate(() => (window as any).__automaticChecks)).toBe(1);
+});
+
+test("后台检查未完成时手动打开，不发起并发检查或再次自动弹窗", async ({ page }) => {
+  await freezeClock(page);
+  await start(page);
+  await page.evaluate(() => {
+    const original = (window as any).__TAURI__.core.invoke;
+    (window as any).__pendingChecks = 0;
+    (window as any).__TAURI__.core.invoke = (command: string, args: any) => {
+      if (command === "check_update") {
+        (window as any).__pendingChecks++;
+        return new Promise(resolve => { (window as any).__finishCheck = resolve; });
+      }
+      return original(command, args);
+    };
+  });
+  await page.clock.fastForward(60 * 60_000);
+  await expect.poll(() => page.evaluate(() => (window as any).__pendingChecks)).toBe(1);
+  await page.getByRole("button", { name: "检查应用更新", exact: true }).click();
+  await expect(page.getByRole("dialog")).toContainText("正在检查新版本");
+  await page.evaluate(() => (window as any).__finishCheck({ version: "0.2.0" }));
+  await expect(page.getByRole("dialog")).toContainText("发现新版本 0.2.0");
+  expect(await page.evaluate(() => (window as any).__pendingChecks)).toBe(1);
+  await page.getByRole("button", { name: "稍后再说", exact: true }).click();
+  await page.clock.fastForward(31_000);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+});
 
 test("应用更新下载、取消安装和安装失败反馈", async ({ page }) => {
   await start(page);

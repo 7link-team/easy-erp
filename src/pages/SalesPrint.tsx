@@ -8,6 +8,7 @@ import {
 } from "../sales";
 import { nativeBrowser, openDesktopBrowser } from "../browserLogin";
 import { Notice, useAction } from "../components";
+import { useAppUpdates } from "../NativeTools";
 
 export default function SalesPrint({
   sale,
@@ -19,6 +20,7 @@ export default function SalesPrint({
   onClose: () => void;
 }) {
   const action = useAction();
+  const { info } = useAppUpdates();
   return (
     <Modal title="单据打印预览" variant="print" onClose={onClose}>
       <div className="sales-print-tools">
@@ -31,15 +33,28 @@ export default function SalesPrint({
           disabled={action.busy}
           onClick={() =>
             action.run(async () => {
-              if (nativeBrowser()) {
+              const native = nativeBrowser();
+              const mobile = native
+                ? (
+                    info ??
+                    ((await native.invoke("update_info", {})) as {
+                      mobile: boolean;
+                    })
+                  ).mobile
+                : false;
+              if (native && mobile) {
                 const url = new URL(location.origin);
                 url.searchParams.set("sale_print", sale.id);
                 await openDesktopBrowser(url.href);
+              } else if (native) {
+                await native.invoke("print_document", {});
               } else window.print();
             })
           }
         >
-          {nativeBrowser() ? "在系统浏览器打印" : "系统打印 / 保存 PDF"}
+          {nativeBrowser() && info?.mobile
+            ? "在系统浏览器打印"
+            : "系统打印 / 保存 PDF"}
         </Button>
         {action.error && <Notice>{action.error}</Notice>}
       </div>

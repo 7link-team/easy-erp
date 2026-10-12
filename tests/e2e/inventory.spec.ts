@@ -57,7 +57,15 @@ test.describe.serial("真实主机与浏览器的库存闭环", () => {
     ).toBeVisible();
     await expect(page.getByText("本次操作完成后的库存：100 个")).toBeVisible();
     await expect(page.getByText("预计", { exact: false })).toHaveCount(0);
-    await page.getByRole("button", { name: "返回工作台" }).click();
+    await page
+      .locator(".complete")
+      .getByRole("button", { name: "返回上一页" })
+      .click();
+    await expect(page.getByLabel("搜索物料", { exact: true })).toBeVisible();
+    await page
+      .getByRole("navigation")
+      .getByRole("link", { name: "工作台", exact: true })
+      .click();
     await page.getByRole("link", { name: /我要出库/ }).click();
     await page.getByRole("button", { name: "添加一行", exact: true }).click();
     await page

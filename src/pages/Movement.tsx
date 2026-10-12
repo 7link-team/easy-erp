@@ -19,7 +19,6 @@ export default function Movement({
   initial,
   done,
   back,
-  home,
   onDirtyChange,
 }: {
   user: User;
@@ -27,7 +26,6 @@ export default function Movement({
   initial?: Item;
   done: () => void;
   back: () => void;
-  home: () => void;
   onDirtyChange: (dirty: boolean) => void;
 }) {
   const [selected, setSelected] = useState<{ item: Item; value: string }[]>(
@@ -140,8 +138,9 @@ export default function Movement({
           </div>
         ))}
         <div className="form-actions">
-          <Button className="button" onClick={home}>
-            返回工作台
+          <Button className="button" onClick={back}>
+            <ArrowLeft size={16} aria-hidden="true" />
+            返回上一页
           </Button>
           <Button className="button primary" onClick={reset}>
             继续{incoming ? "入库" : "出库"}

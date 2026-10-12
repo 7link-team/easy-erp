@@ -29,7 +29,7 @@ const FORMAT: u32 = 1;
 const MAX_SNAPSHOT: u64 = 16 * 1024 * 1024 * 1024;
 const SPACE_MARGIN: u64 = 256 * 1024 * 1024;
 #[derive(Serialize, Deserialize)]
-struct Manifest {
+pub(crate) struct Manifest {
     format: u32,
     created_at: i64,
     sha256: String,
@@ -258,7 +258,7 @@ pub async fn snapshot(
     };
     Ok(info)
 }
-async fn validate_database(path: &FsPath) -> Result<sea_orm::DatabaseConnection> {
+pub(crate) async fn validate_database(path: &FsPath) -> Result<sea_orm::DatabaseConnection> {
     let path = path.to_owned();
     let mut options = ConnectOptions::new("sqlite://backup");
     options
@@ -362,7 +362,10 @@ fn read_manifest(zip: &mut zip::ZipArchive<std::fs::File>) -> Result<Manifest> {
 }
 
 async fn files(s: &AppState, details: bool) -> Result<Vec<BackupInfo>> {
-    let dir = s.data_dir.join("backups");
+    files_in(&s.data_dir, details).await
+}
+pub(crate) async fn files_in(data_dir: &FsPath, details: bool) -> Result<Vec<BackupInfo>> {
+    let dir = data_dir.join("backups");
     if !dir.exists() {
         return Ok(vec![]);
     }
@@ -453,34 +456,14 @@ pub async fn download(
     );
     Ok(response)
 }
-#[derive(Deserialize)]
-pub struct Restore {
-    name: String,
-    confirmation: String,
-}
-pub async fn restore(
-    State(s): State<AppState>,
-    headers: HeaderMap,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
-    Json(input): Json<Restore>,
-) -> Result<Json<Value>> {
-    local(peer)?;
-    let _maintenance = s.maintenance.write().await;
-    if s.updating.load(std::sync::atomic::Ordering::Acquire) {
-        return Err(ApiError::conflict("库存电脑正在更新，请稍后恢复备份。"));
-    }
-    let actor = current(&s, &headers).await?;
-    actor.admin()?;
-    if input.confirmation != "恢复全部数据" {
-        return Err(ApiError::bad(
-            "请填写“恢复全部数据”确认，恢复后将退出所有账号。",
-        ));
-    }
-    let live_size = database_size(&s.db).await?;
-    let space_path = s.data_dir.clone();
-    let original = archive_path(&s, &input.name)?;
-    let stage = tempfile::tempdir_in(&s.data_dir)?;
-    let snapshot = stage.path().join("restore.sqlite");
+/// Validate/extract in a staging directory; never modify the live database here.
+pub(crate) async fn prepare_restore(
+    original: PathBuf,
+    snapshot: PathBuf,
+    space_path: PathBuf,
+    live_size: u64,
+    current_schema: Vec<String>,
+) -> Result<Manifest> {
     let dest = snapshot.clone();
     let manifest = tokio::task::spawn_blocking(move || -> Result<Manifest> {
         let mut zip = zip::ZipArchive::new(std::fs::File::open(original)?)
@@ -517,7 +500,6 @@ pub async fn restore(
     })
     .await
     .map_err(|_| ApiError::bad("无法读取备份。"))??;
-    let current_schema = schemas(&s.db).await?;
     // Only known older business schemas can be staged forward.
     let legacy = manifest.schema.len() < current_schema.len()
         && [
@@ -558,7 +540,7 @@ pub async fn restore(
                 .collect::<Vec<_>>(),
         ]
         .contains(&manifest.schema);
-    if manifest.schema != current_schema && !legacy {
+    if manifest.schema != current_schema.to_vec() && !legacy {
         return Err(ApiError::bad(
             "备份数据库版本不同，请使用匹配版本的软件恢复。",
         ));
@@ -581,6 +563,41 @@ pub async fn restore(
         crate::roles::validate_backup(&staged).await?;
         staged.close().await?;
     }
+    Ok(manifest)
+}
+#[derive(Deserialize)]
+pub struct Restore {
+    name: String,
+    confirmation: String,
+}
+pub async fn restore(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Json(input): Json<Restore>,
+) -> Result<Json<Value>> {
+    local(peer)?;
+    let _maintenance = s.maintenance.write().await;
+    if s.updating.load(std::sync::atomic::Ordering::Acquire) {
+        return Err(ApiError::conflict("库存电脑正在更新，请稍后恢复备份。"));
+    }
+    let actor = current(&s, &headers).await?;
+    actor.admin()?;
+    if input.confirmation != "恢复全部数据" {
+        return Err(ApiError::bad(
+            "请填写“恢复全部数据”确认，恢复后将退出所有账号。",
+        ));
+    }
+    let stage = tempfile::tempdir_in(&s.data_dir)?;
+    let snapshot = stage.path().join("restore.sqlite");
+    let manifest = prepare_restore(
+        archive_path(&s, &input.name)?,
+        snapshot.clone(),
+        s.data_dir.clone(),
+        database_size(&s.db).await?,
+        schemas(&s.db).await?,
+    )
+    .await?;
     // Snapshot current data first. Failure leaves all current data untouched.
     let before = create(&s, &actor, "restore").await?;
     let _writes = s.writes.lock().await;

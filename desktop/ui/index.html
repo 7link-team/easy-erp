@@ -61,7 +61,73 @@
       <p class="hint">
         关闭窗口后收起到托盘。可从应用菜单更换库存电脑或在浏览器中打开。
       </p>
+      <button id="maintenance" class="secondary">本机数据维护</button>
+      <p class="hint">无法启动时也可清空数据或恢复备份。</p>
       <p id="status" role="status"></p>
+      <dialog
+        id="recovery"
+        aria-labelledby="recovery-title"
+        aria-describedby="recovery-scope"
+      >
+        <h2 id="recovery-title">本机数据维护</h2>
+        <p id="recovery-scope">仅操作这台电脑的数据，不会修改远程库存电脑。</p>
+        <p id="recovery-remote" class="warning" hidden>
+          当前连接的是远程库存电脑。以下操作只影响本机路径，不影响远程主机。
+        </p>
+        <p>
+          本机数据：<strong id="recovery-data-dir"></strong
+          ><br />本机备份：<span id="recovery-backups-dir"></span>
+        </p>
+        <label for="recovery-action">维护操作</label>
+        <select id="recovery-action" name="recovery-action" autocomplete="off">
+          <option value="reset">清空数据（不含备份数据）</option>
+          <option value="restore">从备份恢复全部数据</option>
+          <option value="clear-backups">清空本机全部备份</option>
+        </select>
+        <p id="recovery-description" class="warning"></p>
+        <div id="recovery-source" hidden>
+          <label for="recovery-backup">选择本机备份</label>
+          <select
+            id="recovery-backup"
+            name="recovery-backup"
+            autocomplete="off"
+          >
+            <option value="">请选择备份</option>
+          </select>
+          <p id="recovery-backup-detail" class="hint"></p>
+          <button id="recovery-pick" class="secondary">
+            选择其他备份文件（ZIP / 旧版）
+          </button>
+          <p id="recovery-external" class="hint"></p>
+        </div>
+        <label id="recovery-confirm-label" for="recovery-confirm"></label>
+        <input
+          id="recovery-confirm"
+          name="recovery-confirm"
+          type="text"
+          inputmode="text"
+          autocomplete="off"
+          spellcheck="false"
+          aria-describedby="recovery-description recovery-status"
+        />
+        <label class="check"
+          ><input
+            id="recovery-restart"
+            name="recovery-restart"
+            autocomplete="off"
+            type="checkbox"
+          />完成后立即启动本机库存管理</label
+        >
+        <p class="hint">
+          不勾选可先完成维护，再手动启动。维护期间会安全停止本机共享。
+        </p>
+        <p id="recovery-status" role="status" aria-live="polite"></p>
+        <div class="recovery-actions">
+          <button id="recovery-submit" class="danger" disabled>执行维护</button>
+          <button id="recovery-refresh" class="secondary">刷新备份</button>
+          <button id="recovery-close" class="secondary">关闭</button>
+        </div>
+      </dialog>
     </main>
     <script src="app.js"></script>
   </body>

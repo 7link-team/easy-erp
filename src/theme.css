@@ -484,6 +484,8 @@ button, a, summary, label, [role="tab"] {
   background: var(--paper-0);
   border-bottom: 1px solid var(--line-2);
 }
+.navigation-back { flex-shrink: 0; }
+.topbar-location { display: flex; align-items: center; gap: var(--s-2); min-width: 0; }
 .workspace-title {
   color: var(--ink-1);
   font-size: var(--t-13);
@@ -833,6 +835,7 @@ button { transition: background-color var(--dur-1) var(--ease), border-color var
     color: var(--ink-1);
   }
   .mobile-brand svg { color: var(--brand); }
+  .topbar-location:has(.navigation-back) .mobile-brand svg { display: none; }
   .topbar .connection,
   .desktop-logout,
   .topbar .size-switch,

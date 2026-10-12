@@ -1,5 +1,5 @@
 use crate::preferences::{self, LOCAL_URL, Mode, Preferences};
-use crate::updates;
+use crate::{recovery, updates};
 use std::{
     path::PathBuf,
     process::{Child, Command, Stdio},
@@ -16,6 +16,7 @@ use tauri_plugin_autostart::ManagerExt;
 #[derive(Default)]
 pub(crate) struct Runtime {
     child: Mutex<Option<Child>>,
+    pub(crate) recovery_busy: std::sync::atomic::AtomicBool,
     url: Mutex<Option<url::Url>>,
     pub(crate) connection_lock: tokio::sync::Mutex<()>,
 }
@@ -43,8 +44,15 @@ pub(crate) fn data_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     #[cfg(not(windows))]
     Ok(legacy)
 }
-fn trusted(window: &tauri::WebviewWindow) -> Result<(), String> {
-    if window.label() == "launcher" {
+pub(crate) fn trusted(window: &tauri::WebviewWindow) -> Result<(), String> {
+    if window.label() == "launcher"
+        && window.url().is_ok_and(|url| {
+            matches!(
+                (url.scheme(), url.host_str()),
+                ("tauri", Some("localhost")) | ("http" | "https", Some("tauri.localhost"))
+            )
+        })
+    {
         Ok(())
     } else {
         Err("业务窗口没有本机管理权限。".into())
@@ -76,7 +84,7 @@ async fn set_autostart(
     .map_err(|e| e.to_string())
 }
 
-async fn verify_server(url: &url::Url) -> Result<String, String> {
+pub(crate) async fn verify_server(url: &url::Url) -> Result<String, String> {
     let response = reqwest::Client::builder()
         .timeout(Duration::from_secs(4))
         .redirect(reqwest::redirect::Policy::none())
@@ -108,7 +116,7 @@ async fn verify_server(url: &url::Url) -> Result<String, String> {
         .ok_or_else(|| "无法识别这套库存数据，请更新保存库存的电脑上的应用。".to_string())
 }
 
-fn verify_local_identity(dir: &std::path::Path, actual: &str) -> Result<(), String> {
+pub(crate) fn verify_local_identity(dir: &std::path::Path, actual: &str) -> Result<(), String> {
     let expected = std::fs::read_to_string(dir.join("instance-id")).map_err(|_| {
         "4280 端口已有其他服务，无法确认它属于本机库存目录。请在连接设置中重新选择保存库存的电脑。"
             .to_string()
@@ -121,7 +129,11 @@ fn verify_local_identity(dir: &std::path::Path, actual: &str) -> Result<(), Stri
     }
     Ok(())
 }
-fn open_business(app: &tauri::AppHandle, url: url::Url, visible: bool) -> Result<(), String> {
+pub(crate) fn open_business(
+    app: &tauri::AppHandle,
+    url: url::Url,
+    visible: bool,
+) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("inventory") {
         window.destroy().map_err(|e| e.to_string())?;
     }
@@ -133,7 +145,7 @@ fn open_business(app: &tauri::AppHandle, url: url::Url, visible: bool) -> Result
             "local": false,
             "remote": { "urls": [format!("{}/*", url.origin().ascii_serialization())] },
             "windows": ["inventory"],
-            "permissions": ["allow-open-web-address", "allow-update-info", "allow-check-update", "allow-set-update-channel", "allow-download-update", "allow-install-update"]
+            "permissions": ["allow-open-web-address", "allow-print-document", "allow-update-info", "allow-check-update", "allow-set-update-channel", "allow-download-update", "allow-install-update"]
         })
         .to_string(),
     )
@@ -172,7 +184,7 @@ async fn connect_host(
     .save(&config_path(&app)?)?;
     open_business(&app, url, true)
 }
-fn server_binary() -> Result<PathBuf, String> {
+pub(crate) fn server_binary() -> Result<PathBuf, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let dir = exe.parent().ok_or("无法找到应用目录")?;
     #[cfg(windows)]
@@ -363,6 +375,23 @@ fn browser_destination(source: &url::Url, address: &str) -> Result<url::Url, Str
 }
 
 #[tauri::command]
+async fn print_document(window: tauri::WebviewWindow, app: tauri::AppHandle) -> Result<(), String> {
+    let source = app
+        .state::<Runtime>()
+        .url
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or("请先连接库存电脑。")?;
+    if window.label() != "inventory"
+        || window.url().map_err(|e| e.to_string())?.origin() != source.origin()
+    {
+        return Err("当前窗口没有打印权限。".into());
+    }
+    window.print().map_err(|e| format!("无法打开系统打印：{e}"))
+}
+
+#[tauri::command]
 async fn open_web_address(
     window: tauri::WebviewWindow,
     app: tauri::AppHandle,
@@ -417,7 +446,21 @@ pub(crate) async fn wait_for_local_exit(app: &tauri::AppHandle) -> Result<(), St
 }
 
 fn menu_action(app: &tauri::AppHandle, id: &str) {
+    if app
+        .state::<Runtime>()
+        .recovery_busy
+        .load(std::sync::atomic::Ordering::SeqCst)
+    {
+        return;
+    }
     match id {
+        "recovery" => {
+            if let Some(window) = app.get_webview_window("launcher") {
+                let _ = window.show();
+                let _ = window.set_focus();
+                let _ = window.emit("open-recovery", ());
+            }
+        }
         "open" => show_app(app),
         "connection" => {
             if let Some(w) = app.get_webview_window("launcher") {
@@ -469,6 +512,7 @@ fn tray_image() -> tauri::image::Image<'static> {
 pub fn run() {
     tauri::Builder::default()
         .manage(Runtime::default())
+        .plugin(tauri_plugin_dialog::init())
         .manage(updates::Updates::default())
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             show_app(app)
@@ -479,6 +523,9 @@ pub fn run() {
                 .build(),
         )
         .invoke_handler(tauri::generate_handler![
+            recovery::recovery_list,
+            recovery::recovery_select_backup,
+            recovery::recovery_execute,
             connection_settings,
             set_autostart,
             connect_host,
@@ -487,6 +534,7 @@ pub fn run() {
             show_launcher,
             open_browser,
             open_web_address,
+            print_document,
             updates::update_info,
             updates::check_update,
             updates::set_update_channel,
@@ -502,6 +550,7 @@ pub fn run() {
             let open = MenuItem::with_id(app, "open", "打开库存管理", true, None::<&str>)?;
             let connection =
                 MenuItem::with_id(app, "connection", "连接与启动设置", true, None::<&str>)?;
+            let recovery = MenuItem::with_id(app, "recovery", "本机数据维护", true, None::<&str>)?;
             let quit =
                 MenuItem::with_id(app, "quit", "仅退出界面（共享继续）", true, None::<&str>)?;
             let quit_all = MenuItem::with_id(
@@ -512,12 +561,15 @@ pub fn run() {
                 None::<&str>,
             )?;
             let browser = MenuItem::with_id(app, "browser", "在浏览器中打开", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&open, &browser, &connection, &quit, &quit_all])?;
+            let menu = Menu::with_items(
+                app,
+                &[&open, &browser, &connection, &recovery, &quit, &quit_all],
+            )?;
             let application_menu = Submenu::with_items(
                 app,
                 "库存管理",
                 true,
-                &[&open, &browser, &connection, &quit, &quit_all],
+                &[&open, &browser, &connection, &recovery, &quit, &quit_all],
             )?;
             let edit = Submenu::with_items(
                 app,
@@ -561,12 +613,27 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
-                let _ = window.hide();
+                if !window
+                    .app_handle()
+                    .state::<Runtime>()
+                    .recovery_busy
+                    .load(std::sync::atomic::Ordering::SeqCst)
+                {
+                    let _ = window.hide();
+                }
             }
         })
         .build(tauri::generate_context!())
         .expect("桌面应用启动失败")
         .run(|_app, _event| {
+            if let tauri::RunEvent::ExitRequested { api, .. } = &_event
+                && _app
+                    .state::<Runtime>()
+                    .recovery_busy
+                    .load(std::sync::atomic::Ordering::SeqCst)
+            {
+                api.prevent_exit();
+            }
             // macOS sends Reopen when the running application's Dock icon is
             // clicked; the single-instance callback does not receive it.
             #[cfg(target_os = "macos")]

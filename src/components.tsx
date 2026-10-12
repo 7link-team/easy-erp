@@ -38,6 +38,7 @@ export function PageLink({
   page,
   query,
   navigate,
+  resetDetails = false,
   className = "",
   onClick,
   ...props
@@ -45,12 +46,24 @@ export function PageLink({
   page: Page;
   query?: Record<string, string>;
   navigate: Navigate;
+  resetDetails?: boolean;
 }) {
   useSyncExternalStore(subscribeQuery, querySnapshot);
+  const destinationQuery = resetDetails
+    ? {
+        sale_open: "",
+        sale_edit: "",
+        customer_ledger: "",
+        finance_customer: "",
+        sales_records:
+          new URLSearchParams(location.search).get("sales_records") || "",
+        ...query,
+      }
+    : query;
   return (
     <a
       {...props}
-      href={pageAddress(page, query)}
+      href={pageAddress(page, destinationQuery)}
       className={`ui-button page-link ${className}`}
       onClick={(event) => {
         if (
@@ -66,7 +79,7 @@ export function PageLink({
         onClick?.(event);
         if (event.defaultPrevented) return;
         event.preventDefault();
-        void navigate(page, undefined, query);
+        void navigate(page, undefined, destinationQuery);
       }}
     />
   );

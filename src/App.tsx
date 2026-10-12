@@ -13,6 +13,7 @@ import {
   lazy,
   Suspense,
   useEffect,
+  useCallback,
   useRef,
   useState,
   type RefObject,
@@ -34,6 +35,7 @@ import {
   Landmark,
   ChartNoAxesCombined,
   ArrowLeftRight,
+  ArrowLeft,
   Info,
   ContactRound,
   ListChecks,
@@ -466,13 +468,19 @@ export default function App() {
 }
 
 function Application({ dirty }: { dirty: RefObject<boolean> }) {
+  const onDirtyChange = useCallback(
+    (value: boolean) => {
+      dirty.current = value;
+    },
+    [dirty],
+  );
   const [user, setUser] = useState<User>();
   const [initialized, setInitialized] = useState(true);
   const [starting, setStarting] = useState(true);
   const [startError, setStartError] = useState("");
   const [browserError, setBrowserError] = useState("");
   const {
-    route: { page, initialItem, index: navigationIndex },
+    route: { page, initialItem, index: navigationIndex, previousPage },
     navigate,
     back,
     reset,
@@ -708,11 +716,7 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
                       key={id}
                       className={`${activePage === id ? "nav-item active" : "nav-item"} ${secondary.includes(id) ? "secondary-nav" : ""}`}
                       page={id as Page}
-                      query={
-                        ["finance", "accounts", "performance"].includes(id)
-                          ? {}
-                          : undefined
-                      }
+                      resetDetails
                       navigate={navigate}
                       aria-current={activePage === id ? "page" : undefined}
                     >
@@ -751,25 +755,37 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
       </aside>
       <div className="workspace">
         <header className="topbar">
-          <span className="mobile-brand">
-            <Boxes aria-hidden="true" size={22} />
-            库存管理
-          </span>
-          <span className="connection">
-            <strong className="workspace-title">
-              {nav.find(
-                (item) => item.id === (page === "returns" ? "sales" : page),
-              )?.label ??
-                (page === "updates"
-                  ? "关于"
-                  : page === "in"
-                    ? "入库登记"
-                    : "出库登记")}
-            </strong>
-            <i />
-            库存服务
-            <span className="host">{location.host}</span>
-          </span>
+          <div className="topbar-location">
+            {navigationIndex > 0 && (
+              <Button
+                className="icon-button navigation-back"
+                aria-label="返回上一页"
+                title="返回上一页"
+                onClick={() => back()}
+              >
+                <ArrowLeft aria-hidden="true" size={19} />
+              </Button>
+            )}
+            <span className="mobile-brand">
+              <Boxes aria-hidden="true" size={22} />
+              库存管理
+            </span>
+            <span className="connection">
+              <strong className="workspace-title">
+                {nav.find(
+                  (item) => item.id === (page === "returns" ? "sales" : page),
+                )?.label ??
+                  (page === "updates"
+                    ? "关于"
+                    : page === "in"
+                      ? "入库登记"
+                      : "出库登记")}
+              </strong>
+              <i />
+              库存服务
+              <span className="host">{location.host}</span>
+            </span>
+          </div>
           <div className="topbar-actions">
             <GlobalSearch user={user} revision={revision} navigate={navigate} />
             <SizeSwitch size={display.size} onChange={display.setSize} />
@@ -852,11 +868,8 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
                 direction={page}
                 initial={initialItem}
                 done={refresh}
-                back={back}
-                home={() => navigate("home")}
-                onDirtyChange={(value) => {
-                  dirty.current = value;
-                }}
+                back={() => back("movement")}
+                onDirtyChange={onDirtyChange}
               />
             )}
             {[
@@ -896,11 +909,20 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
                       : undefined
                   }
                   startNew={page === "invoice"}
+                  navigate={navigate}
+                  back={back}
+                  routePage={page}
+                  previousPage={previousPage}
                   onOpenList={(id) =>
-                    void navigate("sales", undefined, {
-                      sale_open: id || "",
-                      sale_print: "",
-                    })
+                    void navigate(
+                      "sales",
+                      undefined,
+                      {
+                        sale_open: id || "",
+                        sale_print: "",
+                      },
+                      { replace: true },
+                    )
                   }
                   financeSection={
                     financePage
@@ -919,9 +941,7 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
                   user={user}
                   revision={revision}
                   refresh={refresh}
-                  onDirtyChange={(value) => {
-                    dirty.current = value;
-                  }}
+                  onDirtyChange={onDirtyChange}
                 />
               )}
             {page === "movement" && allowedPage && (
@@ -975,11 +995,7 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
                   className="more-menu-item"
                   key={id}
                   page={id as Page}
-                  query={
-                    ["finance", "accounts", "performance"].includes(id)
-                      ? {}
-                      : undefined
-                  }
+                  resetDetails
                   navigate={navigate}
                   onClick={() => setMoreOpen(false)}
                 >

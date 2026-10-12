@@ -7,6 +7,8 @@ mod desktop;
 mod mobile;
 mod preferences;
 #[cfg(desktop)]
+mod recovery;
+#[cfg(desktop)]
 mod update_channel;
 #[cfg(desktop)]
 mod update_network;
