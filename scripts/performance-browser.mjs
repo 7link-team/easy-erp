@@ -1,5 +1,5 @@
 // Run after performance.py, on its synthetic database only.
-// Usage: node scripts/performance-browser.mjs tmp/performance-xxx/100000
+// Usage: node scripts/performance-browser.mjs build-artifacts/tmp/performance-xxx/100000
 import { chromium } from "@playwright/test";
 import { spawn, execFileSync } from "node:child_process";
 import { randomBytes, createHash } from "node:crypto";
@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const directory = fs.realpathSync(path.resolve(process.argv[2] || ""));
 if (
-  !directory.startsWith(path.join(root, "tmp", "performance-")) ||
+  !directory.startsWith(path.join(root, "build-artifacts", "tmp", "performance-")) ||
   !fs.existsSync(path.join(directory, "results.json")) ||
   !fs.existsSync(path.join(directory, "..", "metadata.json"))
 ) {

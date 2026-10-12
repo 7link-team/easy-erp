@@ -32,13 +32,14 @@ target/
 *.keystore
 *.jks
 
-# Generated Playwright reports
+# Legacy output paths (new reports, screenshots and caches use build-artifacts/)
 /test-results/
 /playwright-report/
 /playwright-report-*/
 /playwright/
 /blob-report/
 /coverage/
+/simulator-evidence/
 
 # Local acceptance notes and image previews
 /docs/*验收*.md

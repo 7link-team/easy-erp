@@ -3,7 +3,7 @@
 
 Creates its own temporary database; never accepts an existing data directory.
 Synthetic history is inserted offline into the schema created by the real server.
-All measured operations use HTTP. Results and generated databases stay in tmp/.
+All measured operations use HTTP. Results and generated databases stay in build-artifacts/tmp/.
 """
 
 import argparse
@@ -515,8 +515,8 @@ def main():
     args.binary = args.binary.resolve()
     assert args.binary.is_file()
     assert args.items >= 124 and all(n >= 1000 and n % 1000 == 0 for n in args.sizes)
-    (ROOT / "tmp").mkdir(exist_ok=True)
-    root = Path(tempfile.mkdtemp(prefix="performance-", dir=ROOT / "tmp"))
+    (ROOT / "build-artifacts/tmp").mkdir(parents=True, exist_ok=True)
+    root = Path(tempfile.mkdtemp(prefix="performance-", dir=ROOT / "build-artifacts/tmp"))
     meta = {"started": dt.datetime.now().isoformat(), "commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
             "binary_sha256": hashlib.sha256(args.binary.read_bytes()).hexdigest(),
             "platform": subprocess.check_output(["uname", "-a"], text=True).strip(),

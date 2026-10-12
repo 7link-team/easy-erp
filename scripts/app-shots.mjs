@@ -3,7 +3,7 @@ const B = process.env.ERP_URL || 'http://127.0.0.1:5173';
 const username = process.env.ERP_USERNAME;
 const password = process.env.ERP_PASSWORD;
 if (!username || !password) throw new Error('请设置 ERP_USERNAME 和 ERP_PASSWORD，使用专用验收账号。');
-const D = 'design-system/v2/shots/app-';
+const D = 'build-artifacts/screenshots/app-';
 const b = await chromium.launch();
 const ctx = await b.newContext({ viewport: { width: 1440, height: 980 }, deviceScaleFactor: 2 });
 const p = await ctx.newPage();

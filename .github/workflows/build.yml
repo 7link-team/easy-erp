@@ -94,10 +94,7 @@ jobs:
         if: always()
         with:
           name: e2e-${{ matrix.browser }}-evidence
-          path: |
-            playwright-report/
-            test-results/
-            tmp/*.png
+          path: build-artifacts/playwright/${{ matrix.browser }}/
           if-no-files-found: ignore
           retention-days: 14
 
@@ -297,7 +294,7 @@ jobs:
         if: always()
         with:
           name: ios-simulator-evidence
-          path: simulator-evidence/*
+          path: build-artifacts/simulator-evidence/*
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         if: always()

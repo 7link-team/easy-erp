@@ -895,7 +895,7 @@ test("退货作废汇总保留历史应收和实际退款，原单往返保留�
       ),
     ).toBeTruthy();
     await page.screenshot({
-      path: `tmp/returns-${testInfo.project.name}-${width}.png`,
+      path: test.info().outputPath(`returns-${testInfo.project.name}-${width}.png`),
     });
   }
   await filters.getByRole("button", { name: "作废记录", exact: true }).click();

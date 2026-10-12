@@ -11,7 +11,7 @@
 | `prototype.html` | 17 屏可点击原型 + 5 个弹窗（权限身份、字号三档、深浅主题均可现场切换） |
 | `print.css` / `print.html` | A4 销售出货单打印稿（正常单 + 作废单两张） |
 | `preview.html` | 评审用视觉稿：4 个手机壳 + 3 个桌面窗口 + 打印稿 |
-| `shots/` | 36 张评审截图：`d-*` 桌面原型 · `m-*` 手机原型 · `print`/`preview` · **`app-*` 真实应用**（浅色 / 深色 / 大字号 / 弹窗 / 手机） |
+| `../../build-artifacts/screenshots/` | 评审截图（旧截图保存在其 `archive/design-system-v2/` 下）：`d-*` 桌面原型 · `m-*` 手机原型 · `print`/`preview` · **`app-*` 真实应用**（浅色 / 深色 / 大字号 / 弹窗 / 手机） |
 
 本地查看：`cd design-system/v2 && python3 -m http.server 8912`，打开 `http://127.0.0.1:8912/preview.html`。
 

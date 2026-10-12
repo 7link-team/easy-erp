@@ -7,13 +7,21 @@ const dataDir =
   process.env.ERP_E2E_DATA ?? mkdtempSync(join(tmpdir(), "easy-erp-e2e-"));
 process.env.ERP_E2E_DATA = dataDir;
 
+const browser =
+  process.env.ERP_E2E_BROWSER === "webkit" ? "webkit" : "chromium";
+const artifacts = join("build-artifacts", "playwright", browser);
+
 export default defineConfig({
   testDir: "./tests/e2e",
   fullyParallel: false,
   workers: 1,
   retries: 0,
   timeout: 45_000,
-  reporter: [["list"], ["html", { open: "never" }]],
+  outputDir: join(artifacts, "results"),
+  reporter: [
+    ["list"],
+    ["html", { open: "never", outputFolder: join(artifacts, "report") }],
+  ],
   use: {
     baseURL: "http://127.0.0.1:4289",
     trace: "retain-on-failure",

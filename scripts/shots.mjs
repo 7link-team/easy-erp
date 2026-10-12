@@ -1,6 +1,6 @@
 import { chromium } from '@playwright/test';
 const B='http://127.0.0.1:8912/prototype.html';
-const D='design-system/v2/shots/';
+const D='build-artifacts/screenshots/';
 const b=await chromium.launch();
 
 async function shot(name,{w=1440,h=980,hash='workbench',act,dark,size}={}) {

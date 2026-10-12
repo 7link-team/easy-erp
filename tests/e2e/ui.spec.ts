@@ -177,7 +177,7 @@ test("收发多物料局部滚动，确认按钮始终可见", async ({ page }) 
         await fits(page);
       }
       await page.screenshot({
-        path: `test-results/movement-${direction}-${viewport.width}.png`,
+        path: test.info().outputPath(`movement-${direction}-${viewport.width}.png`),
       });
     }
     await confirm.click();
@@ -217,7 +217,7 @@ test("工作台经营展示带与库存指标按原型分区且悬停可读", as
       await expect(card.locator(":scope > strong")).toHaveCSS("color", ink);
     }
     await page.screenshot({
-      path: `test-results/summary-colors-${width}.png`,
+      path: test.info().outputPath(`summary-colors-${width}.png`),
       fullPage: true,
     });
     await fits(page);
@@ -262,7 +262,7 @@ test("统一控件尺寸、中文行内校验、下拉键盘操作", async ({ pa
   ]) {
     expect((await locator.boundingBox())!.height).toBe(desktopHeight);
   }
-  await page.screenshot({ path: "test-results/unified-controls-desktop.png" });
+  await page.screenshot({ path: test.info().outputPath("unified-controls-desktop.png") });
   await page.setViewportSize({ width: 375, height: 667 });
   // 窄屏触控目标必须更高，且不低于 44px
   const mobileHeight = await controlHeight();
@@ -272,7 +272,7 @@ test("统一控件尺寸、中文行内校验、下拉键盘操作", async ({ pa
   await expect(
     page.getByRole("option", { name: "原材料", exact: true }),
   ).toBeVisible();
-  await page.screenshot({ path: "test-results/unified-controls-mobile.png" });
+  await page.screenshot({ path: test.info().outputPath("unified-controls-mobile.png") });
   await page.getByRole("option", { name: "原材料", exact: true }).click();
   await fits(page);
 });
@@ -368,7 +368,7 @@ test("Web 地址选择与中文文件选择器", async ({ page }) => {
     await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth),
   ).toBeTruthy();
   await page.screenshot({
-    path: "test-results/web-address-mobile.png",
+    path: test.info().outputPath("web-address-mobile.png"),
     fullPage: true,
   });
   await dialog.getByRole("button", { name: "关闭", exact: true }).click();
@@ -588,7 +588,7 @@ for (const viewport of [
       await page.getByRole("button", { name: "返回", exact: true }).click();
     }
     await page.screenshot({
-      path: `test-results/ui-${viewport.width}.png`,
+      path: test.info().outputPath(`ui-${viewport.width}.png`),
       fullPage: true,
     });
     expect(pageErrors).toEqual([]);
@@ -640,7 +640,7 @@ test("手机底部导航固定、更多入口、返回保护与刷新定位", as
 test("手机物料列表不横滑即可入库，底栏不遮挡操作", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 667 });
   await login(page);
-  await page.screenshot({ path: "test-results/app-home-mobile.png" });
+  await page.screenshot({ path: test.info().outputPath("app-home-mobile.png") });
   const itemName = `手机物料操作验收-${Date.now()}`;
   const created = await page.request.post("/api/items", {
     headers: { "X-ERP-Request": "1" },
@@ -679,7 +679,7 @@ test("手机物料列表不横滑即可入库，底栏不遮挡操作", async ({
     .boundingBox())!;
   const bar = (await page.locator(".sidebar").boundingBox())!;
   expect(action.y + action.height).toBeLessThanOrEqual(bar.y);
-  await page.screenshot({ path: "test-results/app-inventory-mobile.png" });
+  await page.screenshot({ path: test.info().outputPath("app-inventory-mobile.png") });
   await row.getByRole("button", { name: "入库", exact: true }).click();
   await page.getByLabel("入库数量", { exact: false }).fill("2");
   await page.getByRole("button", { name: "确认入库", exact: true }).click();

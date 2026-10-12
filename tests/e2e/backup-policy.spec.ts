@@ -33,5 +33,5 @@ test("自动备份仅配置保留天数，支持手机并保存验证结果", as
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   }
   await page.setViewportSize({ width: 375, height: 812 });
-  await page.screenshot({ path: "tmp/backup-policy-mobile.png", fullPage: true });
+  await page.screenshot({ path: test.info().outputPath("backup-policy-mobile.png"), fullPage: true });
 });

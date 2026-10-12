@@ -111,7 +111,7 @@ test.describe.serial("真实主机与浏览器的库存闭环", () => {
       ),
     ).toBeTruthy();
     await page.screenshot({
-      path: "test-results/stocktake-mobile.png",
+      path: test.info().outputPath("stocktake-mobile.png"),
       fullPage: true,
     });
     await page.setViewportSize({ width: 1280, height: 800 });
@@ -129,7 +129,7 @@ test.describe.serial("真实主机与浏览器的库存闭环", () => {
       page.getByRole("cell", { name: "98 个", exact: true }),
     ).toBeVisible();
     await page.screenshot({
-      path: "test-results/inventory-desktop.png",
+      path: test.info().outputPath("inventory-desktop.png"),
       fullPage: true,
     });
   });
@@ -222,7 +222,7 @@ test.describe.serial("真实主机与浏览器的库存闭环", () => {
     });
     expect(forbidden.status()).toBe(403);
     await worker.screenshot({
-      path: "test-results/worker-mobile.png",
+      path: test.info().outputPath("worker-mobile.png"),
       fullPage: true,
     });
     expect(

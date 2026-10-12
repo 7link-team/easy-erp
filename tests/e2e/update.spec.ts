@@ -135,7 +135,7 @@ test("手机更多菜单可进入更新页面，窄屏与横屏不溢出", async
     await page.setViewportSize(size);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   }
-  await page.screenshot({ path: "tmp/update-mobile.png", fullPage: true });
+  await page.screenshot({ path: test.info().outputPath("update-mobile.png"), fullPage: true });
 });
 
 test("Web 更新页显示服务版本和刷新入口", async ({ page }) => {
@@ -148,7 +148,7 @@ test("Web 更新页显示服务版本和刷新入口", async ({ page }) => {
   await expect(page.getByText("当前库存服务版本", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "刷新页面", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "下载更新", exact: true })).toHaveCount(0);
-  await page.screenshot({ path: "tmp/update-web.png", fullPage: true });
+  await page.screenshot({ path: test.info().outputPath("update-web.png"), fullPage: true });
 });
 
 test("下载切换直连时显示提示、重置进度并可完成", async ({ page }) => {

@@ -1,5 +1,23 @@
 # Task State
 
+## 当前任务：提交推送、测试并发布v0.2.1（2026-10-12）
+用户已明确授权提交全部改动、测试通过后正式发版。Direct执行；复用既有标签构建/Release流程，不需再次确认。
+本版包含a3ff4e3关于页源码/Release入口，以及本轮生成文件归拢；前者Actions38189163931已全绿。发布说明docs/releases/v0.2.1.md，7个版本/锁文件同步0.2.1，无依赖升级。
+本地发布预检PASS：npm build、typecheck:e2e、发布清单4测试、Rust server/desktop cargo check --offline、版本一致性、Prettier/rustfmt/git diff --check。目录迁移与双浏览器/性能输出专项证据见下文，不冒充完整云端结果。
+Current Step / Next Action：提交并推main与v0.2.1标签；等待标签完整CI和草稿，再验证所有资产hash及四平台签名、正式发布、核对匿名latest入口。尚未正式发布v0.2.1。
+约束：不覆盖v0.2.0资产，不改签名身份，不动真实业务数据库/原有服务；只取消由同SHA标签构建覆盖的重复main构建。最终发布必须完成，不能只停留在草稿。
+
+---
+
+## 当前任务：根目录生成文件归拢（2026-10-12）
+用户确认范围：报告、截图、临时文件和缓存统一，保留dist/target等工具标准构建目录。Direct，复用现有build-artifacts/，不改产品行为、不删除业务数据。
+已将根目录16份playwright-report*及test-results原样迁至build-artifacts/playwright/archive/，tmp迁至build-artifacts/tmp/，tsconfig.tsbuildinfo迁至build-artifacts/cache/；设计截图迁至build-artifacts/screenshots/archive/design-system-v2/。此前文档/检查点中的tmp/...证据现需到build-artifacts/tmp/...查找；保留历史报告的原始测量内容。
+生成配置：Playwright按chromium/webkit分report与results；16处硬编码截图使用test.info().outputPath；TypeScript缓存固定到build-artifacts/cache/；截图/性能/iOS模拟器脚本及Actions附件路径同步，README和设计目录说明更新。node_modules、dist、target、desktop/target及标准发布产物位置保持。
+验证：npm build、typecheck:e2e PASS；Chromium2/WebKit2既有用例PASS，各自HTML报告与3张截图均落新目录，根目录未再生成报告/截图/tsbuildinfo；1000单性能输出烟测PASS、integrity ok。Node/Python语法与CI生成/上传路径一致性检查PASS；性能浏览器3个页面输出烟测PASS，截图及结果均位于新建build-artifacts/tmp/performance-*目录。未运行完整云端CI或iOS模拟器，仅调整其证据路径并静态核对。
+Self-review与本次范围Acceptance PASS：旧资料完整移动，生成器与CI使用统一路径，标准构建及业务服务未动。当前无待执行修复；改动尚未提交推送。
+
+---
+
 ## 当前任务：关于页项目地址（2026-10-12，已实现验证）
 用户要求关于页增加源码和Release地址。Direct；复用Updates页、现有native open_web_address及主题样式；package.json repository.url/homepage统一配置两个地址。
 已增加两行项目链接、完整可复制URL、外链提示和图标；新标签页/系统浏览器打开，错误显示复制地址提示，320px自动换行，两个面板间20px。

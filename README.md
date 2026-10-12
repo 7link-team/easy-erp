@@ -53,6 +53,21 @@ ERP_E2E_BROWSER=webkit npm run test:e2e
 
 Playwright 配置和测试代码纳入版本管理，GitHub Actions 在 Chromium 与 WebKit 中运行完整 E2E，并上传报告、截图和 PDF。运行报告不提交到仓库。
 
+报告、截图、临时文件和检查缓存统一放在已忽略的 `build-artifacts/` 下：
+
+| 目录                                   | 内容                                                              |
+| -------------------------------------- | ----------------------------------------------------------------- |
+| `build-artifacts/playwright/chromium/` | Chromium 的 `report/` HTML 报告及 `results/` 测试截图、追踪等附件 |
+| `build-artifacts/playwright/webkit/`   | WebKit 的报告和测试附件                                           |
+| `build-artifacts/screenshots/`         | 原型和应用截图脚本产物                                            |
+| `build-artifacts/tmp/`                 | 性能测试的合成数据库、结果及其他本地临时资料                      |
+| `build-artifacts/cache/`               | TypeScript 增量检查缓存                                           |
+| `build-artifacts/simulator-evidence/`  | iOS 模拟器启动检查的截图和日志                                    |
+
+查看报告：`npx playwright show-report build-artifacts/playwright/chromium/report`（WebKit 将 `chromium` 换为 `webkit`）。同一浏览器的新一轮测试会替换其报告及结果；需要保留某轮证据时，将整轮目录复制到 `build-artifacts/playwright/archive/`，不要另建根目录报告文件夹。测试中的截图使用 `test.info().outputPath(...)`，随用例输出到对应浏览器的结果目录。
+
+本地已有的根目录 `playwright-report*`、`test-results` 已归档到 `build-artifacts/playwright/archive/`，原 `tmp/` 迁至 `build-artifacts/tmp/`；历史验收文档中的旧路径按此对应查找。工具标准目录 `node_modules/`、`dist/`、`target/` 和 `desktop/target/` 保留原位置。
+
 设计系统见 [`design-system/v2/DESIGN.md`](design-system/v2/DESIGN.md)。真实应用的主题令牌集中在 `src/theme.css`，打印使用独立配色；原型与实装的差异列在设计文档第 18 节。
 
 ```sh

@@ -216,7 +216,7 @@ test("工作台真实月度账款、每日金额、业绩、60天提醒与今日
         }
         if (size === "md")
           await page.screenshot({
-            path: `tmp/dashboard-${testInfo.project.name}-${width}-${theme}.png`,
+            path: test.info().outputPath(`dashboard-${testInfo.project.name}-${width}-${theme}.png`),
             fullPage: true,
           });
       }
