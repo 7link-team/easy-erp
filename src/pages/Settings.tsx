@@ -3,6 +3,8 @@ import { Disclosure } from "../ui";
 import { Form, Input, Button } from "../ui";
 import { useEffect, useState } from "react";
 import { api, send, dateTime } from "../api";
+import { nativeBrowser } from "../browserLogin";
+import { useAppUpdates } from "../NativeTools";
 import {
   Field,
   Modal,
@@ -37,6 +39,7 @@ const backupSources = new Map([
   ["maintenance", "维护前保护"],
   ["shutdown", "退出或升级前"],
 ]);
+const backupPageSize = 10;
 
 export default function Settings({
   revision,
@@ -46,9 +49,11 @@ export default function Settings({
   refresh: () => void;
 }) {
   const action = useAction();
+  const { info: nativeInfo } = useAppUpdates();
   const [message, setMessage] = useState("");
   const [restoring, setRestoring] = useState<Backup>();
   const [confirmation, setConfirmation] = useState("");
+  const [backupPage, setBackupPage] = useState(1);
   const [schedule, setSchedule] = useState<Schedule>({
     keep_days: 7,
   });
@@ -61,6 +66,16 @@ export default function Settings({
   useEffect(() => {
     if (data) setSchedule(data.schedule);
   }, [data]);
+  const backupCount = data?.items.length ?? 0;
+  const backupPages = Math.max(1, Math.ceil(backupCount / backupPageSize));
+  const currentBackupPage = Math.min(backupPage, backupPages);
+  const visibleBackups = data?.items.slice(
+    (currentBackupPage - 1) * backupPageSize,
+    currentBackupPage * backupPageSize,
+  );
+  useEffect(() => {
+    setBackupPage((page) => Math.min(page, backupPages));
+  }, [backupPages]);
   return (
     <>
       <div className="page-heading">
@@ -145,6 +160,7 @@ export default function Settings({
           onClick={() =>
             action.run(async () => {
               await send("/backups", {});
+              setBackupPage(1);
               setMessage("完整备份已生成。");
               refresh();
             })
@@ -175,7 +191,7 @@ export default function Settings({
                   </tr>
                 </thead>
                 <tbody>
-                  {data?.items.map((b) => (
+                  {visibleBackups?.map((b) => (
                     <tr key={b.name}>
                       <td data-label="时间 / 文件">
                         <strong>
@@ -237,6 +253,55 @@ export default function Settings({
               </table>
             </TableScroll>
           )
+        )}
+        {!loading && !error && backupCount > 0 && (
+          <nav className="pagination" aria-label="备份记录分页">
+            <span aria-live="polite">
+              共 {backupCount} 份备份 · 每页 {backupPageSize} 条 · 第{" "}
+              {currentBackupPage} / {backupPages} 页
+            </span>
+            <div>
+              <Button
+                className="button small"
+                disabled={currentBackupPage === 1}
+                onClick={() => setBackupPage(currentBackupPage - 1)}
+              >
+                上一页
+              </Button>
+              <Button
+                className="button small"
+                disabled={currentBackupPage === backupPages}
+                onClick={() => setBackupPage(currentBackupPage + 1)}
+              >
+                下一页
+              </Button>
+            </div>
+          </nav>
+        )}
+      </section>
+      <section className="panel section-divider">
+        <h2>本机数据维护</h2>
+        <p>
+          清空数据（不含备份数据）、从外部备份恢复、清空备份，请在桌面版的“本机数据维护”中操作。
+          仅维护这台电脑的本机数据，不会清空当前连接的远程库存电脑。
+        </p>
+        <p className="hint">
+          也可从桌面顶部菜单或托盘菜单选择“本机数据维护”。清空前请核对数据目录；清空操作需要输入确认文字，不可撤销。
+        </p>
+        {nativeInfo && !nativeInfo.mobile ? (
+          <Button
+            className="button"
+            disabled={action.busy}
+            onClick={() =>
+              action.run(async () => {
+                await nativeBrowser()!.invoke("open_data_maintenance", {});
+              })
+            }
+          >
+            打开本机数据维护
+          </Button>
+        ) : (
+          <p className="hint">请到需要维护的电脑上打开桌面版。</p>
         )}
       </section>
       <section className="panel section-divider">

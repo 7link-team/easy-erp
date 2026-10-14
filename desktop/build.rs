@@ -12,6 +12,7 @@ fn main() {
             "show_launcher",
             "open_browser",
             "open_web_address",
+            "open_data_maintenance",
             "print_document",
             "update_info",
             "check_update",

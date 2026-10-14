@@ -44,14 +44,56 @@ pub(crate) fn data_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     #[cfg(not(windows))]
     Ok(legacy)
 }
+fn launcher_origin_allowed(url: &url::Url, dev_url: Option<&url::Url>) -> bool {
+    matches!(
+        (url.scheme(), url.host_str()),
+        ("tauri", Some("localhost")) | ("http" | "https", Some("tauri.localhost"))
+    ) || (cfg!(debug_assertions)
+        && dev_url.is_some_and(|configured| url.origin() == configured.origin()))
+}
+
+#[cfg(test)]
+mod launcher_origin_tests {
+    use super::launcher_origin_allowed;
+    use url::Url;
+
+    #[test]
+    fn accepts_packaged_launcher_without_development_server() {
+        for address in [
+            "tauri://localhost/",
+            "http://tauri.localhost/",
+            "https://tauri.localhost/",
+        ] {
+            assert!(launcher_origin_allowed(&Url::parse(address).unwrap(), None));
+        }
+    }
+
+    #[test]
+    fn development_launcher_requires_the_configured_origin() {
+        let configured = Url::parse("http://127.0.0.1:1430/").unwrap();
+        assert_eq!(
+            launcher_origin_allowed(&configured.join("index.html").unwrap(), Some(&configured)),
+            cfg!(debug_assertions)
+        );
+        for address in [
+            "http://127.0.0.1:4291/",
+            "http://127.0.0.1:4280/",
+            "http://localhost:1430/",
+            "https://127.0.0.1:1430/",
+            "https://example.com/",
+        ] {
+            let url = Url::parse(address).unwrap();
+            assert!(!launcher_origin_allowed(&url, Some(&configured)));
+            assert!(!launcher_origin_allowed(&url, None));
+        }
+    }
+}
+
 pub(crate) fn trusted(window: &tauri::WebviewWindow) -> Result<(), String> {
     if window.label() == "launcher"
-        && window.url().is_ok_and(|url| {
-            matches!(
-                (url.scheme(), url.host_str()),
-                ("tauri", Some("localhost")) | ("http" | "https", Some("tauri.localhost"))
-            )
-        })
+        && window
+            .url()
+            .is_ok_and(|url| launcher_origin_allowed(&url, window.config().build.dev_url.as_ref()))
     {
         Ok(())
     } else {
@@ -145,7 +187,7 @@ pub(crate) fn open_business(
             "local": false,
             "remote": { "urls": [format!("{}/*", url.origin().ascii_serialization())] },
             "windows": ["inventory"],
-            "permissions": ["allow-open-web-address", "allow-print-document", "allow-update-info", "allow-check-update", "allow-set-update-channel", "allow-download-update", "allow-install-update"]
+            "permissions": ["allow-open-web-address", "allow-open-data-maintenance", "allow-print-document", "allow-update-info", "allow-check-update", "allow-set-update-channel", "allow-download-update", "allow-install-update"]
         })
         .to_string(),
     )
@@ -392,6 +434,33 @@ async fn print_document(window: tauri::WebviewWindow, app: tauri::AppHandle) -> 
 }
 
 #[tauri::command]
+fn open_data_maintenance(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let source = app
+        .state::<Runtime>()
+        .url
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or("请先连接库存电脑。")?;
+    if window.label() != "inventory"
+        || window.url().map_err(|e| e.to_string())?.origin() != source.origin()
+    {
+        return Err("请从库存管理窗口打开本机数据维护。".into());
+    }
+    let launcher = app
+        .get_webview_window("launcher")
+        .ok_or("找不到本机数据维护窗口，请重启桌面版。")?;
+    launcher.show().map_err(|e| e.to_string())?;
+    launcher.set_focus().map_err(|e| e.to_string())?;
+    launcher
+        .emit("open-recovery", ())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn open_web_address(
     window: tauri::WebviewWindow,
     app: tauri::AppHandle,
@@ -533,6 +602,7 @@ pub fn run() {
             resume_last,
             show_launcher,
             open_browser,
+            open_data_maintenance,
             open_web_address,
             print_document,
             updates::update_info,

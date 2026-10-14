@@ -131,6 +131,10 @@ test("启动失败后可维护，精确确认且执行中锁住所有选项和�
       ),
     ),
   ).toBe(true);
+  await page.getByRole("button", { name: "本机数据维护", exact: true }).click();
+  await expect(dialog).toBeVisible();
+  await expect(page.locator("#recovery-confirm")).toHaveValue("");
+  await expect(page.locator("#recovery-action")).toBeEnabled();
 });
 
 test("远程连接时菜单进入维护只显示本机范围，选择ZIP恢复后立即启动", async ({

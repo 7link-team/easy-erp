@@ -138,3 +138,27 @@ Next: 最终检查后提交所有已审查源码/测试/README/状态与desktop 
 Delivery checkpoint — 2026-10-12
 实现提交21e0ff9d6a0d1826ae4542c60094087a6f11f36c已推送origin/main，远端SHA核对一致。GitHub Actions38244820238已启动（in_progress），尚不能宣称云端通过；本地验证证据如上。此记录仅文档，随[skip ci]提交推送，不重跑/取消实现提交的验证。当前用户桌面仍为先前本地测试版，本轮未重启或发版。
 Remaining: 实现与提交推送无待办；云端构建结果待GitHub完成。下一步如需发版，先核对上述Actions与新桌面设备验收，不把本地CLI/桥模拟当作Windows实机验证。
+
+## Follow-up — 2026-10-14 桌面开发启动权限误判
+Phase: ACCEPTANCE / Direct。用户要求运行桌面，随后报告数据不见、使用本机按钮无响应，并要求需要权限时引导授权。
+原因：tauri dev 无显式devUrl时由CLI提供127.0.0.1:1430启动页；trusted仅接受打包协议，错误拒绝launcher，截图显示“业务窗口没有本机管理权限”。不是macOS权限拒绝，无需系统授权。
+修复：desktop/src/desktop.rs复用配置build.dev_url，debug构建只额外接受其精确origin，仍要求launcher标签。其他端口、协议、主机不放行；正式release不额外接受dev origin。
+数据只读核对：connection.json仍为remote http://127.0.0.1:4291/；服务PID48241、build-artifacts/tmp/desktop-v0.2.1-test数据库仍在，5物料/4销售单；本机默认server目录是另一个旧库（2物料）。未迁移、清空或恢复任一数据库，未更改连接配置。
+Verification: 桌面dev编译成功并实际输出“库存业务窗口已打开”，自动恢复4291连接；/api/status initialized=true、v0.2.1。cargo test --manifest-path desktop/Cargo.toml --lib 18/18 PASS（含新增2项origin回归）；cargo fmt、git diff --check PASS。未点击切换本机以免启动/升级另一旧库；未进行登录后业务写入测试。未提交/发布。
+Self-review / Acceptance: 修复权限误判并恢复原服务入口PASS；系统授权引导原则已向用户说明，此次无可授权的系统权限。
+Next: 用户继续使用恢复的库存窗口；没有待执行修复，变更留在工作区。
+
+## Active Task — 2026-10-14 备份分页与维护入口
+Phase: IMPLEMENTATION / Direct。用户要求完整备份与恢复分页、找回手动清空入口，并询问为何不保持登录。
+设计：备份API不变，沿用现有pagination样式，每页10条，页数随列表收缩钳制，新增备份回第一页；备份页新增本机维护入口，仅打开既有桌面维护窗口，复用open-recovery事件/菜单行为，不执行任何维护。浏览器显示顶部/托盘菜单指引。保持本机与远程数据区别及原确认机制。
+登录只读证据：Library/HTTPStorages/easy-erp-desktop.binarycookies与com.aspeed.easy-erp.binarycookies分别对应开发可执行文件和打包App；两者当前令牌摘要都匹配4291数据库有效会话，分别11月13日20:39和20:14到期。开发启动和打包App存储身份不同导致此前需登录，现开发身份已重新登录。未修改Cookie/会话/有效期。
+约束：不清空、不恢复、不迁移用户数据库；不更改自动登录时长。构建先输出隔离目录，测试使用独立4289服务与浏览器上下文；向dist交付保留旧assets防止正在运行窗口懒加载失败。
+Next: 实现分页与仅打开维护窗口的桥接，补分页边界/选中恢复文件/维护入口回归，构建并跑相关双浏览器E2E及桌面测试。
+
+Checkpoint — 备份分页完成，准备v0.2.2发布
+用户最新授权“弄好了就推送发版”，覆盖此前不提交/发布限制。版本7文件同步0.2.2；发布说明docs/releases/v0.2.2.md涵盖自v0.2.1以来已合并但未发版的维护/更新/桌面流程及本次分页入口。
+已实现每页10条、末页边界、列表收缩钳制、新备份回首页；备份页复用UpdateProvider识别桌面，网页版/移动版只显示指引。新native命令仅对当前inventory窗口的已连接origin开放，显示launcher并发送既有open-recovery事件，不授予业务窗口执行维护权限。
+Verification: Chromium最终分页+维护8/8 PASS；先前备份策略及真实备份详情等其余9项PASS（首轮分页日期断言错误已改为选中文件的确切快照时间）；WebKit最终13项运行中。桌面0.2.2单测18/18 PASS；Node发布/更新权限5/5 PASS；typecheck、typecheck:e2e、隔离vite构建、Prettier、diff检查PASS。维护关闭→本机启动→再次打开维护新增断言在WebKit最终轮覆盖。未对真实数据执行维护。
+本地Web产物已合并到dist且保留旧assets，避免旧窗口懒加载404；桌面开发进程0.2.2已编译并重新打开4291业务窗口。
+Next: 等WebKit结果并复核版本/改动，提交已审查14文件、推送main和v0.2.2标签；跟踪完整tag Actions，所有门禁通过后验草稿资产签名/哈希并正式发布，匿名核对latest清单。不得把云端运行中说成已发布。
+最终本地检查：WebKit13/13 PASS（含维护关闭后再次打开），版本与两锁文件精确一致0.2.2；工作区仅14个已审查交付文件，无生成文件。Self-review / 本次功能Acceptance PASS。即将提交并推送，正式发布仍等待完整tag云端门禁和资产验收。
