@@ -1,5 +1,28 @@
 # Task State
 
+## 当前任务：v0.2.2备份分页、维护入口与正式发布（2026-10-14，已完成）
+用户明确授权“弄好了就推送发版”。Direct执行，无子代理；使用ui-ux-pro-max沿用现有界面。实现提交db6b4f0、测试门禁修正99265f0均已推送；正式标签v0.2.2固定99265f09460f7fd889840eb91c55ccce5dd6e47b，不再移动。
+正式Release：https://github.com/7link-team/easy-erp/releases/tag/v0.2.2 ，2026-10-14T13:39:03Z发布，Latest、非草稿、非预发布，23个资产共283837226字节。
+
+### 已完成及验证
+- 完整备份每页10条，显示总数/页数；边界按钮禁用、列表收缩钳制、新备份回首页，末页下载/恢复选择正确。
+- 备份页新增本机维护入口；桌面调用只显示原launcher并发送open-recovery，业务窗口不具备执行维护权限。Web/移动版显示菜单与桌面指引，本机与远程数据范围明确。
+- 修复开发启动页origin被trusted拒绝；仅debug接受配置dev_url精确origin，保留launcher标签限制。原数据仍在4291，未清空、迁移或恢复用户数据库。
+- 确认关闭维护后可回启动页继续选择本机/远程，并可再次打开维护；维护执行期间仍禁止关闭。自动登录原因是开发可执行文件与打包App存储身份不同；已登录后的开发Cookie有效，未改变有效期或复制令牌。
+- 本地typecheck/typecheck:e2e/隔离构建/格式检查、桌面18项、Node发布/权限5项PASS；Chromium相关专项和财务16项、WebKit相关13项及UTC原失败3项PASS。
+- 最终tag Actions38568513174 SUCCESS，精确源99265f0；Chromium169/169、WebKit169/169，Windows/Linux检查、四桌面目标、Android正式包、iOS模拟器安装启动存活及release全部成功；iOS真机未配签名按规则跳过。
+- 既有云端测试误差已最小修正：本地时间格式不写死时区；业绩历史行按业务员+部门定位，同时验证旧部门历史金额与新部门零金额；不修改产品财务规则、不削弱断言。初始重复与过时构建已取消。
+- 实际下载23资产，大小/SHA256SUMS/GitHub digest全部一致，四平台更新签名使用v0.2.1既有公钥验证PASS，两架构macOS包内版本0.2.2。
+- 正式发布后匿名latest/download/latest.json逐字节匹配验收资产，version0.2.2/channel stable；四平台固定tag更新URL均HTTP200。
+- 证据：build-artifacts/releases/v0.2.2/（ci.json、release.json、published-release.json、assets/、public-latest.json、verify-assets.py），build-artifacts/logs/v0.2.2-{chromium,webkit}.log。产物均ignored，不提交。
+
+### Review / Next Action
+Self-review / 本轮需求Acceptance / 发布验收PASS。代码、测试、版本、发布说明均已推送，无待执行产品或发布操作。仅本发布记录待以[skip ci]提交推送；该记录不改变正式tag源码。提交后工作区应干净。
+用户可在桌面检查更新；维护入口为“备份→本机数据维护”，或桌面顶部/托盘菜单。真实断电、磁盘满及所有系统人工GUI维护未全面实测，限制已如实列入docs/releases/v0.2.2.md。保留现有签名身份，不自动清空或迁移库存。
+
+---
+以下为历史任务记录，以本节当前状态和实际Git/发布资产为准。
+
 ## 当前任务：v0.2.1提交、测试与发布（2026-10-12，已完成）
 用户已明确授权全部提交推送、测试通过后正式发版。Direct执行；复用原发布流程，无子代理、无签名身份更换。
 已提交推送50ecfc5f7cded4868cf44069a89d43b9eac4d4f3及v0.2.1标签；包含a3ff4e3关于页入口和生成文件归拢。7个版本/锁文件同步0.2.1，无依赖升级。发布说明docs/releases/v0.2.1.md。
@@ -172,3 +195,9 @@ Release gate correction — 2026-10-14
 38567578546已取消且未创建Release；旧38244820238日志证实两项既有测试过时：维护时间断言写死新加坡时间（CI为UTC），业绩零行要求与已确认显示零业绩档案的实现冲突；调任测试find仅按业务员ID，零行/历史行顺序不保证。仅修测试：按浏览器本地格式验证精确快照时间；业务员+部门选历史行并额外验证count2/due2100/paid300；新部门零行全部金额0；UI零业绩行精确验证单数/金额。未改产品财务行为或降低断言。
 验证Chromium相关16/16 PASS；UTC环境WebKit原失败3/3 PASS；typecheck:e2e与diff PASS。iOS旧失败为runner模拟器bootstatus超时，此次不做推测性代码改动，待新流水线实测。
 Next: 提交这3个已审查文件并推送main，将未发布且已取消构建的v0.2.2标签以精确旧SHA lease更新到新提交；重新执行完整发布门禁。旧tag绝非已发布版本，无正式资产可覆盖。最终发布固定新的tag SHA。
+
+当前发布源固定：99265f09460f7fd889840eb91c55ccce5dd6e47b，main与v0.2.2已推送一致；未发布tag通过旧SHA精确lease更新成功，旧构建已取消，无Release被覆盖。新完整tag流水线38568513174运行中；重复main38568495283已请求取消。以新流水线为唯一发布门禁来源。
+
+Cloud checkpoint — 38568513174
+Chromium完整169/169 PASS（日志build-artifacts/logs/v0.2.2-chromium.log，10分钟）；Windows/Linux checks、四桌面目标、Android、Web全部SUCCESS，Windows覆盖升级/数据保留与原生更新检查通过。iOS模拟器本次安装启动存活检查SUCCESS，无需修改重试策略；iOS真机签名仍按规则SKIPPED。唯一剩余为WebKit完整E2E，尚未正式发布。
+Next: 等WebKit与release job成功后下载草稿全部资产，运行verify-assets.py，gh release edit正式发布，匿名核对latest与四平台URL。发布源仍为99265f0，不移动标签。
