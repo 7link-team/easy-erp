@@ -191,9 +191,22 @@ test("本月本季本年按单据日期统计，账户月度净收独立按现�
   expect(report.monthly.departments[moved.id]).toBeUndefined();
   expect(
     report.performance.find(
-      (x: { salesperson_id: string }) => x.salesperson_id === f.salesperson.id,
-    ).department_id,
-  ).toBe(f.department.id);
+      (x: { salesperson_id: string; department_id: string }) =>
+        x.salesperson_id === f.salesperson.id &&
+        x.department_id === f.department.id,
+    ),
+  ).toMatchObject({
+    department_id: f.department.id,
+    count: 2,
+    due: 2100,
+    paid: 300,
+  });
+  expect(
+    report.performance.find(
+      (x: { salesperson_id: string; department_id: string }) =>
+        x.salesperson_id === f.salesperson.id && x.department_id === moved.id,
+    ),
+  ).toMatchObject({ count: 0, due: 0, paid: 0, debt: 0 });
   expect(
     report.performance_choices.filter(
       (x: { salesperson_id: string }) => x.salesperson_id === f.salesperson.id,
@@ -323,7 +336,15 @@ test("可按部门和业务员查业绩，零业绩、期间切换和手机刷�
   await expect(person).toContainText(f.salesperson.name);
   await expect(department).toContainText(f.department.name);
   await chooseSelect(person, f.colleague.id);
-  await expect(table).toContainText("当前期间和业务员没有有效计款单据。");
+  await expect(table.locator("tbody tr")).toHaveCount(1);
+  await expect(table.locator("tbody")).toContainText(f.colleague.name);
+  await expect(table.locator("tbody")).toContainText(f.department.name);
+  await expect(table.locator("tbody td.numeric")).toHaveText([
+    "0",
+    "¥0.00",
+    "¥0.00",
+    "¥0.00",
+  ]);
   await expect(table.locator("tfoot")).toContainText("¥0.00");
   expect(
     await page.evaluate(

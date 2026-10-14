@@ -162,3 +162,13 @@ Verification: Chromium最终分页+维护8/8 PASS；先前备份策略及真实�
 本地Web产物已合并到dist且保留旧assets，避免旧窗口懒加载404；桌面开发进程0.2.2已编译并重新打开4291业务窗口。
 Next: 等WebKit结果并复核版本/改动，提交已审查14文件、推送main和v0.2.2标签；跟踪完整tag Actions，所有门禁通过后验草稿资产签名/哈希并正式发布，匿名核对latest清单。不得把云端运行中说成已发布。
 最终本地检查：WebKit13/13 PASS（含维护关闭后再次打开），版本与两锁文件精确一致0.2.2；工作区仅14个已审查交付文件，无生成文件。Self-review / 本次功能Acceptance PASS。即将提交并推送，正式发布仍等待完整tag云端门禁和资产验收。
+
+Release checkpoint — v0.2.2推送完成
+提交db6b4f04e5ec12f6cd203822a28caf3735037a1f与标签v0.2.2已推送origin，main此前与origin完全同步。完整tag流水线38567578546运行中；重复main流水线38567577935已请求取消。Web构建已通过，其余任务尚未结束。此前21e0ff9云端38244820238曾失败于两浏览器E2E和iOS打包，正在读取日志以预先核对是否影响本次；不把其状态当作成功。
+发布验收复用既有minisign-verify0.2.5工具和v0.2.1公开密钥；build-artifacts/releases/v0.2.2/verify-assets.py已准备，待下载本次草稿23资产进行大小/hash/GitHub digest/四平台更新签名/macOS包内版本核对。所有资产与日志仍在ignored目录，不提交。
+Next: 跟踪38567578546；如失败复现并最小修复，禁止绕过门禁。全部通过后核对草稿并正式发布、匿名latest入口验证，最后更新状态文档并推送[skip ci]记录。
+
+Release gate correction — 2026-10-14
+38567578546已取消且未创建Release；旧38244820238日志证实两项既有测试过时：维护时间断言写死新加坡时间（CI为UTC），业绩零行要求与已确认显示零业绩档案的实现冲突；调任测试find仅按业务员ID，零行/历史行顺序不保证。仅修测试：按浏览器本地格式验证精确快照时间；业务员+部门选历史行并额外验证count2/due2100/paid300；新部门零行全部金额0；UI零业绩行精确验证单数/金额。未改产品财务行为或降低断言。
+验证Chromium相关16/16 PASS；UTC环境WebKit原失败3/3 PASS；typecheck:e2e与diff PASS。iOS旧失败为runner模拟器bootstatus超时，此次不做推测性代码改动，待新流水线实测。
+Next: 提交这3个已审查文件并推送main，将未发布且已取消构建的v0.2.2标签以精确旧SHA lease更新到新提交；重新执行完整发布门禁。旧tag绝非已发布版本，无正式资产可覆盖。最终发布固定新的tag SHA。

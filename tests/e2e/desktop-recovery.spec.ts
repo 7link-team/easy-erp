@@ -211,8 +211,14 @@ test("备份时间易读，损坏元数据不妨碍清空，读取权限异常�
 }) => {
   await launcher(page);
   await page.locator("#maintenance").click();
+  const snapshotTime = await page.evaluate(() =>
+    new Intl.DateTimeFormat("zh-CN", {
+      dateStyle: "medium",
+      timeStyle: "medium",
+    }).format(Date.UTC(2026, 9, 12, 2)),
+  );
   await expect(page.locator("#recovery-backup option").nth(1)).toHaveText(
-    /snapshot.zip · 2026.*10.*12.*10:00:00/,
+    `snapshot.zip · ${snapshotTime}`,
   );
   await page.locator("#recovery-action").selectOption("restore");
   await page
