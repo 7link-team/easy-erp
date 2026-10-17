@@ -78,3 +78,9 @@ v0.2.3 Release说明已保存并回读确认短版本拉取命令、GHCR地址�
 用户授权清理sha-*镜像。新增云端image_maintenance=audit/cleanup入口和scripts/cleanup-server-images.mjs：从全部非SHA标签递归保护manifest依赖，仅删除不被引用且所有标签均为SHA格式的旧版本，每次删除前重查，删除后复查保留标签及manifest。
 审计39042847895成功；实际清理39042992641成功。删除旧a10a9de索引及amd64/arm64三个版本（1400562076、1400561521、1400559962）。保留当前ad6622c三条记录：v0.2.3/latest/SHA共用索引及两个架构manifest，不能直接删版本否则会破坏当前镜像。全程云端，无本地镜像下载。
 用户询问刚发布的下载记录：验收中的云端拉取/归档及本机验证会产生访问统计；不能根据次数推断独立用户数或断言全部来自本次验收。
+
+## System disk / Docker cleanup — 2026-10-17
+用户明确授权尝试Docker清理。此前系统盘与项目盘不同；额外删除可再生Cargo下载源码缓存和Playwright浏览器后系统盘93%/12GiB空闲。
+Docker接口卡死，正常desktop restart超时。TERM退出后仍残留卡住后端67999，结束该进程并重新open Docker后恢复查询。唯一既有容器easy-erp-mysql-check此前已Exited；无运行容器被中断。
+执行docker builder prune -a -f和docker image prune -a -f，分别报告8.156GB/8.753GB回收；构建缓存归零，保留MySQL容器引用镜像。60个数据卷全部保留（包括其他项目数据库），未执行volume prune。
+Docker虚拟磁盘实际占用28→15GiB；自动回收后系统盘最终83%/30GiB空闲（df现场验证）。4291库存服务状态正常、用户业务库/备份未改动。本机镜像验收副本已清理，后续以GitHub Actions/GHCR为主。无清理待办。
