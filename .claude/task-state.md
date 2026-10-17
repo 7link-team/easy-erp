@@ -54,3 +54,6 @@ ACCEPTANCE — 实现、测试、真实服务升级与只读验收完成。
 - paid默认打印规则never（与debt一致）；打印设置名称改为「已收金额」「应收金额」以匹配打印。当前4291已保存paid=never；收款记录明细不变。
 - TS/e2e TS PASS；Chromium打印规则/默认结算/有实际收款时已收默认隐藏并可开启3/3 PASS。
 - 前端build-artifacts/tmp/default-full-print-web已更新dist；当前服务实际验证设置full、paid=never、新开单full PASS，无单据业务写入。
+
+## Active Release — 2026-10-17
+用户明确授权「全部提交推送 发版 打包镜像」。Direct执行，复用现有build/server-image/server-archives工作流；发布v0.2.3，完整安装包与服务器amd64/arm64镜像及公开下载归档。同步所有版本/锁文件，推送main及新tag。构建检查与产物验收通过后发布正式Release；不得覆盖既有v0.2.2。当前阶段RELEASE PREPARATION，待push、Actions验收、产物下载验证、正式发布。
