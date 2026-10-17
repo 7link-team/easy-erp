@@ -5,6 +5,12 @@ let busy = false;
 let databaseConfigured = true;
 const databaseForm = document.querySelector("#database-form");
 const databaseKind = document.querySelector("#database-kind");
+function showDatabaseState(configured) {
+  databaseConfigured = configured;
+  databaseForm.hidden = configured;
+  document.querySelector("#database-saved").hidden = !configured;
+  if (configured) document.querySelector("#mysql-password").value = "";
+}
 databaseKind.addEventListener("change", () => {
   const mysql = databaseKind.value === "mysql";
   document.querySelector("#mysql-fields").hidden = !mysql;
@@ -49,11 +55,15 @@ document.querySelector("#local").addEventListener("click", () => {
           tls: document.querySelector("#mysql-tls").checked,
         };
   run(async () => {
-    await invoke("start_local", { database });
-    databaseConfigured = true;
-    databaseForm.hidden = true;
-    document.querySelector("#mysql-password").value = "";
-    document.querySelector("#database-saved").hidden = false;
+    try {
+      await invoke("start_local", { database });
+    } catch (error) {
+      // Configuration may have succeeded before starting the service failed.
+      const preferences = await invoke("connection_settings").catch(() => null);
+      if (preferences?.database_configured === true) showDatabaseState(true);
+      throw error;
+    }
+    showDatabaseState(true);
   });
 });
 databaseForm.addEventListener("submit", (event) => {
@@ -90,9 +100,7 @@ window.__TAURI__.event.listen("startup-error", (event) => {
 async function initialize() {
   try {
     const preferences = await invoke("connection_settings");
-    databaseConfigured = preferences.database_configured !== false;
-    databaseForm.hidden = databaseConfigured;
-    document.querySelector("#database-saved").hidden = !databaseConfigured;
+    showDatabaseState(preferences.database_configured !== false);
     address.value = preferences.server_url;
     document.querySelector("#autostart").checked = preferences.autostart;
     if (preferences.mode) {

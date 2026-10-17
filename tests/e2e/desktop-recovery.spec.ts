@@ -41,8 +41,13 @@ async function launcher(
                 mode,
                 server_url: "http://remote.test:4280",
                 autostart: false,
-                database_configured: databaseConfigured,
+                database_configured:
+                  state.databaseConfigured ?? databaseConfigured,
               };
+            if (command === "start_local" && state.failLocalAfterSetup) {
+              state.databaseConfigured = true;
+              throw "数据库已配置，但本机服务启动失败";
+            }
             if (command === "resume_last" && failStart)
               throw "本机服务启动失败：数据库损坏";
             if (command === "recovery_list" && state.listFailure)
@@ -363,4 +368,31 @@ test("已配置的桌面启动隐藏初始化选择并保留原库", async ({ pa
         ).args.database,
     ),
   ).toBeUndefined();
+});
+
+test("数据库配置已保存但服务启动失败时，重试直接沿用原配置", async ({
+  page,
+}) => {
+  await launcher(page, "", false, false);
+  await page.evaluate(() => {
+    (window as any).failLocalAfterSetup = true;
+  });
+  await page.locator("#local").click();
+  await expect(page.locator("#status")).toHaveText(
+    "数据库已配置，但本机服务启动失败",
+  );
+  await expect(page.locator("#database-form")).toBeHidden();
+  await expect(page.locator("#database-saved")).toBeVisible();
+  await page.evaluate(() => {
+    (window as any).failLocalAfterSetup = false;
+  });
+  await page.locator("#local").click();
+  const calls = await page.evaluate(() =>
+    (window as any).nativeCalls.filter(
+      (call: any) => call.command === "start_local",
+    ),
+  );
+  expect(calls[0].args.database).toEqual({ kind: "sqlite" });
+  expect(calls[1].args.database).toBeUndefined();
+  await expect(page.locator("#status")).toHaveText("");
 });
