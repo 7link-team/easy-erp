@@ -4,6 +4,8 @@ use tokio::sync::{Mutex, RwLock};
 
 pub struct State {
     pub db: DatabaseConnection,
+    pub server_mode: bool,
+    pub setup_token: Option<String>,
     pub writes: Mutex<()>,
     pub data_dir: PathBuf,
     pub instance_id: String,

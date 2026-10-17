@@ -739,10 +739,18 @@ test("长清单分页打印保留明细表头，草稿与重复打印不扣库�
     page.getByRole("dialog", { name: "单据打印预览", exact: true }),
   ).toBeVisible();
   await expect(page.locator(".sales-print-sheet tbody tr")).toHaveCount(35);
-  await expect(page.locator(".sales-print-sheet")).toContainText(
-    "草稿 · 未扣库存",
-  );
+  const heading = page.locator(".print-heading > div");
+  await expect(heading).toHaveText(`单号：${sale.number}业务日期：${date}`);
+  const bottomCells = page.locator(".sales-print-sheet tbody tr:last-child td");
+  for (const cell of await bottomCells.all()) {
+    await expect(cell).toHaveCSS("border-bottom-style", "solid");
+    await expect(cell).toHaveCSS("border-bottom-width", "1px");
+  }
   await page.emulateMedia({ media: "print" });
+  for (const cell of await bottomCells.all()) {
+    await expect(cell).toHaveCSS("border-bottom-style", "solid");
+    await expect(cell).toHaveCSS("border-bottom-width", "1px");
+  }
   expect(
     await page
       .locator(".sales-print-sheet thead")
@@ -1764,14 +1772,14 @@ test("开单结算：抹零后部分收款、草稿保留、移动端欠款提�
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByRole("button", { name: "打印预览", exact: true }).click();
   const sheet = page.locator(".sales-print-sheet");
-  await expect(sheet.locator(".print-debt-confirmation")).toContainText(
-    "剩余欠款 ¥5,000.00",
-  );
-  await expect(sheet.locator(".print-signatures")).toContainText(
-    "客户签收及欠款确认",
-  );
+  await expect(sheet.locator(".print-debt-confirmation")).toHaveCount(0);
+  await expect(sheet.locator(".print-signatures")).toContainText("客户签收");
+  await expect(sheet.locator(".print-signatures")).not.toContainText("欠款");
+  await expect(sheet.locator(".print-summary dt")).not.toContainText([
+    "剩余欠款",
+  ]);
   await page.emulateMedia({ media: "print" });
-  await expect(sheet.locator(".print-debt-confirmation")).toBeVisible();
+  await expect(sheet).not.toContainText("请客户核对货物及上述金额后签字确认");
   expect(
     await page.evaluate(
       () => getComputedStyle(document.body, "::after").display,
@@ -2049,4 +2057,258 @@ test("移动端打印仍使用已鉴权的浏览器链接", async ({ page, brows
   } finally {
     await context.close();
   }
+});
+
+test("打印配置逐项保存三种金额规则、地址规则及默认隐藏欠款与零值", async ({
+  page,
+}) => {
+  const fields = [
+    ["subtotal", "原金额"],
+    ["discount", "折扣金额"],
+    ["rounding", "抹零金额"],
+    ["total", "原单应收"],
+    ["return_credit", "退货减免"],
+    ["due", "当前应收"],
+    ["paid", "净实收"],
+    ["debt", "剩余欠款"],
+  ];
+  const { customer, input } = await fixture(page.request);
+  const sale = await command(page.request, { action: "confirm", input });
+  const catalog = await (await page.request.get("/api/sales/catalog")).json();
+  let company = catalog.items.find(
+    (entry: { kind: string }) => entry.kind === "company",
+  );
+  company = await post(page.request, "/sales/catalog", {
+    id: company?.id || "",
+    version: company?.version || 0,
+    kind: "company",
+    name: "打印设置测试",
+    active: true,
+    data: { ...(company?.data ?? {}), print_settings: {} },
+  });
+  const showPrint = async (id = sale.id) => {
+    await page.goto(`/?sale_print=${id}#/sales`);
+    await page.reload();
+    await expect(page.locator(".sales-print-sheet")).toBeVisible();
+  };
+  const labels = page.locator(".print-summary dt");
+  await showPrint();
+  await expect(labels).toHaveText(["原金额", "原单应收", "当前应收"]);
+  await expect(page.locator(".print-customer")).toContainText(
+    "送货地址：示例仓库",
+  );
+  await expect(page.locator(".print-signatures")).not.toContainText("欠款");
+
+  await page.goto("/#/catalog");
+  await page.getByRole("tab", { name: "公司信息", exact: true }).click();
+  await page.getByRole("button", { name: "设置公司信息", exact: true }).click();
+  await chooseSelect(
+    page.getByRole("combobox", { name: "默认结算方式 选填", exact: true }),
+    "full",
+  );
+  const settings = page.getByRole("group", { name: "打印显示设置" });
+  for (const [key, label] of fields) {
+    await expect(
+      settings.getByRole("combobox", { name: `${label} 选填`, exact: true }),
+    ).toHaveAttribute("data-value", key === "debt" ? "never" : "nonzero");
+    await chooseSelect(
+      settings.getByRole("combobox", { name: `${label} 选填`, exact: true }),
+      "always",
+    );
+  }
+  await expect(
+    settings.getByRole("combobox", { name: "送货地址 选填", exact: true }),
+  ).toHaveAttribute("data-value", "nonempty");
+  await chooseSelect(
+    settings.getByRole("combobox", { name: "送货地址 选填", exact: true }),
+    "never",
+  );
+  await page.getByRole("button", { name: "保存配置", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.reload();
+  await page.getByRole("tab", { name: "公司信息", exact: true }).click();
+  await page.getByRole("button", { name: "设置公司信息", exact: true }).click();
+  await expect(
+    page.getByRole("combobox", { name: "默认结算方式 选填", exact: true }),
+  ).toHaveAttribute("data-value", "full");
+  for (const [, label] of fields) {
+    await expect(
+      settings.getByRole("combobox", { name: `${label} 选填`, exact: true }),
+    ).toHaveAttribute("data-value", "always");
+  }
+  await page.getByRole("button", { name: "取消", exact: true }).click();
+  await showPrint();
+  await expect(labels).toHaveText(fields.map(([, label]) => label));
+  await expect(page.locator(".print-customer")).not.toContainText("送货地址");
+  await page.emulateMedia({ media: "print" });
+  await expect(labels).toHaveCount(8);
+  await page.emulateMedia({ media: "screen" });
+
+  company = (
+    await (await page.request.get("/api/sales/catalog")).json()
+  ).items.find((entry: { kind: string }) => entry.kind === "company");
+  for (const rule of ["never", "nonzero"]) {
+    company = await post(page.request, "/sales/catalog", {
+      ...company,
+      data: {
+        ...company.data,
+        print_settings: {
+          amounts: Object.fromEntries(fields.map(([key]) => [key, rule])),
+          delivery_address: "always",
+        },
+      },
+    });
+    await showPrint();
+    await expect(labels).toHaveText(
+      rule === "never" ? [] : ["原金额", "原单应收", "当前应收", "剩余欠款"],
+    );
+    await expect(page.locator(".print-customer")).toContainText(
+      "送货地址：示例仓库",
+    );
+  }
+  // Blank and whitespace addresses must use the customer snapshot, not later edits.
+  const blankCustomer = await post(page.request, "/sales/catalog", {
+    ...customer,
+    data: { ...customer.data, address: "   " },
+  });
+  const blankSale = await command(page.request, {
+    action: "save",
+    input: { ...input, customer_id: blankCustomer.id },
+  });
+  company = await post(page.request, "/sales/catalog", {
+    ...company,
+    data: { ...company.data, print_settings: { delivery_address: "nonempty" } },
+  });
+  await showPrint(blankSale.id);
+  await expect(page.locator(".print-customer")).not.toContainText("送货地址");
+  company = await post(page.request, "/sales/catalog", {
+    ...company,
+    data: { ...company.data, print_settings: { delivery_address: "always" } },
+  });
+  await showPrint(blankSale.id);
+  await expect(page.locator(".print-customer")).toContainText("送货地址：—");
+  const { print_settings: previousSettings, ...legacyData } = company.data;
+  company = await post(page.request, "/sales/catalog", {
+    ...company,
+    data: legacyData,
+  });
+  expect(company.data.print_settings).toEqual(previousSettings);
+  for (const invalid of [
+    null,
+    { amounts: [] },
+    { amounts: { debt: "bad" } },
+    { amounts: { unknown: "always" } },
+    { delivery_address: "nonzero" },
+  ]) {
+    const response = await page.request.post("/api/sales/catalog", {
+      headers,
+      data: { ...company, data: { ...company.data, print_settings: invalid } },
+    });
+    expect(response.status()).toBe(400);
+  }
+  const stale = await page.request.post("/api/sales/catalog", {
+    headers,
+    data: { ...company, version: company.version - 1 },
+  });
+  expect(stale.status()).toBe(409);
+  // Leave defaults for other tests using this isolated server.
+  await post(page.request, "/sales/catalog", {
+    ...company,
+    data: { ...company.data, print_settings: {}, default_settlement: "unpaid" },
+  });
+});
+
+test("默认结算方式只影响新单、草稿保留原选择且无收款权限不预选收款", async ({
+  page,
+  browser,
+}) => {
+  const { input } = await fixture(page.request);
+  const draft = await command(page.request, { action: "save", input });
+  let company = (
+    await (await page.request.get("/api/sales/catalog")).json()
+  ).items.find((entry: { kind: string }) => entry.kind === "company");
+  if (!company)
+    company = await post(page.request, "/sales/catalog", {
+      kind: "company",
+      name: "结算设置",
+      data: {},
+    });
+  for (const rule of ["full", "partial", "unpaid"]) {
+    company = await post(page.request, "/sales/catalog", {
+      ...company,
+      data: { ...company.data, default_settlement: rule },
+    });
+    await page.goto("/#/invoice");
+    await page.reload();
+    await expect(
+      page.getByRole("combobox", { name: "结算方式 必填", exact: true }),
+    ).toHaveAttribute("data-value", rule);
+  }
+  company = await post(page.request, "/sales/catalog", {
+    ...company,
+    data: { ...company.data, default_settlement: "full" },
+  });
+  await page.goto(`/?sale_open=${draft.id}&sale_edit=1#/sales`);
+  await expect(
+    page.getByRole("combobox", { name: "结算方式 必填", exact: true }),
+  ).toHaveAttribute("data-value", "unpaid");
+  const role = await post(page.request, "/roles", {
+    name: `默认结算权限-${randomUUID().slice(0, 8)}`,
+    permissions: [
+      "sales.read",
+      "sales.create",
+      "items.read",
+      "customers.read",
+      "catalog.read",
+    ],
+  });
+  const username = `print_${randomUUID().slice(0, 8)}`;
+  await post(page.request, "/users", {
+    username,
+    name: username,
+    password: "Role-test-2026",
+    role: role.id,
+  });
+  const context = await browser.newContext();
+  try {
+    const denied = await context.request.post(
+      "http://127.0.0.1:4289/api/sales/catalog",
+      {
+        headers,
+        data: {
+          ...company,
+          data: { ...company.data, default_settlement: "unpaid" },
+        },
+      },
+    );
+    expect(denied.status()).toBe(401);
+    await context.request.post("http://127.0.0.1:4289/api/login", {
+      headers,
+      data: { username, password: "Role-test-2026" },
+    });
+    const restricted = await context.newPage();
+    await restricted.goto("http://127.0.0.1:4289/#/invoice");
+    await expect(
+      restricted.getByRole("combobox", { name: "结算方式 必填", exact: true }),
+    ).toHaveAttribute("data-value", "unpaid");
+    const response = await context.request.post(
+      "http://127.0.0.1:4289/api/sales/catalog",
+      { headers, data: company },
+    );
+    expect(response.status()).toBe(403);
+  } finally {
+    await context.close();
+  }
+  const invalid = await page.request.post("/api/sales/catalog", {
+    headers,
+    data: {
+      ...company,
+      data: { ...company.data, default_settlement: "unknown" },
+    },
+  });
+  expect(invalid.status()).toBe(400);
+  await post(page.request, "/sales/catalog", {
+    ...company,
+    data: { ...company.data, default_settlement: "unpaid" },
+  });
 });

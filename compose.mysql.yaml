@@ -1,0 +1,26 @@
+# Use with: docker compose -f compose.yaml -f compose.mysql.yaml up -d
+# Set MYSQL_PASSWORD and MYSQL_ROOT_PASSWORD in a local .env file first.
+services:
+  inventory:
+    depends_on:
+      mysql:
+        condition: service_healthy
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: inventory
+      MYSQL_USER: inventory
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test:
+        ["CMD-SHELL", 'mysqladmin ping -h localhost -p"$$MYSQL_ROOT_PASSWORD"']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  mysql-data:

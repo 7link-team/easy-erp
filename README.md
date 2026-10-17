@@ -7,9 +7,36 @@
 - 物料管理、入库、出库、库存查询及清点。
 - 管理员与工人账号、岗位权限及操作记录。
 - 多物料销售开单、自定义单据类型、系统打印、折扣抹零、收款欠款、退款退货及签字凭证。
-- SQLite 本地存储、定时备份、备份恢复及表格导入导出。
+- SQLite 本地存储或 MySQL 服务器存储、定时备份、备份恢复及表格导入导出。
 - Web 界面与 Tauri 桌面应用，支持局域网多人访问。
 - 桌面托盘、可选开机自启，以及从桌面打开 Web。
+
+## 服务器容器部署
+
+服务器镜像：`ghcr.io/7link-team/easy-erp-server:latest`，支持 Linux amd64 / arm64。镜像包含 Web，无需单独部署前端。固定某次构建可使用 `sha-完整提交SHA` 标签。
+
+```sh
+docker compose up -d
+docker compose logs inventory
+```
+
+打开 `http://服务器地址:4280/`，首次选择 SQLite 或 MySQL，再创建管理员；没有内置账号密码。初始化口令在首次启动日志中，也可用 `docker compose exec inventory cat /data/setup-token` 查看。使用服务器 IP 或域名访问时，在 `.env` 设置 `ERP_ALLOWED_HOSTS=你的域名或IP`（多个用逗号分隔，不含协议和端口）。HTTPS 反向代理应保留原 Host，并设置 `ERP_SECURE_COOKIE=true`。
+
+- **SQLite**：直接选择本地 SQLite，数据库保存在 `/data/inventory.sqlite`。
+- **MySQL**：需 MySQL 8.0.21 或更新版本，推荐 8.4；先创建空数据库并授予应用账号建表及读写权限。表单填写主机、端口、数据库、用户名、密码，可开启 TLS。连接失败会保留表单供重试，不会另建 SQLite 替代。
+- **同时部署 MySQL**：在本地 `.env` 设置 `MYSQL_PASSWORD`、`MYSQL_ROOT_PASSWORD`，运行 `docker compose -f compose.yaml -f compose.mysql.yaml up -d`。网页填写主机 `mysql`、端口 `3306`、数据库 `inventory`、用户名 `inventory` 及设定的应用密码。
+
+`inventory-data` 持久卷保存配置、SQLite（如使用）、附件、完整备份和初始化口令；MySQL 的 `mysql-data` 也必须保留。普通重启和更新不会清空数据，勿用 `docker compose down -v` 删除持久卷。若改用宿主目录挂载，需让容器 UID/GID `10001:10001` 有读写权限。MySQL 连接设置保存在 `/data/database.json`，权限为 `0600`，不会返回给浏览器；也支持通过 `ERP_DATABASE_URL=mysql://...` 预配置（密码中特殊字符需 URL 编码），并通过 `ERP_SETUP_TOKEN` 指定至少16位的初始化口令。
+
+已有数据目录会继续使用原配置。首次数据库选择不会自动迁移已有数据，也不能在启动时直接切换已有账本。桌面启动窗口同样支持首次选择 SQLite / MySQL；已配置时直接使用原数据库。
+
+服务器管理员可在备份页生成、下载和恢复完整备份；MySQL 使用一致性快照并沿用包含附件的备份格式。桌面本机离线维护仍只用于 SQLite，MySQL 请在已连接的备份页面操作。
+
+## 开单与打印配置
+
+在“基础资料 → 公司信息 → 设置公司信息”中选择新单的默认结算方式：全部收款、部分收款、全部欠款；未配置时沿用全部欠款。草稿保留原选择，无收款权限的账号不会预选收款。
+
+同一处可设置打印单各项金额为“打印 / 不打印 / 为0时不打印”，默认剩余欠款不打印，其他金额为0时不打印；送货地址默认“为空不打印”。打印单右上角只显示单号和时间，明细底边保留，签字区不再重复显示应收、已收和欠款说明。
 
 ## 本机数据维护
 
@@ -25,7 +52,7 @@
 
 ## 技术栈
 
-React、TypeScript、Vite、Radix UI；Rust、Axum、SeaORM、SQLite；Tauri 2。
+React、TypeScript、Vite、Radix UI；Rust、Axum、SeaORM、SQLite / MySQL；Tauri 2。
 
 ## 本地开发
 

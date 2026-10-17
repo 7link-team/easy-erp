@@ -1,3 +1,23 @@
+export const printAmountFields = [
+  { key: "subtotal", label: "原金额" },
+  { key: "discount", label: "折扣金额" },
+  { key: "rounding", label: "抹零金额" },
+  { key: "total", label: "原单应收" },
+  { key: "return_credit", label: "退货减免" },
+  { key: "due", label: "当前应收" },
+  { key: "paid", label: "净实收" },
+  { key: "debt", label: "剩余欠款" },
+] as const;
+export type PrintAmountKey = (typeof printAmountFields)[number]["key"];
+export type PrintAmountRule = "always" | "never" | "nonzero";
+export type PrintAddressRule = "always" | "never" | "nonempty";
+export interface PrintSettings {
+  amounts?: Partial<Record<PrintAmountKey, PrintAmountRule>>;
+  delivery_address?: PrintAddressRule;
+}
+export const defaultPrintAmountRule = (key: PrintAmountKey): PrintAmountRule =>
+  key === "debt" ? "never" : "nonzero";
+
 export interface CatalogEntry {
   id: string;
   kind:
@@ -9,6 +29,8 @@ export interface CatalogEntry {
   usage_count?: number | null;
   member_count?: number;
   data: {
+    print_settings?: PrintSettings;
+    default_settlement?: "full" | "partial" | "unpaid";
     account_type?: string;
     department_id?: string;
     phone?: string;

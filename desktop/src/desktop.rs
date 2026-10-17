@@ -109,7 +109,11 @@ async fn connection_settings(
     trusted(&window)?;
     let pref = Preferences::load(&config_path(&app)?)?;
     let autostart = app.autolaunch().is_enabled().map_err(|e| e.to_string())?;
-    Ok(serde_json::json!({"server_url":pref.server_url,"mode":pref.mode,"autostart":autostart}))
+    let dir = data_dir(&app)?;
+    let configured = dir.join("database.json").exists() || dir.join("inventory.sqlite").exists();
+    Ok(
+        serde_json::json!({"server_url":pref.server_url,"mode":pref.mode,"autostart":autostart,"database_configured":configured}),
+    )
 }
 #[tauri::command]
 async fn set_autostart(
@@ -315,10 +319,57 @@ pub(crate) async fn ensure_local(app: &tauri::AppHandle) -> Result<url::Url, Str
 }
 
 #[tauri::command]
-async fn start_local(window: tauri::WebviewWindow, app: tauri::AppHandle) -> Result<(), String> {
+async fn start_local(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    database: Option<serde_json::Value>,
+) -> Result<(), String> {
     trusted(&window)?;
     let runtime = app.state::<Runtime>();
     let _connection = runtime.connection_lock.lock().await;
+    if let Some(database) = database {
+        let dir = data_dir(&app)?;
+        let binary = server_binary()?;
+        tauri::async_runtime::spawn_blocking(move || {
+            use std::io::Write;
+            let mut command = Command::new(binary);
+            command
+                .arg("--data-dir")
+                .arg(dir)
+                .arg("--configure-database")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                command.creation_flags(0x08000000);
+            }
+            let mut child = command
+                .spawn()
+                .map_err(|_| "无法启动数据库初始化程序。".to_owned())?;
+            child
+                .stdin
+                .take()
+                .ok_or("无法传入数据库配置。")?
+                .write_all(&serde_json::to_vec(&database).map_err(|_| "数据库配置格式无效。")?)
+                .map_err(|_| "无法传入数据库配置。")?;
+            let output = child
+                .wait_with_output()
+                .map_err(|_| "数据库初始化程序未正常结束。")?;
+            if !output.status.success() {
+                let result: serde_json::Value =
+                    serde_json::from_slice(&output.stdout).unwrap_or_default();
+                return Err(result["error"]
+                    .as_str()
+                    .unwrap_or("数据库初始化失败，请检查连接信息及本机服务日志。")
+                    .to_owned());
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|error| error.to_string())??;
+    }
     let url = ensure_local(&app).await?;
     Preferences {
         mode: Some(Mode::Local),

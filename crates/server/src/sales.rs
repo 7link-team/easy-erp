@@ -200,7 +200,7 @@ fn catalog_reference_sources() -> String {
     sources.join(" UNION ALL ")
 }
 async fn catalog_references(db: &impl ConnectionTrait) -> Result<HashMap<String, i64>> {
-    let rows=all(db,&format!("SELECT ref,COUNT(DISTINCT sale_id) AS total FROM ({}) WHERE ref IS NOT NULL AND ref<>'' GROUP BY ref",catalog_reference_sources()),vec![]).await?;
+    let rows=all(db,&format!("SELECT ref,COUNT(DISTINCT sale_id) AS total FROM ({}) AS catalog_refs WHERE ref IS NOT NULL AND ref<>'' GROUP BY ref",catalog_reference_sources()),vec![]).await?;
     Ok(rows
         .iter()
         .map(|r| (text(r, "ref"), int(r, "total")))
@@ -398,6 +398,73 @@ pub(crate) async fn save_catalog_record(
         }
     } else if !input.id.is_empty() {
         return Err(ApiError::missing());
+    }
+    if input.kind == "company" {
+        let old_data = previous
+            .as_ref()
+            .map(|r| parsed(&text(r, "data")))
+            .transpose()?
+            .unwrap_or_else(|| json!({}));
+        if let Some(rule) = input
+            .data
+            .get("default_settlement")
+            .or_else(|| old_data.get("default_settlement"))
+        {
+            if !rule
+                .as_str()
+                .is_some_and(|rule| ["full", "partial", "unpaid"].contains(&rule))
+            {
+                return Err(ApiError::bad("请选择有效的默认结算方式。"));
+            }
+            data["default_settlement"] = rule.clone();
+        }
+        if let Some(settings) = input
+            .data
+            .get("print_settings")
+            .or_else(|| old_data.get("print_settings"))
+        {
+            let fields = settings
+                .as_object()
+                .ok_or_else(|| ApiError::bad("打印显示设置格式无效。"))?;
+            if fields
+                .keys()
+                .any(|key| !["amounts", "delivery_address"].contains(&key.as_str()))
+            {
+                return Err(ApiError::bad("打印显示设置包含未知项目。"));
+            }
+            if let Some(amounts) = settings.get("amounts") {
+                let amounts = amounts
+                    .as_object()
+                    .ok_or_else(|| ApiError::bad("打印金额设置格式无效。"))?;
+                for (key, rule) in amounts {
+                    if ![
+                        "subtotal",
+                        "discount",
+                        "rounding",
+                        "total",
+                        "return_credit",
+                        "due",
+                        "paid",
+                        "debt",
+                    ]
+                    .contains(&key.as_str())
+                        || !rule
+                            .as_str()
+                            .is_some_and(|rule| ["always", "never", "nonzero"].contains(&rule))
+                    {
+                        return Err(ApiError::bad("请选择有效的打印金额显示规则。"));
+                    }
+                }
+            }
+            if settings.get("delivery_address").is_some_and(|rule| {
+                !rule
+                    .as_str()
+                    .is_some_and(|rule| ["always", "never", "nonempty"].contains(&rule))
+            }) {
+                return Err(ApiError::bad("请选择有效的送货地址打印规则。"));
+            }
+            data["print_settings"] = settings.clone();
+        }
     }
     if input.kind == "department" && input.data.get("contact").is_none() {
         if let Some(old) = &previous {

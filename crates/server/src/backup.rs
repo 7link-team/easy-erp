@@ -12,7 +12,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use sea_orm::{
-    ConnectOptions, Database,
+    ConnectOptions, Database, DbBackend,
     sqlx::{self, Acquire},
 };
 use sea_orm_migration::MigratorTrait;
@@ -62,8 +62,8 @@ pub struct BackupInfo {
     metadata_error: bool,
 }
 
-fn local(peer: SocketAddr) -> Result<()> {
-    if peer.ip().is_loopback() {
+fn local(peer: SocketAddr, server_mode: bool) -> Result<()> {
+    if peer.ip().is_loopback() || server_mode {
         Ok(())
     } else {
         Err(ApiError::forbidden())
@@ -107,6 +107,10 @@ async fn schemas(db: &sea_orm::DatabaseConnection) -> Result<Vec<String>> {
     .collect())
 }
 async fn database_size(db: &sea_orm::DatabaseConnection) -> Result<u64> {
+    if db.get_database_backend() == DbBackend::MySql {
+        let row = one(db, "SELECT COALESCE(SUM(data_length+index_length),0) AS total FROM information_schema.tables WHERE table_schema=DATABASE()", vec![]).await?.unwrap();
+        return Ok(int(&row, "total") as u64);
+    }
     let pages = int(
         &one(db, "PRAGMA page_count", vec![]).await?.unwrap(),
         "page_count",
@@ -164,12 +168,16 @@ pub async fn snapshot(
     )?;
     let stage = tempfile::tempdir_in(&dir)?;
     let snapshot = stage.path().join("inventory.sqlite");
-    execute(
-        db,
-        "VACUUM INTO ?",
-        vec![snapshot.to_string_lossy().to_string().into()],
-    )
-    .await?;
+    if db.get_database_backend() == DbBackend::MySql {
+        crate::database_copy::snapshot(db, &snapshot).await?;
+    } else {
+        execute(
+            db,
+            "VACUUM INTO ?",
+            vec![snapshot.to_string_lossy().to_string().into()],
+        )
+        .await?;
+    }
     if tokio::fs::metadata(&snapshot).await?.len() > MAX_SNAPSHOT {
         return Err(ApiError::bad(
             "数据库（含凭证图片）超过当前 16 GiB 备份上限，请联系管理员扩容。",
@@ -320,7 +328,7 @@ pub async fn manual(
     headers: HeaderMap,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
 ) -> Result<Json<BackupInfo>> {
-    local(peer)?;
+    local(peer, s.server_mode)?;
     let actor = current(&s, &headers).await?;
     actor.admin()?;
     Ok(Json(create(&s, &actor, "manual").await?))
@@ -331,7 +339,7 @@ pub async fn update_schedule(
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     Json(input): Json<Schedule>,
 ) -> Result<Json<Value>> {
-    local(peer)?;
+    local(peer, s.server_mode)?;
     let actor = current(&s, &headers).await?;
     actor.admin()?;
     if !(1..=365).contains(&input.keep_days) {
@@ -436,7 +444,7 @@ pub async fn download(
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     Path(name): Path<String>,
 ) -> Result<Response> {
-    local(peer)?;
+    local(peer, s.server_mode)?;
     current(&s, &headers).await?.admin()?;
     let mut service = tower_http::services::ServeFile::new(archive_path(&s, &name)?);
     let request = axum::http::Request::builder()
@@ -576,7 +584,7 @@ pub async fn restore(
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     Json(input): Json<Restore>,
 ) -> Result<Json<Value>> {
-    local(peer)?;
+    local(peer, s.server_mode)?;
     let _maintenance = s.maintenance.write().await;
     if s.updating.load(std::sync::atomic::Ordering::Acquire) {
         return Err(ApiError::conflict("库存电脑正在更新，请稍后恢复备份。"));
@@ -601,6 +609,18 @@ pub async fn restore(
     // Snapshot current data first. Failure leaves all current data untouched.
     let before = create(&s, &actor, "restore").await?;
     let _writes = s.writes.lock().await;
+    if s.db.get_database_backend() == DbBackend::MySql {
+        crate::database_copy::restore(
+            &snapshot,
+            &s.db,
+            &actor,
+            json!({"restore_point":manifest.created_at,"before_backup":before.name}),
+        )
+        .await?;
+        return Ok(Json(
+            json!({"ok":true,"message":"数据已恢复，请重新登录。"}),
+        ));
+    }
     let mut connection =
         s.db.get_sqlite_connection_pool()
             .acquire()

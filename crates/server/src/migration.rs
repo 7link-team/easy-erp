@@ -1,5 +1,38 @@
 use sea_orm_migration::prelude::*;
 
+async fn execute_schema(manager: &SchemaManager<'_>, sql: &str) -> Result<(), DbErr> {
+    let db = manager.get_connection();
+    let sql = if db.get_database_backend() == sea_orm::DbBackend::MySql {
+        // MySQL DDL commits independently. A failed first setup must be retryable.
+        let words = sql.split_whitespace().collect::<Vec<_>>();
+        if sql.starts_with("CREATE TABLE ") && manager.has_table(words[2]).await? {
+            return Ok(());
+        }
+        if sql.starts_with("CREATE INDEX ")
+            && manager
+                .has_index(words[4].split('(').next().unwrap(), words[2])
+                .await?
+        {
+            return Ok(());
+        }
+        if sql.starts_with("CREATE UNIQUE INDEX ")
+            && manager
+                .has_index(words[5].split('(').next().unwrap(), words[3])
+                .await?
+        {
+            return Ok(());
+        }
+        if sql.starts_with("ALTER TABLE ") && manager.has_column(words[2], words[5]).await? {
+            return Ok(());
+        }
+        crate::mysql::schema(sql)
+    } else {
+        sql.to_owned()
+    };
+    db.execute_unprepared(&sql).await?;
+    Ok(())
+}
+
 pub struct Migrator;
 #[async_trait::async_trait]
 impl MigratorTrait for Migrator {
@@ -44,7 +77,7 @@ impl MigrationTrait for QueryIndexes {
             "CREATE INDEX audit_actions ON audit(action)",
             "CREATE INDEX audit_owner_actions ON audit(actor_id,action)",
         ] {
-            m.get_connection().execute_unprepared(sql).await?;
+            execute_schema(m, sql).await?;
         }
         Ok(())
     }
@@ -82,7 +115,7 @@ impl MigrationTrait for Sales {
             "INSERT INTO sales_catalog VALUES ('transfer','type','调货单',1,1,'{\"billable\":false,\"sort\":2}')",
             "INSERT INTO sales_catalog VALUES ('cash','account','现金',1,1,'{}')",
         ] {
-            m.get_connection().execute_unprepared(sql).await?;
+            execute_schema(m, sql).await?;
         }
         Ok(())
     }
@@ -103,18 +136,20 @@ impl MigrationName for SessionIdle {
 #[async_trait::async_trait]
 impl MigrationTrait for SessionIdle {
     async fn up(&self, m: &SchemaManager) -> std::result::Result<(), DbErr> {
-        m.alter_table(
-            Table::alter()
-                .table(Alias::new("sessions"))
-                .add_column(
-                    ColumnDef::new(Alias::new("idle_seconds"))
-                        .big_integer()
-                        .not_null()
-                        .default(28800),
-                )
-                .to_owned(),
-        )
-        .await?;
+        if !m.has_column("sessions", "idle_seconds").await? {
+            m.alter_table(
+                Table::alter()
+                    .table(Alias::new("sessions"))
+                    .add_column(
+                        ColumnDef::new(Alias::new("idle_seconds"))
+                            .big_integer()
+                            .not_null()
+                            .default(28800),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+        }
         m.get_connection()
             .execute_unprepared(
                 "UPDATE sessions SET idle_seconds=2592000 WHERE expires_at-created_at>28801000",
@@ -275,6 +310,13 @@ impl MigrationTrait for Initial {
                 query.col(column(name, *kind, i == 0));
             }
             m.create_table(query.to_owned()).await?;
+            if m.get_connection().get_database_backend() == sea_orm::DbBackend::MySql {
+                m.get_connection()
+                    .execute_unprepared(&format!(
+                        "ALTER TABLE {table} CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_bin"
+                    ))
+                    .await?;
+            }
         }
         for (name, table, fields, unique) in [
             ("users_username", "users", vec!["username"], true),
@@ -305,7 +347,9 @@ impl MigrationTrait for Initial {
             if unique {
                 q.unique();
             }
-            m.create_index(q.to_owned()).await?;
+            if !m.has_index(table, name).await? {
+                m.create_index(q.to_owned()).await?;
+            }
         }
         Ok(())
     }
@@ -326,7 +370,7 @@ impl MigrationName for MaterialOptions {
 impl MigrationTrait for MaterialOptions {
     async fn up(&self, m: &SchemaManager) -> std::result::Result<(), DbErr> {
         let db = m.get_connection();
-        db.execute_unprepared("CREATE TABLE material_options (id TEXT PRIMARY KEY, field TEXT NOT NULL, name TEXT NOT NULL, key TEXT NOT NULL, version INTEGER NOT NULL, UNIQUE(field,key))").await?;
+        execute_schema(m, "CREATE TABLE material_options (id TEXT PRIMARY KEY, field TEXT NOT NULL, name TEXT NOT NULL, key TEXT NOT NULL, version INTEGER NOT NULL, UNIQUE(field,key))").await?;
         // Seed existing values using the same Unicode normalization as future writes.
         for field in ["spec", "kind", "unit"] {
             let rows = crate::db::all(
@@ -367,7 +411,7 @@ impl MigrationName for Roles {
 #[async_trait::async_trait]
 impl MigrationTrait for Roles {
     async fn up(&self, m: &SchemaManager) -> std::result::Result<(), DbErr> {
-        m.get_connection().execute_unprepared("CREATE TABLE roles (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, permissions TEXT NOT NULL, version INTEGER NOT NULL)").await?;
+        execute_schema(m, "CREATE TABLE roles (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, permissions TEXT NOT NULL, version INTEGER NOT NULL)").await?;
         crate::roles::initialize(m.get_connection())
             .await
             .map_err(|e| DbErr::Custom(e.to_string()))
@@ -393,7 +437,7 @@ impl MigrationTrait for MaterialOptionMetadata {
             "ALTER TABLE material_options ADD COLUMN source TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE material_options ADD COLUMN last_used_at INTEGER NOT NULL DEFAULT 0",
         ] {
-            m.get_connection().execute_unprepared(sql).await?;
+            execute_schema(m, sql).await?;
         }
         Ok(())
     }

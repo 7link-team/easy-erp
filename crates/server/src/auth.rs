@@ -219,7 +219,7 @@ pub async fn status(State(s): State<AppState>) -> Result<Json<serde_json::Value>
         .await?
         .is_some();
     Ok(Json(
-        json!({"initialized":initialized,"name":"库存主机","version":env!("CARGO_PKG_VERSION"),"instance_id":s.instance_id}),
+        json!({"initialized":initialized,"database_configured":true,"setup_token_required":!initialized && s.setup_token.is_some(),"name":"库存主机","version":env!("CARGO_PKG_VERSION"),"instance_id":s.instance_id}),
     ))
 }
 #[derive(Deserialize)]
@@ -231,9 +231,12 @@ pub struct Setup {
 pub async fn setup(
     State(s): State<AppState>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Json(input): Json<Setup>,
 ) -> Result<Json<serde_json::Value>> {
-    if !peer.ip().is_loopback() {
+    if (s.setup_token.is_some() || !peer.ip().is_loopback())
+        && !crate::database::setup_allowed(&headers, s.setup_token.as_deref())
+    {
         return Err(ApiError::forbidden());
     }
     let name = clean(&input.name, "姓名", 50, true)?;

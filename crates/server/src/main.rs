@@ -2,6 +2,8 @@ mod assets;
 mod auth;
 mod backup;
 mod dashboard;
+mod database;
+mod database_copy;
 mod db;
 mod desktop_control;
 mod domain;
@@ -9,6 +11,7 @@ mod error;
 mod inventory;
 mod migration;
 mod money;
+mod mysql;
 mod network;
 mod options;
 mod recovery;
@@ -40,6 +43,9 @@ use tower_http::{
 #[derive(Parser)]
 #[command(version, about = "库存管理后台服务")]
 struct Config {
+    /// Configure an unused data directory from JSON on stdin, without exposing passwords in argv.
+    #[arg(long, conflicts_with_all = ["recovery_action", "backup_only", "migrate_data_to"])]
+    configure_database: bool,
     /// Maintain local data without starting HTTP, even if the database is broken.
     #[arg(long, conflicts_with_all = ["backup_only", "migrate_data_to"])]
     recovery_action: Option<recovery::Action>,
@@ -55,6 +61,13 @@ struct Config {
     migrate_data_to: Option<PathBuf>,
     #[arg(long, env = "ERP_DATA_DIR", default_value = "data")]
     data_dir: PathBuf,
+    /// First-run web setup for a standalone server. Existing SQLite data is reused.
+    #[arg(long, env = "ERP_SERVER_MODE", default_value_t = false)]
+    server_mode: bool,
+    #[arg(long, env = "ERP_DATABASE_URL", hide_env_values = true)]
+    database_url: Option<String>,
+    #[arg(long, env = "ERP_SETUP_TOKEN", hide_env_values = true)]
+    setup_token: Option<String>,
     #[arg(long, env = "ERP_BIND", default_value = "127.0.0.1:4280")]
     bind: SocketAddr,
     #[arg(long, env = "ERP_WEB_DIR")]
@@ -75,6 +88,21 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
     let cfg = Config::parse();
+    let mysql = cfg.database_url.is_some() || database::configured_mysql(&cfg.data_dir)?;
+    if mysql
+        && matches!(
+            cfg.recovery_action,
+            Some(recovery::Action::Reset | recovery::Action::Restore)
+        )
+    {
+        anyhow::bail!(
+            "当前使用MySQL，请启动库存服务后在“备份”页面恢复；本机SQLite维护不会清空或替换MySQL数据库。"
+        );
+    }
+    anyhow::ensure!(
+        !mysql || cfg.migrate_data_to.is_none(),
+        "MySQL配置不能按本机SQLite目录迁移。"
+    );
     if cfg.recovery_action == Some(recovery::Action::List) {
         println!("{}", recovery::list(&cfg.data_dir).await?);
         return Ok(());
@@ -89,7 +117,7 @@ async fn main() -> anyhow::Result<()> {
             "目标数据目录已存在，已停止迁移，不会覆盖任何文件。"
         );
     }
-    if cfg.backup_only && !cfg.data_dir.join("inventory.sqlite").exists() {
+    if cfg.backup_only && !mysql && !cfg.data_dir.join("inventory.sqlite").exists() {
         return Ok(());
     }
     if cfg.recovery_action.is_some() {
@@ -110,6 +138,17 @@ async fn main() -> anyhow::Result<()> {
         .open(cfg.data_dir.join("server.lock"))?;
     lock.try_lock_exclusive()
         .map_err(|_| anyhow::anyhow!("该数据目录已有服务运行，不能重复启动。"))?;
+    if cfg.configure_database {
+        let result = database::configure_cli(&cfg.data_dir).await;
+        match result {
+            Ok(()) => println!("{}", serde_json::json!({"ok": true})),
+            Err(error) => {
+                println!("{}", serde_json::json!({"error": error.to_string()}));
+                std::process::exit(1);
+            }
+        }
+        return Ok(());
+    }
     if let Some(action) = cfg.recovery_action {
         println!(
             "{}",
@@ -131,7 +170,11 @@ async fn main() -> anyhow::Result<()> {
             .max_connections(1)
             .sqlx_logging(false)
             .map_sqlx_sqlite_opts(move |options| options.filename(&path).read_only(true));
-        let db = Database::connect(options).await?;
+        let db = if mysql {
+            database::open(&cfg, None, "").await?
+        } else {
+            Database::connect(options).await?
+        };
         let result = backup::snapshot(&db, &cfg.data_dir, "maintenance").await;
         db.close().await?;
         let info = result.map_err(|error| anyhow::anyhow!(error.1))?;
@@ -164,33 +207,17 @@ async fn main() -> anyhow::Result<()> {
         }
         Err(error) => return Err(error.into()),
     };
-    let path = cfg.data_dir.canonicalize()?.join("inventory.sqlite");
-    // Pass filesystem paths directly: Windows canonical paths contain `?`,
-    // and URL parsing would reinterpret `%` in ordinary directory names.
-    let mut options = ConnectOptions::new("sqlite://inventory");
-    options
-        .max_connections(4)
-        .min_connections(1)
-        .sqlx_logging(false)
-        .connect_timeout(std::time::Duration::from_secs(10))
-        .map_sqlx_sqlite_opts(move |options| {
-            use sea_orm::sqlx::sqlite::{SqliteJournalMode, SqliteSynchronous};
-            options
-                .filename(&path)
-                .create_if_missing(true)
-                .journal_mode(SqliteJournalMode::Wal)
-                .synchronous(SqliteSynchronous::Full)
-                .foreign_keys(true)
-                .busy_timeout(std::time::Duration::from_secs(5))
-        });
-    let db = Database::connect(options).await?;
-    if db::one(
-        &db,
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='items'",
-        vec![],
-    )
-    .await?
-    .is_some()
+    let setup_token =
+        database::setup_token(&cfg.data_dir, cfg.setup_token.clone(), cfg.server_mode)?;
+    let db = database::open(&cfg, setup_token.clone(), &instance_id).await?;
+    if db.get_database_backend() == sea_orm::DbBackend::Sqlite
+        && db::one(
+            &db,
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='items'",
+            vec![],
+        )
+        .await?
+        .is_some()
         && db::one(
             &db,
             "SELECT name FROM sqlite_master WHERE type='table' AND name='roles'",
@@ -205,6 +232,8 @@ async fn main() -> anyhow::Result<()> {
     migration::Migrator::up(&db, None).await?;
     let s = Arc::new(state::State {
         db,
+        setup_token,
+        server_mode: cfg.server_mode,
         writes: Mutex::new(()),
         data_dir: cfg.data_dir.clone(),
         instance_id,

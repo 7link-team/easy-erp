@@ -2,7 +2,12 @@ import { test, expect, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-async function launcher(page: Page, mode = "local", failStart = true) {
+async function launcher(
+  page: Page,
+  mode = "local",
+  failStart = true,
+  databaseConfigured = true,
+) {
   await page.route("http://desktop.test/**", (route) => {
     const name =
       new URL(route.request().url()).pathname.slice(1) || "index.html";
@@ -18,7 +23,7 @@ async function launcher(page: Page, mode = "local", failStart = true) {
     });
   });
   await page.addInitScript(
-    ({ mode, failStart }) => {
+    ({ mode, failStart, databaseConfigured }) => {
       const state = window as any;
       state.nativeCalls = [];
       state.nativeListeners = {};
@@ -36,6 +41,7 @@ async function launcher(page: Page, mode = "local", failStart = true) {
                 mode,
                 server_url: "http://remote.test:4280",
                 autostart: false,
+                database_configured: databaseConfigured,
               };
             if (command === "resume_last" && failStart)
               throw "本机服务启动失败：数据库损坏";
@@ -73,7 +79,7 @@ async function launcher(page: Page, mode = "local", failStart = true) {
         },
       };
     },
-    { mode, failStart },
+    { mode, failStart, databaseConfigured },
   );
   await page.goto("http://desktop.test/");
   await expect(page.locator("#maintenance")).toBeEnabled();
@@ -292,4 +298,69 @@ test("窄屏维护对话框可键盘操作，标签与焦点不被遮挡", async
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).not.toBeVisible();
   await expect(page.locator("#maintenance")).toBeFocused();
+});
+
+test("首次桌面启动可选SQLite或MySQL，校验表单并只通过IPC提交配置", async ({
+  page,
+}) => {
+  await launcher(page, "", false, false);
+  await expect(page.locator("#database-form")).toBeVisible();
+  await expect(page.locator("#database-kind")).toHaveValue("sqlite");
+  await page.locator("#database-kind").selectOption("mysql");
+  await expect(page.locator("#mysql-fields")).toBeVisible();
+  await page.locator("#local").click();
+  expect(
+    await page.evaluate(() =>
+      (window as any).nativeCalls.filter(
+        (c: any) => c.command === "start_local",
+      ),
+    ),
+  ).toHaveLength(0);
+  await page.locator("#mysql-host").fill("mysql.internal");
+  await page.locator("#mysql-database").fill("inventory");
+  await page.locator("#mysql-username").fill("inventory");
+  await page.locator("#mysql-password").fill("local-test-password");
+  await page.locator("#mysql-tls").check();
+  await page.locator("#local").click();
+  await expect(page.locator("#database-form")).toBeHidden();
+  expect(
+    await page.evaluate(
+      () =>
+        (window as any).nativeCalls.find(
+          (c: any) => c.command === "start_local",
+        ).args.database,
+    ),
+  ).toEqual({
+    kind: "mysql",
+    host: "mysql.internal",
+    port: 3306,
+    database: "inventory",
+    username: "inventory",
+    password: "local-test-password",
+    tls: true,
+  });
+  await expect(page.locator("#mysql-password")).toHaveValue("");
+  await expect(page.locator("#database-saved")).toBeVisible();
+  await page.locator("#local").click();
+  const last = await page.evaluate(() =>
+    (window as any).nativeCalls
+      .filter((c: any) => c.command === "start_local")
+      .at(-1),
+  );
+  expect(last.args.database).toBeUndefined();
+});
+
+test("已配置的桌面启动隐藏初始化选择并保留原库", async ({ page }) => {
+  await launcher(page, "local", false, true);
+  await expect(page.locator("#database-form")).toBeHidden();
+  await expect(page.locator("#database-saved")).toBeVisible();
+  await page.locator("#local").click();
+  expect(
+    await page.evaluate(
+      () =>
+        (window as any).nativeCalls.find(
+          (c: any) => c.command === "start_local",
+        ).args.database,
+    ),
+  ).toBeUndefined();
 });

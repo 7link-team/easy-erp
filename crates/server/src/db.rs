@@ -2,35 +2,51 @@ use crate::error::Result;
 use sea_orm::{ConnectionTrait, DbBackend, ExecResult, QueryResult, Statement, Value};
 use serde_json::json;
 
-pub fn statement(sql: &str, values: Vec<Value>) -> Statement {
-    Statement::from_sql_and_values(DbBackend::Sqlite, sql, values)
+pub fn statement(db: &impl ConnectionTrait, sql: &str, values: Vec<Value>) -> Statement {
+    let backend = db.get_database_backend();
+    let sql = if backend == DbBackend::MySql {
+        crate::mysql::query(sql)
+    } else {
+        sql.to_owned()
+    };
+    Statement::from_sql_and_values(backend, sql, values)
 }
 pub async fn execute(
     db: &impl ConnectionTrait,
     sql: &str,
     values: Vec<Value>,
 ) -> Result<ExecResult> {
-    Ok(db.execute_raw(statement(sql, values)).await?)
+    Ok(db.execute_raw(statement(db, sql, values)).await?)
 }
 pub async fn one(
     db: &impl ConnectionTrait,
     sql: &str,
     values: Vec<Value>,
 ) -> Result<Option<QueryResult>> {
-    Ok(db.query_one_raw(statement(sql, values)).await?)
+    Ok(db.query_one_raw(statement(db, sql, values)).await?)
 }
 pub async fn all(
     db: &impl ConnectionTrait,
     sql: &str,
     values: Vec<Value>,
 ) -> Result<Vec<QueryResult>> {
-    Ok(db.query_all_raw(statement(sql, values)).await?)
+    Ok(db.query_all_raw(statement(db, sql, values)).await?)
 }
 pub fn text(row: &QueryResult, key: &str) -> String {
     row.try_get("", key).expect("validated text schema")
 }
 pub fn int(row: &QueryResult, key: &str) -> i64 {
-    row.try_get("", key).expect("validated integer schema")
+    row.try_get("", key).unwrap_or_else(|_| {
+        // MySQL SUM(BIGINT) returns DECIMAL and COUNT returns unsigned BIGINT.
+        if let Ok(value) = row.try_get::<u64>("", key) {
+            return i64::try_from(value).expect("bounded business integer");
+        }
+        row.try_get::<sea_orm::prelude::Decimal>("", key)
+            .expect("validated integer aggregate")
+            .to_string()
+            .parse()
+            .expect("integral business aggregate")
+    })
 }
 pub fn id() -> String {
     uuid::Uuid::new_v4().to_string()

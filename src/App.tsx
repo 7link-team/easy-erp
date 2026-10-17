@@ -1,4 +1,5 @@
 import { can } from "./api";
+import type { DatabaseStatus } from "./DatabaseSetup";
 import { GlobalSearch } from "./GlobalSearch";
 import {
   HomeMetrics,
@@ -77,6 +78,7 @@ import {
 } from "./components";
 
 const Sales = lazy(() => import("./pages/Sales"));
+const DatabaseSetup = lazy(() => import("./DatabaseSetup"));
 const Inventory = lazy(() => import("./pages/Inventory"));
 const Movement = lazy(() => import("./pages/Movement"));
 const Records = lazy(() => import("./pages/Records"));
@@ -150,14 +152,19 @@ function SizeSwitch({
 
 function Login({
   initialized,
+  setupTokenRequired,
+  initialSetupToken,
   onLogin,
   onSetup,
 }: {
   initialized: boolean;
+  setupTokenRequired: boolean;
+  initialSetupToken: string;
   onLogin: (u: User) => void;
   onSetup: () => void;
 }) {
   const [username, setUsername] = useState("");
+  const [setupToken, setSetupToken] = useState(initialSetupToken);
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(false);
@@ -202,7 +209,11 @@ function Login({
             form(e, () =>
               action.run(async () => {
                 if (!initialized) {
-                  await send("/setup", { username, name, password });
+                  await api("/setup", {
+                    method: "POST",
+                    headers: { "X-ERP-Setup-Token": setupToken },
+                    body: JSON.stringify({ username, name, password }),
+                  });
                   onSetup();
                 }
                 const result = await send<{ user: User }>("/login", {
@@ -217,6 +228,23 @@ function Login({
         >
           {!initialized && (
             <>
+              {setupTokenRequired && (
+                <Field
+                  label="初始化口令"
+                  required
+                  hint="使用服务器首次启动时提供的初始化口令。"
+                >
+                  {(props) => (
+                    <Input
+                      {...props}
+                      type="password"
+                      autoComplete="off"
+                      value={setupToken}
+                      onChange={(event) => setSetupToken(event.target.value)}
+                    />
+                  )}
+                </Field>
+              )}
               <Field label="管理员姓名" required>
                 {(p) => (
                   <Input
@@ -476,6 +504,9 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
   );
   const [user, setUser] = useState<User>();
   const [initialized, setInitialized] = useState(true);
+  const [databaseConfigured, setDatabaseConfigured] = useState(true);
+  const [setupTokenRequired, setSetupTokenRequired] = useState(false);
+  const [setupToken, setSetupToken] = useState("");
   const [starting, setStarting] = useState(true);
   const [startError, setStartError] = useState("");
   const [browserError, setBrowserError] = useState("");
@@ -521,8 +552,10 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
     return () => window.removeEventListener("erp:open-browser", open);
   }, [user]);
   useEffect(() => {
-    api<{ initialized: boolean }>("/status")
+    api<DatabaseStatus>("/status")
       .then(async (s) => {
+        setDatabaseConfigured(s.database_configured !== false);
+        setSetupTokenRequired(s.setup_token_required ?? false);
         setInitialized(s.initialized);
         if (browserLogin) {
           const result = await browserLogin;
@@ -563,6 +596,19 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
         </Button>
       </main>
     );
+  if (!databaseConfigured)
+    return (
+      <Suspense fallback={<Loading />}>
+        <DatabaseSetup
+          onDone={(status, token) => {
+            setDatabaseConfigured(true);
+            setInitialized(status.initialized);
+            setSetupTokenRequired(status.setup_token_required ?? false);
+            setSetupToken(token);
+          }}
+        />
+      </Suspense>
+    );
   if (!user)
     return (
       <>
@@ -571,6 +617,8 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
         </div>
         <Login
           initialized={initialized}
+          setupTokenRequired={setupTokenRequired}
+          initialSetupToken={setupToken}
           onSetup={() => setInitialized(true)}
           onLogin={(u) => {
             setUser(u);

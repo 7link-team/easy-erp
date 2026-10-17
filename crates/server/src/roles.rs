@@ -146,7 +146,7 @@ pub async fn initialize(db: &impl ConnectionTrait) -> Result<()> {
         };
         execute(
             db,
-            "INSERT INTO roles (id,name,permissions,version) VALUES (?,?,?,1)",
+            "INSERT INTO roles (id,name,permissions,version) VALUES (?,?,?,1) ON CONFLICT(id) DO NOTHING",
             vec![
                 rid.into(),
                 name.into(),

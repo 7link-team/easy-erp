@@ -54,6 +54,11 @@ import {
   localDate,
   saleStatus,
   preview,
+  printAmountFields,
+  defaultPrintAmountRule,
+  type PrintSettings,
+  type PrintAmountRule,
+  type PrintAddressRule,
   type CatalogEntry,
   type Sale,
   type SaleInput,
@@ -194,6 +199,12 @@ function ConfigForm({
   const [active, setActive] = useState(entry?.active ?? true);
   const [sort, setSort] = useState(String(entry?.data.sort ?? 0));
   const [note, setNote] = useState(entry?.data.note || "");
+  const [printSettings, setPrintSettings] = useState<PrintSettings>(
+    entry?.data.print_settings ?? {},
+  );
+  const [defaultSettlement, setDefaultSettlement] = useState(
+    entry?.data.default_settlement ?? "unpaid",
+  );
   const action = useAction();
   const title = {
     customer: "客户",
@@ -224,6 +235,10 @@ function ConfigForm({
                   department_id: department,
                   account_type: accountType,
                   note,
+                  ...(kind === "company" && {
+                    print_settings: printSettings,
+                    default_settlement: defaultSettlement,
+                  }),
                 },
               });
               onDone(saved);
@@ -306,6 +321,78 @@ function ConfigForm({
             </p>
           </>
         )}
+        {kind === "company" && (
+          <Field
+            label="默认结算方式"
+            hint="仅用于新开单；已保存的草稿保留原选择。"
+          >
+            {(p) => (
+              <Select
+                {...p}
+                value={defaultSettlement}
+                onChange={(e) =>
+                  setDefaultSettlement(
+                    e.target.value as typeof defaultSettlement,
+                  )
+                }
+              >
+                <option value="full">全部收款</option>
+                <option value="partial">部分收款</option>
+                <option value="unpaid">全部欠款</option>
+              </Select>
+            )}
+          </Field>
+        )}
+        {kind === "company" && (
+          <fieldset>
+            <legend>打印显示设置</legend>
+            <p className="muted">仅影响打印内容，不改变单据金额和客户资料。</p>
+            {printAmountFields.map(({ key, label }) => (
+              <Field key={key} label={label}>
+                {(p) => (
+                  <Select
+                    {...p}
+                    value={
+                      printSettings.amounts?.[key] ??
+                      defaultPrintAmountRule(key)
+                    }
+                    onChange={(e) =>
+                      setPrintSettings((current) => ({
+                        ...current,
+                        amounts: {
+                          ...current.amounts,
+                          [key]: e.target.value as PrintAmountRule,
+                        },
+                      }))
+                    }
+                  >
+                    <option value="always">打印</option>
+                    <option value="never">不打印</option>
+                    <option value="nonzero">为 0 时不打印</option>
+                  </Select>
+                )}
+              </Field>
+            ))}
+            <Field label="送货地址">
+              {(p) => (
+                <Select
+                  {...p}
+                  value={printSettings.delivery_address ?? "nonempty"}
+                  onChange={(e) =>
+                    setPrintSettings((current) => ({
+                      ...current,
+                      delivery_address: e.target.value as PrintAddressRule,
+                    }))
+                  }
+                >
+                  <option value="always">打印</option>
+                  <option value="never">不打印</option>
+                  <option value="nonempty">为空时不打印</option>
+                </Select>
+              )}
+            </Field>
+          </fieldset>
+        )}
         <TextField label="说明" value={note} onChange={setNote} />
         <TextField
           label="排列顺序"
@@ -381,12 +468,15 @@ function SaleEditor({
         : []),
   };
   const [input, setInput] = useState(initial);
-  const [settlement, setSettlement] = useState(
+  const [settlement, setSettlement] = useState<string>(
     sale?.initial_payment
       ? Math.round(Number(sale.initial_payment.amount) * 100) === sale.total
         ? "full"
         : "partial"
-      : "unpaid",
+      : sale || !can(user, "sales.pay")
+        ? "unpaid"
+        : (catalog.find((entry) => entry.kind === "company")?.data
+            .default_settlement ?? "unpaid"),
   );
   const [receiptAmount, setReceiptAmount] = useState(
     sale?.initial_payment?.amount || "",
@@ -1546,7 +1636,7 @@ function Detail({
       <h3>签字及凭证照片</h3>
       {sale.status === "posted" && sale.debt > 0 && (
         <p className="muted">
-          打印单据已列明剩余欠款。请客户核对并签字后，拍照上传到本单留存，最多两张。
+          请客户核对单据并签字后，拍照上传到本单留存，最多两张。
         </p>
       )}
       <div className="sale-attachments">
@@ -3395,6 +3485,10 @@ export default function Sales({
           action.error ? null : (
             <Loading />
           )
+        ) : editing && !catalog.data ? (
+          catalog.error ? null : (
+            <Loading />
+          )
         ) : editing ? (
           <SaleEditor
             key={selected?.id || "new"}
@@ -3792,9 +3886,11 @@ export default function Sales({
                         ? "维护名称、计款规则与启停状态；历史单据保留原记录。"
                         : visibleConfigKind === "salesperson"
                           ? "业务员归属部门，与实际开单人分别记录。"
-                          : contactFields
-                            ? "维护名称、联系信息与启停状态。"
-                            : "停用后不再用于新单据，历史记录仍可查看。"}
+                          : visibleConfigKind === "company"
+                            ? "维护公司联系信息及打印金额、送货地址的显示规则。"
+                            : contactFields
+                              ? "维护名称、联系信息与启停状态。"
+                              : "停用后不再用于新单据，历史记录仍可查看。"}
                     </p>
                   </div>
                   {view === "customers" && (

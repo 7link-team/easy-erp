@@ -29,12 +29,23 @@ struct Server {
 
 impl Server {
     async fn start(data: &Path, client: Option<Client>) -> Self {
+        Self::start_mode(data, client, false).await
+    }
+
+    async fn start_mode(data: &Path, client: Option<Client>, server_mode: bool) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         drop(listener);
         let log_path = data.join("test-server.log");
         let log = fs::File::create(&log_path).unwrap();
         let mut command = Command::new(env!("CARGO_BIN_EXE_easy-erp-server"));
+        command
+            .env_remove("ERP_DATABASE_URL")
+            .env_remove("ERP_SETUP_TOKEN")
+            .env("ERP_SERVER_MODE", server_mode.to_string());
+        if server_mode {
+            command.env("ERP_SETUP_TOKEN", TOKEN);
+        }
         #[cfg(windows)]
         command.creation_flags(0x08000000);
         let child = command
@@ -720,4 +731,177 @@ async fn clear_backups_never_follows_a_directory_symlink_outside_the_data_direct
         fs::read(data.path().join("inventory.sqlite")).unwrap(),
         b"untouched database"
     );
+}
+
+async fn configure_server(server: &Server, settings: Value) {
+    json_response(
+        server
+            .client
+            .post(format!("{}/api/database/setup", server.base))
+            .header("X-ERP-Request", "1")
+            .header("X-ERP-Setup-Token", TOKEN)
+            .json(&settings)
+            .send()
+            .await
+            .unwrap(),
+    )
+    .await;
+    for _ in 0..100 {
+        if let Ok(response) = server
+            .client
+            .get(format!("{}/api/status", server.base))
+            .send()
+            .await
+            && let Ok(status) = response.json::<Value>().await
+            && status["database_configured"] == true
+        {
+            return;
+        }
+        sleep(Duration::from_millis(50)).await;
+    }
+    panic!("configured service did not become ready");
+}
+async fn setup_server_admin(server: &Server) {
+    json_response(
+        server
+            .client
+            .post(format!("{}/api/setup", server.base))
+            .header("X-ERP-Request", "1")
+            .header("X-ERP-Setup-Token", TOKEN)
+            .json(&json!({"username":"manager","password":PASSWORD,"name":"服务器管理员"}))
+            .send()
+            .await
+            .unwrap(),
+    )
+    .await;
+    server.login().await;
+}
+
+#[tokio::test]
+async fn server_first_setup_requires_token_and_persists_sqlite_across_restarts() {
+    let data = TempDir::new().unwrap();
+    let mut server = Server::start_mode(data.path(), None, true).await;
+    assert_eq!(server.get("/status").await["database_configured"], false);
+    let denied = server
+        .client
+        .post(format!("{}/api/database/setup", server.base))
+        .header("X-ERP-Request", "1")
+        .json(&json!({"kind":"sqlite"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+    let bad = server.client.post(format!("{}/api/database/setup",server.base))
+        .header("X-ERP-Request","1").header("X-ERP-Setup-Token",TOKEN)
+        .json(&json!({"kind":"mysql","host":"127.0.0.1","port":1,"database":"missing","username":"bad","password":"DO-NOT-EXPOSE"})).send().await.unwrap();
+    assert_eq!(bad.status(), StatusCode::BAD_REQUEST);
+    assert!(!bad.text().await.unwrap().contains("DO-NOT-EXPOSE"));
+    assert!(!data.path().join("database.json").exists());
+    assert!(!data.path().join("inventory.sqlite").exists());
+    configure_server(&server, json!({"kind":"sqlite"})).await;
+    let denied = server
+        .client
+        .post(format!("{}/api/setup", server.base))
+        .header("X-ERP-Request", "1")
+        .json(&json!({"username":"bad","password":PASSWORD,"name":"不允许"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+    setup_server_admin(&server).await;
+    server
+        .post(
+            "/items",
+            json!({"name":"重启保留","kind":"成品","unit":"个"}),
+        )
+        .await;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            fs::metadata(data.path().join("database.json"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+    }
+    server.stop().await;
+    let mut restarted = Server::start_mode(data.path(), None, true).await;
+    assert_eq!(restarted.get("/status").await["initialized"], true);
+    restarted.login().await;
+    assert_eq!(
+        restarted.get("/items?q=重启保留").await["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    let response = restarted
+        .client
+        .post(format!("{}/api/database/setup", restarted.base))
+        .header("X-ERP-Request", "1")
+        .json(&json!({"kind":"sqlite"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    restarted.stop().await;
+}
+
+#[tokio::test]
+async fn mysql_web_setup_restart_and_full_backup_restore() {
+    let Ok(url) = std::env::var("ERP_MYSQL_TEST_URL") else {
+        eprintln!("ERP_MYSQL_TEST_URL not set: MySQL integration requires a disposable database");
+        return;
+    };
+    let url = reqwest::Url::parse(&url).unwrap();
+    let data = TempDir::new().unwrap();
+    let mut server = Server::start_mode(data.path(), None, true).await;
+    configure_server(&server,json!({"kind":"mysql","host":url.host_str().unwrap(),"port":url.port().unwrap_or(3306),"database":url.path().trim_start_matches('/'),"username":url.username(),"password":url.password().unwrap_or(""),"tls":false})).await;
+    assert!(!data.path().join("inventory.sqlite").exists());
+    setup_server_admin(&server).await;
+    let item = server
+        .post(
+            "/items",
+            json!({"name":"MySQL重启库存","kind":"成品","unit":"个"}),
+        )
+        .await;
+    server.post("/movements",json!({"request_id":uuid::Uuid::new_v4().to_string(),"kind":"receipt","lines":[{"item_id":item["id"],"quantity":"10"}]})).await;
+    let backup = server.post("/backups", json!({})).await;
+    server
+        .post(
+            "/items",
+            json!({"name":"备份后新增","kind":"成品","unit":"个"}),
+        )
+        .await;
+    let restored = server
+        .post(
+            "/backups/restore",
+            json!({"name":backup["name"],"confirmation":"恢复全部数据"}),
+        )
+        .await;
+    assert_eq!(restored["ok"], true);
+    server.login().await;
+    assert_eq!(
+        server.get("/items?q=备份后新增").await["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+    assert_eq!(
+        server.get("/items?q=MySQL重启库存").await["items"][0]["balance"],
+        10000
+    );
+    server.stop().await;
+    let mut restarted = Server::start_mode(data.path(), None, true).await;
+    restarted.login().await;
+    assert_eq!(
+        restarted.get("/items?q=MySQL重启库存").await["items"][0]["balance"],
+        10000
+    );
+    assert!(!data.path().join("inventory.sqlite").exists());
+    restarted.stop().await;
 }

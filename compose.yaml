@@ -1,0 +1,14 @@
+services:
+  inventory:
+    image: ghcr.io/7link-team/easy-erp-server:latest
+    restart: unless-stopped
+    ports:
+      - "4280:4280"
+    environment:
+      # Set to the domain or server IP used by browsers (without scheme/port).
+      ERP_ALLOWED_HOSTS: ${ERP_ALLOWED_HOSTS:-localhost,127.0.0.1}
+    volumes:
+      - inventory-data:/data
+
+volumes:
+  inventory-data:

@@ -2,6 +2,16 @@ const { invoke } = window.__TAURI__.core;
 const status = document.querySelector("#status");
 const address = document.querySelector("#address");
 let busy = false;
+let databaseConfigured = true;
+const databaseForm = document.querySelector("#database-form");
+const databaseKind = document.querySelector("#database-kind");
+databaseKind.addEventListener("change", () => {
+  const mysql = databaseKind.value === "mysql";
+  document.querySelector("#mysql-fields").hidden = !mysql;
+  for (const id of ["host", "port", "database", "username"]) {
+    document.querySelector(`#mysql-${id}`).required = mysql;
+  }
+});
 async function run(task) {
   if (busy) return;
   busy = true;
@@ -22,9 +32,34 @@ async function run(task) {
     });
   }
 }
-document
-  .querySelector("#local")
-  .addEventListener("click", () => run(() => invoke("start_local")));
+document.querySelector("#local").addEventListener("click", () => {
+  if (!databaseConfigured && !databaseForm.reportValidity()) return;
+  const kind = databaseKind.value;
+  const database = databaseConfigured
+    ? undefined
+    : kind === "sqlite"
+      ? { kind }
+      : {
+          kind,
+          host: document.querySelector("#mysql-host").value,
+          port: Number(document.querySelector("#mysql-port").value),
+          database: document.querySelector("#mysql-database").value,
+          username: document.querySelector("#mysql-username").value,
+          password: document.querySelector("#mysql-password").value,
+          tls: document.querySelector("#mysql-tls").checked,
+        };
+  run(async () => {
+    await invoke("start_local", { database });
+    databaseConfigured = true;
+    databaseForm.hidden = true;
+    document.querySelector("#mysql-password").value = "";
+    document.querySelector("#database-saved").hidden = false;
+  });
+});
+databaseForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  document.querySelector("#local").click();
+});
 document
   .querySelector("#connect")
   .addEventListener("click", () =>
@@ -55,6 +90,9 @@ window.__TAURI__.event.listen("startup-error", (event) => {
 async function initialize() {
   try {
     const preferences = await invoke("connection_settings");
+    databaseConfigured = preferences.database_configured !== false;
+    databaseForm.hidden = databaseConfigured;
+    document.querySelector("#database-saved").hidden = !databaseConfigured;
     address.value = preferences.server_url;
     document.querySelector("#autostart").checked = preferences.autostart;
     if (preferences.mode) {

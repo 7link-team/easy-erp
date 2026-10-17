@@ -2,7 +2,8 @@ import { Button, Modal } from "../ui";
 import {
   moneyText,
   decimalText,
-  saleStatus,
+  printAmountFields,
+  defaultPrintAmountRule,
   type Sale,
   type CatalogEntry,
 } from "../sales";
@@ -21,6 +22,19 @@ export default function SalesPrint({
 }) {
   const action = useAction();
   const { info } = useAppUpdates();
+  const settings = company?.data.print_settings;
+  const amounts = {
+    ...sale,
+    return_credit: sale.returns.reduce((sum, entry) => sum + entry.credit, 0),
+  };
+  const summary = printAmountFields.filter(({ key }) => {
+    const rule = settings?.amounts?.[key] ?? defaultPrintAmountRule(key);
+    return rule === "always" || (rule === "nonzero" && amounts[key] !== 0);
+  });
+  const addressRule = settings?.delivery_address ?? "nonempty";
+  const showAddress =
+    addressRule === "always" ||
+    (addressRule === "nonempty" && !!sale.customer.data.address?.trim());
   return (
     <Modal title="单据打印预览" variant="print" onClose={onClose}>
       <div className="sales-print-tools">
@@ -73,9 +87,7 @@ export default function SalesPrint({
           <div>
             单号：{sale.number}
             <br />
-            业务日期：{sale.business_date}　版本：V{sale.version}
-            <br />
-            {saleStatus(sale)}
+            业务日期：{sale.business_date}
           </div>
         </div>
         <div className="print-customer">
@@ -85,9 +97,11 @@ export default function SalesPrint({
           <span>开单人：{sale.actor_name}</span>
           <span>业绩部门：{sale.department_name || "未指定"}</span>
           <span>部门业务员：{sale.salesperson_name || "未指定"}</span>
-          <span className="print-wide">
-            送货地址：{sale.customer.data.address || "—"}
-          </span>
+          {showAddress && (
+            <span className="print-wide">
+              送货地址：{sale.customer.data.address?.trim() || "—"}
+            </span>
+          )}
         </div>
         <table aria-label="打印明细">
           <thead>
@@ -137,40 +151,23 @@ export default function SalesPrint({
                 </p>
               ))}
             </div>
-            <dl>
-              {[
-                ["原金额", sale.subtotal],
-                ["折扣金额", sale.discount],
-                ["抹零金额", sale.rounding],
-                ["原单应收", sale.total],
-                ["退货减免", sale.returns.reduce((a, r) => a + r.credit, 0)],
-                ["当前应收", sale.due],
-                ["净实收", sale.paid],
-                ["剩余欠款", sale.debt],
-              ].map(([label, value]) => (
-                <div key={label}>
-                  <dt>{label}</dt>
-                  <dd>¥{moneyText(value as number)}</dd>
-                </div>
-              ))}
-            </dl>
+            {summary.length > 0 && (
+              <dl>
+                {summary.map(({ key, label }) => (
+                  <div key={key}>
+                    <dt>{label}</dt>
+                    <dd>¥{moneyText(amounts[key])}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
           </div>
         )}
         <p className="print-note">备注：{sale.note || "—"}</p>
         <div className="print-signatures">
-          {sale.status === "posted" && sale.billable && sale.debt > 0 && (
-            <p className="print-debt-confirmation">
-              本单当前应收 ¥{moneyText(sale.due)}，已收 ¥{moneyText(sale.paid)}
-              ，<strong>剩余欠款 ¥{moneyText(sale.debt)}</strong>。
-              请客户核对货物及上述金额后签字确认。
-            </p>
-          )}
           <p>发货经办人：________________</p>
           <p>
-            {sale.status === "posted" && sale.billable && sale.debt > 0
-              ? "客户签收及欠款确认"
-              : "客户签收"}
-            ：________________
+            客户签收：________________
             <br />
             签收日期：________________
           </p>
