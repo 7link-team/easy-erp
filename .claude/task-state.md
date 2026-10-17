@@ -57,3 +57,9 @@ ACCEPTANCE — 实现、测试、真实服务升级与只读验收完成。
 
 ## Active Release — 2026-10-17
 用户明确授权「全部提交推送 发版 打包镜像」。Direct执行，复用现有build/server-image/server-archives工作流；发布v0.2.3，完整安装包与服务器amd64/arm64镜像及公开下载归档。同步所有版本/锁文件，推送main及新tag。构建检查与产物验收通过后发布正式Release；不得覆盖既有v0.2.2。当前阶段RELEASE PREPARATION，待push、Actions验收、产物下载验证、正式发布。
+
+## Release checkpoint
+v0.2.3发布源71c760ecdd5c0c68718dd984fd061333766db4a1，main与tag已推送。正式包工作流39031346278（tag）；服务器镜像39031346192（main）。重复main构建39031346185已主动取消，避免重复消耗。发布说明build-artifacts/tmp/v0.2.3-release-notes.md。后续等待两条流水线并修复失败，验收draft产物后正式发布；镜像成功后dispatch server-archives(source_sha=发布源SHA)并验证公开下载。
+
+## Release validation correction
+发布前销售全量测试发现3个旧场景隐含默认unpaid；已显式选择unpaid以覆盖后续收款/库存验证/部分收款，保留全部原断言，产品默认full不变。修正后sales.spec Chromium25/25 PASS，e2e TS PASS。旧包/镜像构建取消，v0.2.3尚未创建Release；将仅更新本轮未发布tag到修正提交，再以同一SHA构建全部产物。

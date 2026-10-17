@@ -506,6 +506,10 @@ test("真实界面多品类开单、收款、打印、手机版式与离开保�
     page.getByRole("combobox", { name: "部门业务员", exact: false }),
     salesperson.id,
   );
+  await chooseSelect(
+    page.getByRole("combobox", { name: "结算方式 必填", exact: true }),
+    "unpaid",
+  );
   await page.getByRole("button", { name: "添加一行", exact: true }).click();
   await page.getByLabel("开单查找物料").fill(item.name);
   await page
@@ -1418,6 +1422,10 @@ test("超库存即时提示且禁止确认，草稿保留，修订按原数量�
     page.getByRole("combobox", { name: "客户 必填", exact: true }),
     customer.id,
   );
+  await chooseSelect(
+    page.getByRole("combobox", { name: "结算方式 必填", exact: true }),
+    "unpaid",
+  );
   await page.getByRole("button", { name: "添加一行", exact: true }).click();
   await page.getByLabel("开单查找物料").fill(item.name);
   await page
@@ -1699,6 +1707,7 @@ test("开单结算：抹零后部分收款、草稿保留、移动端欠款提�
     name: "结算方式 必填",
     exact: true,
   });
+  await chooseSelect(settlement, "unpaid");
   await expect(
     page.getByText("剩余欠款：¥10,000.00", { exact: true }),
   ).toBeVisible();
