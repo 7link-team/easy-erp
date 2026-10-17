@@ -513,7 +513,12 @@ pub(crate) async fn prepare_restore(
         && [
             current_schema
                 .iter()
-                .filter(|v| v.as_str() != "material_options_meta_v1")
+                .filter(|v| v.as_str() != "item_prices_v1")
+                .cloned()
+                .collect::<Vec<_>>(),
+            current_schema
+                .iter()
+                .filter(|v| !["material_options_meta_v1"].contains(&v.as_str()))
                 .cloned()
                 .collect::<Vec<_>>(),
             current_schema
@@ -547,7 +552,15 @@ pub(crate) async fn prepare_restore(
                 .cloned()
                 .collect::<Vec<_>>(),
         ]
-        .contains(&manifest.schema);
+        .into_iter()
+        .any(|schema| {
+            schema == manifest.schema
+                || schema
+                    .into_iter()
+                    .filter(|v| v != "item_prices_v1")
+                    .collect::<Vec<_>>()
+                    == manifest.schema
+        });
     if manifest.schema != current_schema.to_vec() && !legacy {
         return Err(ApiError::bad(
             "备份数据库版本不同，请使用匹配版本的软件恢复。",

@@ -20,7 +20,7 @@ async function login(page: Page) {
   await page.getByLabel("登录账号", { exact: false }).fill("manager");
   await page.getByLabel("登录密码", { exact: false }).fill("Factory-test-2026");
   await page.getByRole("button", { name: "登录", exact: true }).click();
-  await expect(page.getByRole("navigation")).toBeVisible();
+  await expect(page.getByRole("navigation", { name: /^(主要导航|更多功能)$/ })).toBeVisible();
 }
 
 async function fits(page: Page) {
@@ -228,7 +228,7 @@ test("统一控件尺寸、中文行内校验、下拉键盘操作", async ({ pa
   await page.setViewportSize({ width: 1280, height: 800 });
   await login(page);
   await page
-    .getByRole("navigation")
+    .getByRole("navigation", { name: /^(主要导航|更多功能)$/ })
     .getByRole("link", { name: "物料", exact: true })
     .click();
   await page.getByRole("button", { name: "添加物料", exact: true }).click();
@@ -318,7 +318,7 @@ test("桌面打开链接调用原生命令，失败时明确提示且可以重�
   try {
     const opened = await freshBrowser.newPage();
     await opened.goto(call.args.address);
-    await expect(opened.getByRole("navigation")).toBeVisible();
+    await expect(opened.getByRole("navigation", { name: /^(主要导航|更多功能)$/ })).toBeVisible();
     expect(opened.url()).not.toContain("browser-login");
   } finally {
     await freshBrowser.close();
@@ -374,7 +374,7 @@ test("Web 地址选择与中文文件选择器", async ({ page }) => {
   await dialog.getByRole("button", { name: "关闭", exact: true }).click();
   await page.setViewportSize({ width: 1280, height: 800 });
   await page
-    .getByRole("navigation")
+    .getByRole("navigation", { name: /^(主要导航|更多功能)$/ })
     .getByRole("link", { name: "备份", exact: true })
     .click();
   await expect(page.getByText("未选择文件", { exact: true })).toBeVisible();
@@ -445,7 +445,7 @@ for (const viewport of [
         await page.getByRole("link", { name, exact: true }).click();
       else
         await page
-          .getByRole("navigation")
+          .getByRole("navigation", { name: /^(主要导航|更多功能)$/ })
           .getByRole("link", { name, exact: true })
           .click();
       await expect(page.locator("main h1:visible")).toBeVisible();
@@ -484,7 +484,7 @@ for (const viewport of [
         if (viewport.width <= 760)
           await page.getByRole("button", { name: "更多", exact: true }).click();
         await page
-          .getByRole("navigation")
+          .getByRole("navigation", { name: /^(主要导航|更多功能)$/ })
           .getByRole("link", { name: "基础资料", exact: true })
           .click();
         const configTabs = page.getByRole("tablist", {
@@ -577,7 +577,7 @@ for (const viewport of [
       }
     }
     await page
-      .getByRole("navigation")
+      .getByRole("navigation", { name: /^(主要导航|更多功能)$/ })
       .getByRole("link", { name: "工作台", exact: true })
       .click();
     for (const action of ["我要入库", "我要出库"]) {
@@ -752,7 +752,7 @@ test("页面无重复栏目、字典键盘切换、侧栏分区与普通页面�
     await selected.focus();
     await page.keyboard.press("End");
     await expect(
-      config.getByRole("tab", { name: "公司信息", exact: true }),
+      config.getByRole("tab", { name: "开单与打印设置", exact: true }),
     ).toHaveAttribute("aria-selected", "true");
     await page.screenshot({
       path: testInfo.outputPath(`config-tabs-${width}.png`),
@@ -800,7 +800,7 @@ test("普通开单人的配置栏目只提供客户并能快速建档", async ({
     ).toBeVisible();
     await expect(
       worker
-        .getByRole("navigation")
+        .getByRole("navigation", { name: /^(主要导航|更多功能)$/ })
         .getByRole("link", { name: "收款", exact: true }),
     ).toHaveCount(0);
     expect((await worker.request.get("/api/sales/finance")).status()).toBe(403);

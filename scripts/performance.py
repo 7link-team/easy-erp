@@ -190,7 +190,7 @@ def seed(directory, actor, count, item_count):
     balances = [opening] * item_count
     for i in range(item_count):
         iid, did = f"item-{i:06d}", f"opening-{i:06d}"
-        db.execute("INSERT INTO items VALUES (?,?,?,?,?,?,3,?,?,?,1,1,?)",
+        db.execute("INSERT INTO items (id,code,name,spec,kind,unit,precision,barcode,minimum,balance,active,version,created_at) VALUES (?,?,?,?,?,?,3,?,?,?,1,1,?)",
                    (iid, f"P{i:06d}", f"测试物料{i:06d}", f"M{i % 20 + 1}", f"类别{i % 10}", "个",
                     f"88{i:010d}", 10000, opening, now - 366 * 86400000 + i))
         db.execute("INSERT INTO documents VALUES (?,?,?,?,?,?,?,?,?,?)",

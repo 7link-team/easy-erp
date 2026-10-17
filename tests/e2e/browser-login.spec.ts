@@ -39,7 +39,7 @@ test("桌面打开后独立浏览器自动登录，清除凭证，不能重复�
   try {
     const page = await context.newPage();
     await page.goto(`http://127.0.0.1:4289/#/browser-login/${ticket}`);
-    await expect(page.getByRole("navigation")).toBeVisible();
+    await expect(page.getByRole("navigation", { name: /^(主要导航|更多功能)$/ })).toBeVisible();
     await expect(page.getByRole("heading", { name: /的工作台/ })).toBeVisible();
     expect(page.url()).not.toContain(ticket);
     const user = await (
@@ -60,7 +60,7 @@ test("桌面打开后独立浏览器自动登录，清除凭证，不能重复�
       ).status(),
     ).toBe(400);
     await page.reload();
-    await expect(page.getByRole("navigation")).toBeVisible();
+    await expect(page.getByRole("navigation", { name: /^(主要导航|更多功能)$/ })).toBeVisible();
     await context.request.post("http://127.0.0.1:4289/api/logout", {
       headers,
       data: {},

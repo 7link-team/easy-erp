@@ -16,7 +16,7 @@ test("误建物料删除确认、保留审计；历史库存和普通账号不�
   await page.getByLabel("登录账号", { exact: false }).fill("manager");
   await page.getByLabel("登录密码", { exact: false }).fill(password);
   await page.getByRole("button", { name: "登录", exact: true }).click();
-  await expect(page.getByRole("navigation")).toBeVisible();
+  await expect(page.getByRole("navigation", { name: /^(主要导航|更多功能)$/ })).toBeVisible();
   const create = async (name: string) => {
     const response = await page.request.post("/api/items", {
       headers,
@@ -27,7 +27,7 @@ test("误建物料删除确认、保留审计；历史库存和普通账号不�
   };
   const id = await create("误建删除验收");
   await page
-    .getByRole("navigation")
+    .getByRole("navigation", { name: /^(主要导航|更多功能)$/ })
     .getByRole("link", { name: "物料", exact: true })
     .click();
   const row = page.getByRole("row").filter({ hasText: "误建删除验收" });

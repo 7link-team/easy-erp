@@ -1409,3 +1409,19 @@ button { transition: background-color var(--dur-1) var(--ease), border-color var
   .dictionary-order .icon-button { min-width: 44px; min-height: 44px; }
   .dictionary-table:has(.dictionary-order-cell) .ledger-actions { grid-column: 1 / -1; grid-row: auto; border-top: 1px solid var(--line-1); padding-top: 8px; }
 }
+
+/* Location hierarchy remains usable on compact screens. */
+.breadcrumbs { margin-bottom: var(--s-3); color: var(--ink-3); font-size: var(--t-12); }
+.breadcrumbs ol { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; list-style: none; margin: 0; padding: 0; }
+.breadcrumbs li { display: flex; align-items: center; gap: 4px; }
+.breadcrumbs li + li::before { content: "/"; padding-inline: 4px; color: var(--ink-3); }
+.breadcrumbs .page-link { min-height: 32px; padding: 4px; background: transparent; border: 0; box-shadow: none; color: inherit; }
+.breadcrumbs [aria-current="page"] { color: var(--ink-1); }
+@media (max-width: 760px) {
+  .breadcrumbs .page-link { min-height: 44px; }
+  .inventory-table td:nth-child(4), .inventory-table td:nth-child(5), .inventory-table td:nth-child(6), .inventory-table td:nth-child(7) { grid-column: 1 / 3; grid-row: auto; text-align: left; }
+  .inventory-table td:nth-child(4)::before, .inventory-table td:nth-child(5)::before, .inventory-table td:nth-child(6)::before, .inventory-table td:nth-child(7)::before { content: attr(data-label) "："; color: var(--ink-3); }
+  .inventory-table td:nth-child(8) { grid-column: 1 / 3; }
+  .inventory-table td:last-child { grid-row: auto; }
+}
+@media print { .breadcrumbs { display: none; } }

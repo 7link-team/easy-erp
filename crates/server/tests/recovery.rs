@@ -234,7 +234,7 @@ async fn fixture(server: &Server) -> Fixture {
     let item = server
         .post(
             "/items",
-            json!({"name":"恢复测试物料","kind":"成品","unit":"公斤"}),
+            json!({"name":"恢复测试物料","kind":"成品","unit":"公斤","cost_price":"3.4567","sale_price":"8.1234"}),
         )
         .await;
     server
@@ -317,6 +317,9 @@ async fn fixture(server: &Server) -> Fixture {
 }
 
 async fn verify_fixture(server: &Server, fixture: &Fixture) {
+    let prices = server.get("/items?q=恢复测试物料").await;
+    assert_eq!(prices["items"][0]["cost_price"], 34567);
+    assert_eq!(prices["items"][0]["sale_price"], 81234);
     let items = server.get("/items").await;
     let item = items["items"]
         .as_array()
@@ -865,7 +868,7 @@ async fn mysql_web_setup_restart_and_full_backup_restore() {
     let item = server
         .post(
             "/items",
-            json!({"name":"MySQL重启库存","kind":"成品","unit":"个"}),
+            json!({"name":"MySQL重启库存","kind":"成品","unit":"个","cost_price":"2.3456","sale_price":"8.1234"}),
         )
         .await;
     server.post("/movements",json!({"request_id":uuid::Uuid::new_v4().to_string(),"kind":"receipt","lines":[{"item_id":item["id"],"quantity":"10"}]})).await;
@@ -902,6 +905,10 @@ async fn mysql_web_setup_restart_and_full_backup_restore() {
         restarted.get("/items?q=MySQL重启库存").await["items"][0]["balance"],
         10000
     );
+    let priced = restarted.get("/items?q=MySQL重启库存").await;
+    assert_eq!(priced["items"][0]["cost_price"], 23456);
+    assert_eq!(priced["items"][0]["sale_price"], 81234);
+    assert_eq!(priced["inventory_value"], "23.46");
     assert!(!data.path().join("inventory.sqlite").exists());
     restarted.stop().await;
 }

@@ -740,7 +740,7 @@ test("长清单分页打印保留明细表头，草稿与重复打印不扣库�
   ).toBeVisible();
   await expect(page.locator(".sales-print-sheet tbody tr")).toHaveCount(35);
   const heading = page.locator(".print-heading > div");
-  await expect(heading).toHaveText(`单号：${sale.number}业务日期：${date}`);
+  await expect(heading).toHaveText(`单号：${sale.number}日期：${date}`);
   const bottomCells = page.locator(".sales-print-sheet tbody tr:last-child td");
   for (const cell of await bottomCells.all()) {
     await expect(cell).toHaveCSS("border-bottom-style", "solid");
@@ -897,10 +897,10 @@ test("部门业务员归属、跨部门校验、历史快照及业绩退货作�
   ).toBeVisible();
   await page.getByRole("button", { name: "打印预览", exact: true }).click();
   await expect(
-    page.getByText(`业绩部门：${department.name}`, { exact: true }),
+    page.getByText(`部门：${department.name}`, { exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByText(`部门业务员：${salesperson.name}`, { exact: true }),
+    page.getByText(`业务员：${salesperson.name}`, { exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "关闭预览", exact: true }).click();
   await post(request, "/sales/catalog", {
@@ -2068,8 +2068,8 @@ test("打印配置逐项保存三种金额规则、地址规则及默认隐藏�
     ["rounding", "抹零金额"],
     ["total", "原单应收"],
     ["return_credit", "退货减免"],
-    ["due", "当前应收"],
-    ["paid", "净实收"],
+    ["due", "应收金额"],
+    ["paid", "已收金额"],
     ["debt", "剩余欠款"],
   ];
   const { customer, input } = await fixture(page.request);
@@ -2093,15 +2093,14 @@ test("打印配置逐项保存三种金额规则、地址规则及默认隐藏�
   };
   const labels = page.locator(".print-summary dt");
   await showPrint();
-  await expect(labels).toHaveText(["原金额", "原单应收", "当前应收"]);
+  await expect(labels).toHaveText(["原金额", "原单应收", "应收金额"]);
   await expect(page.locator(".print-customer")).toContainText(
     "送货地址：示例仓库",
   );
   await expect(page.locator(".print-signatures")).not.toContainText("欠款");
 
   await page.goto("/#/catalog");
-  await page.getByRole("tab", { name: "公司信息", exact: true }).click();
-  await page.getByRole("button", { name: "设置公司信息", exact: true }).click();
+  await page.getByRole("tab", { name: "开单与打印设置", exact: true }).click();
   await chooseSelect(
     page.getByRole("combobox", { name: "默认结算方式 选填", exact: true }),
     "full",
@@ -2109,10 +2108,16 @@ test("打印配置逐项保存三种金额规则、地址规则及默认隐藏�
   const settings = page.getByRole("group", { name: "打印显示设置" });
   for (const [key, label] of fields) {
     await expect(
-      settings.getByRole("combobox", { name: `${label} 选填`, exact: true }),
+      settings.getByRole("combobox", {
+        name: `${key === "due" ? "当前应收" : key === "paid" ? "净实收" : label} 选填`,
+        exact: true,
+      }),
     ).toHaveAttribute("data-value", key === "debt" ? "never" : "nonzero");
     await chooseSelect(
-      settings.getByRole("combobox", { name: `${label} 选填`, exact: true }),
+      settings.getByRole("combobox", {
+        name: `${key === "due" ? "当前应收" : key === "paid" ? "净实收" : label} 选填`,
+        exact: true,
+      }),
       "always",
     );
   }
@@ -2124,19 +2129,22 @@ test("打印配置逐项保存三种金额规则、地址规则及默认隐藏�
     "never",
   );
   await page.getByRole("button", { name: "保存配置", exact: true }).click();
-  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByRole("status")).toContainText("配置已保存");
+  await page.getByRole("button", { name: "保存配置", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("配置已保存");
   await page.reload();
-  await page.getByRole("tab", { name: "公司信息", exact: true }).click();
-  await page.getByRole("button", { name: "设置公司信息", exact: true }).click();
+  await page.getByRole("tab", { name: "开单与打印设置", exact: true }).click();
   await expect(
     page.getByRole("combobox", { name: "默认结算方式 选填", exact: true }),
   ).toHaveAttribute("data-value", "full");
-  for (const [, label] of fields) {
+  for (const [key, label] of fields) {
     await expect(
-      settings.getByRole("combobox", { name: `${label} 选填`, exact: true }),
+      settings.getByRole("combobox", {
+        name: `${key === "due" ? "当前应收" : key === "paid" ? "净实收" : label} 选填`,
+        exact: true,
+      }),
     ).toHaveAttribute("data-value", "always");
   }
-  await page.getByRole("button", { name: "取消", exact: true }).click();
   await showPrint();
   await expect(labels).toHaveText(fields.map(([, label]) => label));
   await expect(page.locator(".print-customer")).not.toContainText("送货地址");
@@ -2160,7 +2168,7 @@ test("打印配置逐项保存三种金额规则、地址规则及默认隐藏�
     });
     await showPrint();
     await expect(labels).toHaveText(
-      rule === "never" ? [] : ["原金额", "原单应收", "当前应收", "剩余欠款"],
+      rule === "never" ? [] : ["原金额", "原单应收", "应收金额", "剩余欠款"],
     );
     await expect(page.locator(".print-customer")).toContainText(
       "送货地址：示例仓库",

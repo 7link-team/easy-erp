@@ -83,7 +83,7 @@ test("角色弹窗维护、账号分配和模块 CRUD 在界面与 API 一致", 
     ).toBeVisible();
     await expect(
       worker
-        .getByRole("navigation")
+        .getByRole("navigation", { name: /^(主要导航|更多功能)$/ })
         .getByRole("link", { name: "人员", exact: true }),
     ).toHaveCount(0);
     const item = await post(context.request, "/items", {

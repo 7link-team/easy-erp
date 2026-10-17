@@ -911,6 +911,8 @@ fn row_item(row: &[String]) -> Result<ItemInput> {
         precision,
         barcode: clean(&row[6], "条码", 128, false)?,
         minimum: Some(row[7].clone()),
+        cost_price: None,
+        sale_price: None,
         version: None,
     })
 }

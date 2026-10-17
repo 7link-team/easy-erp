@@ -297,7 +297,7 @@ test("单据尾列查看、编辑草稿、修订及只读权限，手机操作�
     ).toHaveCount(0);
     await expect(
       p
-        .getByRole("navigation")
+        .getByRole("navigation", { name: /^(主要导航|更多功能)$/ })
         .getByRole("link", { name: "开单", exact: true }),
     ).toHaveCount(0);
     await p.goto("http://127.0.0.1:4289/#/invoice");

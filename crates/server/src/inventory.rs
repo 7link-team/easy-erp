@@ -27,6 +27,9 @@ pub struct Item {
     pub barcode: String,
     pub minimum: i64,
     pub balance: i64,
+    pub cost_price: Option<i64>,
+    pub sale_price: Option<i64>,
+    pub inventory_value: Option<String>,
     pub active: bool,
     pub version: i64,
     pub counting: bool,
@@ -44,12 +47,32 @@ pub fn item(row: &sea_orm::QueryResult) -> Item {
         barcode: text(row, "barcode"),
         minimum: int(row, "minimum"),
         balance: int(row, "balance"),
+        cost_price: optional_price(row, "cost_price"),
+        sale_price: optional_price(row, "sale_price"),
+        inventory_value: optional_price(row, "cost_price")
+            .map(|price| value_text(stock_value(int(row, "balance"), price))),
         active: int(row, "active") == 1,
         version: int(row, "version"),
         counting: row.try_get::<i64>("", "counting").unwrap_or(0) > 0,
         can_delete: int(row, "balance") == 0
             && row.try_get::<i64>("", "has_history").unwrap_or(1) == 0,
     }
+}
+fn optional_price(row: &sea_orm::QueryResult, column: &str) -> Option<i64> {
+    let value = int(row, column);
+    (value >= 0).then_some(value)
+}
+fn parse_price(value: Option<&str>) -> Result<i64> {
+    match value.map(str::trim).filter(|v| !v.is_empty()) {
+        Some(value) => crate::money::decimal(value, 4),
+        None => Ok(-1),
+    }
+}
+fn stock_value(balance: i64, price: i64) -> i128 {
+    (balance as i128 * price as i128 + 50_000) / 100_000
+}
+fn value_text(cents: i128) -> String {
+    format!("{}.{:02}", cents / 100, cents % 100)
 }
 #[derive(Clone, Deserialize, Default)]
 pub struct Filter {
@@ -79,11 +102,26 @@ pub async fn items(
     )
     .await?
     .unwrap();
+    let valuation_rows = all(
+        &s.db,
+        &format!("SELECT balance,cost_price FROM items WHERE {where_clause}"),
+        values.clone(),
+    )
+    .await?;
+    let mut inventory_value = 0i128;
+    let mut unpriced = 0usize;
+    for row in &valuation_rows {
+        if let Some(price) = optional_price(row, "cost_price") {
+            inventory_value += stock_value(int(row, "balance"), price);
+        } else if int(row, "balance") > 0 {
+            unpriced += 1;
+        }
+    }
     let mut paged = values;
     paged.push(((page - 1) * 50).into());
     let rows=all(&s.db,&format!("SELECT items.*, (EXISTS(SELECT 1 FROM document_lines dl WHERE dl.item_id=items.id) OR EXISTS(SELECT 1 FROM stocktake_lines sl WHERE sl.item_id=items.id)) AS has_history, (SELECT COUNT(*) FROM stocktake_lines sl JOIN stocktakes st ON sl.stocktake_id=st.id WHERE sl.item_id=items.id AND st.status='open') AS counting FROM items WHERE {where_clause} ORDER BY {order} LIMIT 50 OFFSET ?"),paged).await?;
     Ok(Json(
-        json!({"items":rows.iter().map(item).collect::<Vec<_>>(),"total":int(&count,"total"),"page":page,"counts":{"active":int(&counts,"active"),"low":int(&counts,"low"),"zero":int(&counts,"zero"),"archived":int(&counts,"archived")}}),
+        json!({"inventory_value":value_text(inventory_value),"unpriced_items":unpriced,"items":rows.iter().map(item).collect::<Vec<_>>(),"total":int(&count,"total"),"page":page,"counts":{"active":int(&counts,"active"),"low":int(&counts,"low"),"zero":int(&counts,"zero"),"archived":int(&counts,"archived")}}),
     ))
 }
 fn item_search(filter: &Filter) -> Result<(String, Vec<sea_orm::Value>)> {
@@ -155,12 +193,16 @@ pub struct ItemInput {
     #[serde(default)]
     pub barcode: String,
     pub minimum: Option<String>,
+    pub cost_price: Option<String>,
+    pub sale_price: Option<String>,
     pub version: Option<i64>,
 }
 fn default_precision() -> i64 {
     3
 }
 fn validate_item(input: &ItemInput) -> Result<()> {
+    parse_price(input.cost_price.as_deref())?;
+    parse_price(input.sale_price.as_deref())?;
     clean(&input.name, "物料名称", 100, true)?;
     clean(&input.spec, "规格", 100, false)?;
     clean(&input.unit, "单位", 16, true)?;
@@ -210,7 +252,7 @@ pub(crate) async fn create_item_record(
     };
     execute(
         txn,
-        "INSERT INTO items VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO items (id,code,name,spec,kind,unit,precision,barcode,minimum,balance,active,version,created_at,cost_price,sale_price) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         vec![
             iid.clone().into(),
             code.into(),
@@ -225,6 +267,8 @@ pub(crate) async fn create_item_record(
             1i64.into(),
             1i64.into(),
             now().into(),
+            parse_price(input.cost_price.as_deref())?.into(),
+            parse_price(input.sale_price.as_deref())?.into(),
         ],
     )
     .await?;
@@ -307,7 +351,7 @@ pub async fn update_item(
             crate::options::ensure(&txn, field, value).await?
         });
     }
-    execute(&txn,"UPDATE items SET code=?,name=?,spec=?,kind=?,unit=?,precision=?,barcode=?,minimum=?,version=version+1 WHERE id=?",vec![code.into(),input.name.trim().into(),values[0].clone().into(),values[1].clone().into(),values[2].clone().into(),input.precision.into(),input.barcode.trim().into(),minimum.into(),iid.clone().into()]).await?;
+    execute(&txn,"UPDATE items SET code=?,name=?,spec=?,kind=?,unit=?,precision=?,barcode=?,minimum=?,cost_price=?,sale_price=?,version=version+1 WHERE id=?",vec![code.into(),input.name.trim().into(),values[0].clone().into(),values[1].clone().into(),values[2].clone().into(),input.precision.into(),input.barcode.trim().into(),minimum.into(), match input.cost_price.as_deref() { Some(v) => parse_price(Some(v))?, None => int(&old,"cost_price") }.into(), match input.sale_price.as_deref() { Some(v) => parse_price(Some(v))?, None => int(&old,"sale_price") }.into(),iid.clone().into()]).await?;
     audit(
         &txn,
         &actor,

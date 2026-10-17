@@ -20,7 +20,7 @@ async function login(page: Page) {
   await page.getByLabel("登录账号", { exact: false }).fill("manager");
   await page.getByLabel("登录密码", { exact: false }).fill("Factory-test-2026");
   await page.getByRole("button", { name: "登录", exact: true }).click();
-  await expect(page.getByRole("navigation")).toBeVisible();
+  await expect(page.getByRole("navigation", { name: /^(主要导航|更多功能)$/ })).toBeVisible();
 }
 
 test("手输物料选项去重，候选改删不修改业务，单位记录保护与权限", async ({
@@ -83,7 +83,7 @@ test("手输物料选项去重，候选改删不修改业务，单位记录保�
     ).json()
   ).items[0];
   await page
-    .getByRole("navigation")
+    .getByRole("navigation", { name: /^(主要导航|更多功能)$/ })
     .getByRole("link", { name: "基础资料", exact: true })
     .click();
   await page.getByRole("tab", { name: "常用规格", exact: true }).click();
@@ -156,7 +156,7 @@ test("手输物料选项去重，候选改删不修改业务，单位记录保�
     .getByLabel("登录密码", { exact: false })
     .fill("Viewer-test-2026");
   await viewer.getByRole("button", { name: "登录", exact: true }).click();
-  await expect(viewer.getByRole("navigation")).toBeVisible();
+  await expect(viewer.getByRole("navigation", { name: /^(主要导航|更多功能)$/ })).toBeVisible();
   expect(
     (
       await viewer.request.post("/api/material-options", {
@@ -199,7 +199,7 @@ test("库存开单带入物料，单据类型手输新增去重并保留历史�
   expect(c.ok()).toBeTruthy();
   const customer = await c.json();
   await page
-    .getByRole("navigation")
+    .getByRole("navigation", { name: /^(主要导航|更多功能)$/ })
     .getByRole("link", { name: "客户", exact: true })
     .click();
   await expect(page).toHaveURL(/#\/customers$/);

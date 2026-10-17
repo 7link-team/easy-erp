@@ -99,7 +99,7 @@ test("物料分页前后切换与搜索重置页码", async ({ page }) => {
   await dialog.getByRole("button", { name: "关闭", exact: true }).click();
 });
 const navigate = (page: Page, name: string) =>
-  page.getByRole("navigation").getByRole("link", { name, exact: true }).click();
+  page.getByRole("navigation", { name: /^(主要导航|更多功能)$/ }).getByRole("link", { name, exact: true }).click();
 
 test("断网提交保留表单，重试成功且只入账一次", async ({ page }) => {
   const created = await page.request.post("/api/items", {
@@ -151,7 +151,7 @@ test.beforeEach(async ({ page }) => {
     ).ok(),
   ).toBeTruthy();
   await page.goto("/");
-  await expect(page.getByRole("navigation")).toBeVisible();
+  await expect(page.getByRole("navigation", { name: /^(主要导航|更多功能)$/ })).toBeVisible();
 });
 
 test("物料新增、重复编码校验、修改、搜索、类型与低库存筛选", async ({

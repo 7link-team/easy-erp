@@ -1,3 +1,4 @@
+import { catalogSections } from "../navigation";
 import {
   useQueryValue,
   type Back,
@@ -199,12 +200,6 @@ function ConfigForm({
   const [active, setActive] = useState(entry?.active ?? true);
   const [sort, setSort] = useState(String(entry?.data.sort ?? 0));
   const [note, setNote] = useState(entry?.data.note || "");
-  const [printSettings, setPrintSettings] = useState<PrintSettings>(
-    entry?.data.print_settings ?? {},
-  );
-  const [defaultSettlement, setDefaultSettlement] = useState(
-    entry?.data.default_settlement ?? "unpaid",
-  );
   const action = useAction();
   const title = {
     customer: "客户",
@@ -235,10 +230,6 @@ function ConfigForm({
                   department_id: department,
                   account_type: accountType,
                   note,
-                  ...(kind === "company" && {
-                    print_settings: printSettings,
-                    default_settlement: defaultSettlement,
-                  }),
                 },
               });
               onDone(saved);
@@ -321,7 +312,85 @@ function ConfigForm({
             </p>
           </>
         )}
-        {kind === "company" && (
+        <TextField label="说明" value={note} onChange={setNote} />
+        <TextField
+          label="排列顺序"
+          value={sort}
+          onChange={setSort}
+          decimal
+          hint="0–9999，数字较小的排在前面"
+        />
+        {kind !== "company" && (
+          <label className="checkbox">
+            <Checkbox
+              name="catalog-active"
+              checked={active}
+              onChange={(e) => setActive(e.target.checked)}
+            />
+            启用
+          </label>
+        )}
+        {action.error && <Notice>{action.error}</Notice>}
+        <div className="form-actions form-footer">
+          <Button onClick={onClose}>取消</Button>
+          <Submit busy={action.busy}>保存配置</Submit>
+        </div>
+      </Form>
+    </Modal>
+  );
+}
+
+function SalesSettings({
+  entry,
+  user,
+  onDone,
+}: {
+  entry?: CatalogEntry;
+  user: User;
+  onDone: (entry: CatalogEntry) => void;
+}) {
+  const [printSettings, setPrintSettings] = useState<PrintSettings>(
+    entry?.data.print_settings ?? {},
+  );
+  const [defaultSettlement, setDefaultSettlement] = useState(
+    entry?.data.default_settlement ?? "unpaid",
+  );
+  const action = useAction();
+  const [saved, setSaved] = useState(false);
+  const editable = can(user, `catalog.${entry ? "update" : "create"}`);
+  return (
+    <>
+      <div className="section-title ledger-heading">
+        <h2>开单与打印设置</h2>
+        <p className="muted">
+          设置新开单的默认结算方式，以及打印单上的金额和送货地址。
+        </p>
+      </div>
+      <Form
+        onSubmit={(e) =>
+          form(e, () => {
+            if (!editable) return;
+            setSaved(false);
+            return action.run(async () => {
+              const result = await send<CatalogEntry>("/sales/catalog", {
+                id: entry?.id || "",
+                version: entry?.version || 0,
+                kind: "company",
+                name: entry?.name || "公司",
+                active: entry?.active ?? true,
+                data: {
+                  ...entry?.data,
+                  print_settings: printSettings,
+                  default_settlement: defaultSettlement,
+                },
+              });
+              onDone(result);
+              setSaved(true);
+            });
+          })
+        }
+      >
+        <fieldset disabled={!editable || action.busy}>
           <Field
             label="默认结算方式"
             hint="仅用于新开单；已保存的草稿保留原选择。"
@@ -342,8 +411,6 @@ function ConfigForm({
               </Select>
             )}
           </Field>
-        )}
-        {kind === "company" && (
           <fieldset>
             <legend>打印显示设置</legend>
             <p className="muted">仅影响打印内容，不改变单据金额和客户资料。</p>
@@ -392,32 +459,18 @@ function ConfigForm({
               )}
             </Field>
           </fieldset>
-        )}
-        <TextField label="说明" value={note} onChange={setNote} />
-        <TextField
-          label="排列顺序"
-          value={sort}
-          onChange={setSort}
-          decimal
-          hint="0–9999，数字较小的排在前面"
-        />
-        {kind !== "company" && (
-          <label className="checkbox">
-            <Checkbox
-              name="catalog-active"
-              checked={active}
-              onChange={(e) => setActive(e.target.checked)}
-            />
-            启用
-          </label>
-        )}
+        </fieldset>
         {action.error && <Notice>{action.error}</Notice>}
+        {saved && <p role="status">配置已保存</p>}
         <div className="form-actions form-footer">
-          <Button onClick={onClose}>取消</Button>
-          <Submit busy={action.busy}>保存配置</Submit>
+          {editable ? (
+            <Submit busy={action.busy}>保存配置</Submit>
+          ) : (
+            <span className="muted">只读</span>
+          )}
         </div>
       </Form>
-    </Modal>
+    </>
   );
 }
 
@@ -464,7 +517,16 @@ function SaleEditor({
         price: decimalText(l.price, 4),
       })) ||
       (initialItem
-        ? [{ item_id: initialItem.id, quantity: "1", price: "0" }]
+        ? [
+            {
+              item_id: initialItem.id,
+              quantity: "1",
+              price:
+                initialItem.sale_price != null && initialItem.sale_price > 0
+                  ? decimalText(initialItem.sale_price, 4)
+                  : "",
+            },
+          ]
         : []),
   };
   const [input, setInput] = useState(initial);
@@ -665,7 +727,14 @@ function SaleEditor({
       onSelect={(item) => {
         firstAdded.current = item.id;
         setMaterial((current) => ({ ...current, [item.id]: item }));
-        const line = { item_id: item.id, quantity: "1", price: "" };
+        const line = {
+          item_id: item.id,
+          quantity: "1",
+          price:
+            item.sale_price != null && item.sale_price > 0
+              ? decimalText(item.sale_price, 4)
+              : "",
+        };
         change(
           "lines",
           itemId
@@ -3248,9 +3317,10 @@ export default function Sales({
       );
     }
   };
-  const [configKind, setConfigKind] = useState<
-    CatalogEntry["kind"] | "spec" | "kind" | "unit"
+  const [configKind] = useQueryValue<
+    CatalogEntry["kind"] | "spec" | "kind" | "unit" | "settings"
   >(
+    "catalog_section",
     view === "customers"
       ? "customer"
       : can(user, "catalog.read")
@@ -3262,14 +3332,7 @@ export default function Sales({
   const [importing, setImporting] = useState<string>();
   const visibleConfigKind = view === "customers" ? "customer" : configKind;
   const configLabels: Record<string, string> = {
-    type: "单据类型",
-    account: "收款账户",
-    department: "部门",
-    salesperson: "业务员",
-    kind: "物料分类",
-    unit: "计量单位",
-    spec: "常用规格",
-    company: "公司信息",
+    ...catalogSections,
     customer: "客户",
   };
   const configRows = entries
@@ -3395,7 +3458,7 @@ export default function Sales({
                   : "查询单据、退货与作废记录，核对库存与收款。"}
           </p>
         </div>
-        {configView && visibleConfigKind !== "company" && (
+        {configView && !["company", "settings"].includes(visibleConfigKind) && (
           <div className="row-actions">
             {can(user, `${configModule}.create`) && (
               <Button onClick={() => setImporting(visibleConfigKind)}>
@@ -3820,7 +3883,9 @@ export default function Sales({
             className={view === "catalog" ? "dictionary" : "catalog-customers"}
             orientation={compact ? "horizontal" : "vertical"}
             value={visibleConfigKind}
-            onValueChange={(value) => setConfigKind(value as typeof configKind)}
+            onValueChange={(value) =>
+              void navigate("catalog", undefined, { catalog_section: value })
+            }
           >
             <aside className="dictionary-side" hidden={view === "customers"}>
               <div className="dictionary-label">选项清单</div>
@@ -3834,6 +3899,7 @@ export default function Sales({
                   "unit",
                   "spec",
                   "company",
+                  "settings",
                 ]
                   .filter((k) =>
                     can(
@@ -3844,7 +3910,11 @@ export default function Sales({
                   .map((k) => (
                     <Tab key={k} value={k} aria-label={configLabels[k]}>
                       <span>{configLabels[k]}</span>
-                      <span className="dictionary-count" aria-hidden="true">
+                      <span
+                        className="dictionary-count"
+                        aria-hidden="true"
+                        hidden={k === "settings"}
+                      >
                         {["spec", "kind", "unit"].includes(k)
                           ? options.loading || options.error
                             ? "—"
@@ -3865,7 +3935,21 @@ export default function Sales({
               className="ledger-sheet dictionary-main"
               value={visibleConfigKind}
             >
-              {["spec", "kind", "unit"].includes(visibleConfigKind) ? (
+              {!can(user, `${configModule}.read`) ? (
+                <Notice>没有查看此栏目的权限。</Notice>
+              ) : visibleConfigKind === "settings" ? (
+                catalog.loading && !catalog.data ? (
+                  <Loading />
+                ) : catalog.error ? (
+                  <Notice>{catalog.error}</Notice>
+                ) : (
+                  <SalesSettings
+                    user={user}
+                    entry={entries.find((c) => c.kind === "company")}
+                    onDone={catalogCreated}
+                  />
+                )
+              ) : ["spec", "kind", "unit"].includes(visibleConfigKind) ? (
                 <MaterialOptions
                   key={visibleConfigKind}
                   user={user}
@@ -3887,7 +3971,7 @@ export default function Sales({
                         : visibleConfigKind === "salesperson"
                           ? "业务员归属部门，与实际开单人分别记录。"
                           : visibleConfigKind === "company"
-                            ? "维护公司联系信息及打印金额、送货地址的显示规则。"
+                            ? "维护公司名称、联系人、电话和地址。"
                             : contactFields
                               ? "维护名称、联系信息与启停状态。"
                               : "停用后不再用于新单据，历史记录仍可查看。"}

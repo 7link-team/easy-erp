@@ -32,7 +32,7 @@ async function start(page: Page, mobile = false, automaticUpdate?: { version: st
   await page.getByLabel("登录账号", { exact: false }).fill("manager");
   await page.getByLabel("登录密码", { exact: false }).fill("Factory-test-2026");
   await page.getByRole("button", { name: "登录", exact: true }).click();
-  await expect(page.getByRole("navigation")).toBeVisible();
+  await expect(page.getByRole("navigation", { name: /^(主要导航|更多功能)$/ })).toBeVisible();
 }
 
 async function freezeClock(page: Page) {
@@ -236,7 +236,7 @@ test("稍后更新后可从独立页面继续，下载状态跨页面保留", as
   await expect(page.getByRole("heading", { name: "版本", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "下载更新", exact: true }).click();
   await expect(page.getByRole("button", { name: "安装并重启", exact: true })).toBeVisible();
-  await page.getByRole("link", { name: "工作台", exact: true }).click();
+  await page.getByRole("navigation", { name: "主要导航", exact: true }).getByRole("link", { name: "工作台", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.getByRole("link", { name: "关于", exact: true }).click();
   await page.getByRole("button", { name: "安装并重启", exact: true }).click();
@@ -259,7 +259,7 @@ test("更新页面检查失败可重试，离开页面不弹出旧提示", async
   await expect(page.getByRole("alert")).toContainText("网络连接失败");
   await page.getByRole("button", { name: "检查更新", exact: true }).click();
   await expect(page.getByRole("button", { name: "下载更新", exact: true })).toBeVisible();
-  await page.getByRole("link", { name: "工作台", exact: true }).click();
+  await page.getByRole("navigation", { name: "主要导航", exact: true }).getByRole("link", { name: "工作台", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });
 
@@ -329,7 +329,7 @@ test("显示实际检查线路、回退结果，切换页面后保留", async ({
   await page.evaluate(() => (window as any).__finishCheck());
   await expect(routes).toContainText("GitHub 直连 · 已完成（已自动切换线路）");
   await expect(routes).toContainText("本次打开尚未下载");
-  await page.getByRole("link", { name: "工作台", exact: true }).click();
+  await page.getByRole("navigation", { name: "主要导航", exact: true }).getByRole("link", { name: "工作台", exact: true }).click();
   await page.getByRole("link", { name: "关于", exact: true }).click();
   await expect(routes).toContainText("GitHub 直连 · 已完成（已自动切换线路）");
   await page.setViewportSize({ width: 320, height: 568 });

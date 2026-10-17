@@ -21,18 +21,95 @@ import {
 import { api, errorText } from "./api";
 import { ValidationContext } from "./ui";
 import * as Popover from "@radix-ui/react-popover";
-import { pageAddress, type Navigate, type Page } from "./navigation";
+import {
+  catalogSection,
+  catalogSections,
+  pageAddress,
+  type Navigate,
+  type Page,
+} from "./navigation";
 export { Modal } from "./ui";
 
 const subscribeQuery = (notify: () => void) => {
   window.addEventListener("erp:querychange", notify);
   window.addEventListener("popstate", notify);
+  window.addEventListener("erp:navigate", notify);
   return () => {
     window.removeEventListener("erp:querychange", notify);
     window.removeEventListener("popstate", notify);
+    window.removeEventListener("erp:navigate", notify);
   };
 };
-const querySnapshot = () => location.search;
+const querySnapshot = () => location.search + location.hash;
+
+export function Breadcrumbs({
+  page,
+  label,
+  navigate,
+  parent,
+}: {
+  page: Page;
+  label: string;
+  navigate: Navigate;
+  parent?: { page: Page; label: string };
+}) {
+  useSyncExternalStore(subscribeQuery, querySnapshot);
+  const params = new URLSearchParams(location.search);
+  const detail =
+    page === "catalog"
+      ? catalogSections[catalogSection()]
+      : [
+            "sales",
+            "returns",
+            "finance",
+            "accounts",
+            "performance",
+            "customers",
+          ].includes(page) && params.get("sale_open")
+        ? params.get("sale_edit")
+          ? "修改单据"
+          : "单据详情"
+        : page === "customers" && params.get("customer_ledger")
+          ? "客户对账"
+          : ["finance", "accounts", "performance"].includes(page) &&
+              params.get("finance_customer")
+            ? "客户对账"
+            : "";
+  return (
+    <nav className="breadcrumbs" aria-label="面包屑">
+      <ol>
+        {page !== "home" && (
+          <li>
+            <PageLink page="home" navigate={navigate} resetDetails>
+              工作台
+            </PageLink>
+          </li>
+        )}
+        {parent && (
+          <li>
+            <PageLink page={parent.page} navigate={navigate} resetDetails>
+              {parent.label}
+            </PageLink>
+          </li>
+        )}
+        <li>
+          {detail ? (
+            <PageLink page={page} navigate={navigate} resetDetails>
+              {label}
+            </PageLink>
+          ) : (
+            <span aria-current="page">{label}</span>
+          )}
+        </li>
+        {detail && (
+          <li>
+            <span aria-current="page">{detail}</span>
+          </li>
+        )}
+      </ol>
+    </nav>
+  );
+}
 
 export function PageLink({
   page,

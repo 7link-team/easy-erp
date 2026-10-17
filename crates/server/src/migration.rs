@@ -45,7 +45,33 @@ impl MigratorTrait for Migrator {
             Box::new(Roles),
             Box::new(MaterialOptionMetadata),
             Box::new(QueryIndexes),
+            Box::new(ItemPrices),
         ]
+    }
+}
+
+struct ItemPrices;
+impl MigrationName for ItemPrices {
+    fn name(&self) -> &str {
+        "item_prices_v1"
+    }
+}
+#[async_trait::async_trait]
+impl MigrationTrait for ItemPrices {
+    async fn up(&self, m: &SchemaManager) -> std::result::Result<(), DbErr> {
+        for column in ["cost_price", "sale_price"] {
+            if !m.has_column("items", column).await? {
+                execute_schema(
+                    m,
+                    &format!("ALTER TABLE items ADD COLUMN {column} INTEGER NOT NULL DEFAULT -1"),
+                )
+                .await?;
+            }
+        }
+        Ok(())
+    }
+    async fn down(&self, _: &SchemaManager) -> std::result::Result<(), DbErr> {
+        Err(DbErr::Custom("不自动删除物料价格".into()))
     }
 }
 

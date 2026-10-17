@@ -2,6 +2,24 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import type { Item } from "./api";
 import { useConfirm } from "./ui";
 
+export const catalogSections: Record<string, string> = {
+  type: "单据类型",
+  account: "收款账户",
+  department: "部门",
+  salesperson: "业务员",
+  kind: "物料分类",
+  unit: "计量单位",
+  spec: "常用规格",
+  company: "公司信息",
+  settings: "开单与打印设置",
+};
+export function catalogSection() {
+  const parts = location.hash.replace(/^#\/?/, "").split("/");
+  return parts[0] === "catalog" &&
+    Object.hasOwn(catalogSections, parts[1] ?? "")
+    ? parts[1]
+    : "";
+}
 const pages = [
   "home",
   "inventory",
@@ -37,7 +55,7 @@ interface Route {
   previousPage?: Page;
 }
 const hashPage = (): Page => {
-  const candidate = location.hash.replace(/^#\/?/, "");
+  const candidate = location.hash.replace(/^#\/?/, "").split("/")[0];
   const params = new URLSearchParams(location.search);
   // Old explicit stock-ledger links now open the single inventory ledger.
   if (candidate === "records" && params.get("records_tab") === "documents") {
@@ -59,7 +77,7 @@ const hashPage = (): Page => {
   return pages.includes(candidate as Page) ? (candidate as Page) : "home";
 };
 const address = (page: Page) =>
-  `${location.pathname}${location.search}#/${page}`;
+  `${location.pathname}${location.search}#/${page}${page === "catalog" && catalogSection() ? `/${catalogSection()}` : ""}`;
 
 /** Share the same query cleanup between in-app navigation and native links. */
 export function pageAddress(page: Page, query?: Record<string, string>) {
@@ -77,8 +95,14 @@ export function pageAddress(page: Page, query?: Record<string, string>) {
     if (value) params.set(key, value);
     else params.delete(key);
   }
+  const section = query?.catalog_section;
+  params.delete("catalog_section");
   const search = params.toString();
-  return `${location.pathname}${search ? `?${search}` : ""}#/${page}`;
+  const suffix =
+    page === "catalog" && section && Object.hasOwn(catalogSections, section)
+      ? `/${section}`
+      : "";
+  return `${location.pathname}${search ? `?${search}` : ""}#/${page}${suffix}`;
 }
 
 /** Keep app navigation and browser Back in the same history, including form guards. */
@@ -198,7 +222,10 @@ export function useQueryValue<T extends string | number>(
   fallback: T,
 ) {
   const read = () => {
-    const raw = new URLSearchParams(location.search).get(key);
+    const raw =
+      key === "catalog_section"
+        ? catalogSection() || null
+        : new URLSearchParams(location.search).get(key);
     if (raw === null) return fallback;
     return (
       typeof fallback === "number"
@@ -212,6 +239,7 @@ export function useQueryValue<T extends string | number>(
   };
   const [value, setValue] = useState<T>(read);
   useEffect(() => {
+    if (key === "catalog_section") return;
     const params = new URLSearchParams(location.search);
     if (value === fallback) params.delete(key);
     else params.set(key, String(value));

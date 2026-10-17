@@ -68,6 +68,7 @@ import {
 import {
   Field,
   PageLink,
+  Breadcrumbs,
   Modal,
   Loading,
   Notice,
@@ -884,6 +885,27 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
         </header>
         <ServiceUpdate dirty={dirty} />
         <main id="main" tabIndex={-1}>
+          <Breadcrumbs
+            page={page}
+            navigate={navigate}
+            label={
+              nav.find((item) => item.id === page)?.label ??
+              (page === "updates"
+                ? "关于"
+                : page === "in"
+                  ? "入库登记"
+                  : page === "out"
+                    ? "出库登记"
+                    : "退货记录")
+            }
+            parent={
+              page === "in" || page === "out"
+                ? { page: "movement", label: "出入库" }
+                : page === "invoice" && can(user, "sales.read")
+                  ? { page: "sales", label: "单据" }
+                  : undefined
+            }
+          />
           {!allowedPage && (
             <Notice>当前角色没有此页面的查看权限，请联系管理员。</Notice>
           )}
@@ -949,7 +971,9 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
                   key={
                     financePage
                       ? "finance"
-                      : `${page}-${initialItem?.id || ""}-${navigationIndex}`
+                      : page === "catalog"
+                        ? "catalog"
+                        : `${page}-${initialItem?.id || ""}-${navigationIndex}`
                   }
                   initialItem={
                     page === "invoice" || page === "sales"

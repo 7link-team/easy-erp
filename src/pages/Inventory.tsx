@@ -1,3 +1,4 @@
+import { decimalText } from "../sales";
 import TableImport from "../TableImport";
 import { pageAddress, useQueryValue, type Navigate } from "../navigation";
 import { can } from "../api";
@@ -52,6 +53,12 @@ export function ItemForm({
   const [minimum, setMinimum] = useState(
     item && item.minimum >= 0 ? quantity(item.minimum, item.precision) : "",
   );
+  const [costPrice, setCostPrice] = useState(
+    item?.cost_price == null ? "" : decimalText(item.cost_price, 4),
+  );
+  const [salePrice, setSalePrice] = useState(
+    item?.sale_price == null ? "" : decimalText(item.sale_price, 4),
+  );
   const action = useAction();
   return (
     <Modal title={item ? "修改物料" : "添加物料"} onClose={onClose}>
@@ -70,6 +77,8 @@ export function ItemForm({
                   code,
                   barcode,
                   minimum: minimum || null,
+                  cost_price: costPrice,
+                  sale_price: salePrice,
                   version: item?.version,
                 },
                 item ? "PUT" : "POST",
@@ -139,6 +148,36 @@ export function ItemForm({
             数量支持整数和最多 3 位小数，例如
             10、1.25。库存数量在入库或首次库存登记时填写。
           </p>
+        </div>
+        <div className="form-grid">
+          <Field
+            label="成本价（元）"
+            hint="最多 4 位小数；仅用于库存金额统计，不参与销售单。留空表示未设置。"
+          >
+            {(p) => (
+              <Input
+                {...p}
+                inputMode="decimal"
+                maxLength={24}
+                value={costPrice}
+                onChange={(e) => setCostPrice(e.target.value)}
+              />
+            )}
+          </Field>
+          <Field
+            label="售价（元）"
+            hint="最多 4 位小数；大于 0 时自动带入销售单，开单时仍可修改。留空或填 0 不自动填价。"
+          >
+            {(p) => (
+              <Input
+                {...p}
+                inputMode="decimal"
+                maxLength={24}
+                value={salePrice}
+                onChange={(e) => setSalePrice(e.target.value)}
+              />
+            )}
+          </Field>
         </div>
         <Field label="最低库存提醒" hint="留空不提醒；填 0 表示用完时提醒。">
           {(p) => (
@@ -244,6 +283,8 @@ export default function Inventory({
   const { data, error, loading } = useResource<{
     items: Item[];
     total: number;
+    inventory_value: string;
+    unpriced_items: number;
     counts: Record<string, number>;
   }>(
     `/items?q=${encodeURIComponent(debounced)}&kind=${encodeURIComponent(kind)}&status=${encodeURIComponent(status)}&sort=${encodeURIComponent(sort)}&page=${page}${focusedItem ? `&ids=${encodeURIComponent(focusedItem)}` : ""}`,
@@ -362,6 +403,14 @@ export default function Inventory({
             </Button>
           ))}
         </div>
+        {data && !loading && search === debounced && (
+          <p className="dictionary-feedback">
+            当前筛选库存金额：<strong>¥{data.inventory_value}</strong>
+            （按当前成本价计算）
+            {data.unpriced_items > 0 &&
+              `；另有 ${data.unpriced_items} 种有库存物料未设置成本价，未计入金额。`}
+          </p>
+        )}
         {(error || action.error) && <Notice>{error || action.error}</Notice>}
         {loading || search !== debounced ? (
           <Loading />
@@ -383,6 +432,9 @@ export default function Inventory({
                   <th>物料 / 规格</th>
                   <th>类型</th>
                   <th className="numeric">当前库存</th>
+                  <th className="numeric">成本价（元）</th>
+                  <th className="numeric">售价（元）</th>
+                  <th className="numeric">库存金额（元）</th>
                   <th className="numeric">预警线</th>
                   <th>状态</th>
                   <th>操作</th>
@@ -403,6 +455,27 @@ export default function Inventory({
                         {quantity(item.balance, item.precision)}
                       </b>{" "}
                       {item.unit}
+                    </td>
+                    <td
+                      className="numeric"
+                      role="cell"
+                      data-label="成本价（元）"
+                    >
+                      {item.cost_price == null
+                        ? "未设置"
+                        : decimalText(item.cost_price, 4)}
+                    </td>
+                    <td className="numeric" role="cell" data-label="售价（元）">
+                      {item.sale_price == null
+                        ? "未设置"
+                        : decimalText(item.sale_price, 4)}
+                    </td>
+                    <td
+                      className="numeric"
+                      role="cell"
+                      data-label="库存金额（元）"
+                    >
+                      {item.inventory_value ?? "未设置成本价"}
                     </td>
                     <td className="numeric" role="cell" data-label="预警线">
                       {item.minimum >= 0

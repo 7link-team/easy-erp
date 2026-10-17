@@ -87,7 +87,7 @@ export default function SalesPrint({
           <div>
             单号：{sale.number}
             <br />
-            业务日期：{sale.business_date}
+            日期：{sale.business_date}
           </div>
         </div>
         <div className="print-customer">
@@ -95,8 +95,8 @@ export default function SalesPrint({
           <span>联系人：{sale.customer.data.contact || "—"}</span>
           <span>电话：{sale.customer.data.phone || "—"}</span>
           <span>开单人：{sale.actor_name}</span>
-          <span>业绩部门：{sale.department_name || "未指定"}</span>
-          <span>部门业务员：{sale.salesperson_name || "未指定"}</span>
+          <span>部门：{sale.department_name || "—"}</span>
+          <span>业务员：{sale.salesperson_name || "—"}</span>
           {showAddress && (
             <span className="print-wide">
               送货地址：{sale.customer.data.address?.trim() || "—"}
@@ -107,7 +107,7 @@ export default function SalesPrint({
           <thead>
             <tr>
               <th>序号</th>
-              <th>物料名称 / 规格</th>
+              <th>商品名称 / 规格</th>
               <th>单位</th>
               <th className="num">数量</th>
               {sale.billable && (
@@ -147,7 +147,7 @@ export default function SalesPrint({
                   {p.business_date} · {p.account_name} · ¥{moneyText(p.amount)}
                   <br />
                   经办人：{p.actor_name}
-                  {p.reversal_of && " · 冲销"}
+                  {p.reversal_of && " · 已撤销"}
                 </p>
               ))}
             </div>
@@ -155,7 +155,13 @@ export default function SalesPrint({
               <dl>
                 {summary.map(({ key, label }) => (
                   <div key={key}>
-                    <dt>{label}</dt>
+                    <dt>
+                      {key === "paid"
+                        ? "已收金额"
+                        : key === "due"
+                          ? "应收金额"
+                          : label}
+                    </dt>
                     <dd>¥{moneyText(amounts[key])}</dd>
                   </div>
                 ))}

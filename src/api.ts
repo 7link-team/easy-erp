@@ -73,6 +73,9 @@ export interface Item {
   barcode: string;
   minimum: number;
   balance: number;
+  cost_price: number | null;
+  sale_price: number | null;
+  inventory_value: string | null;
   active: boolean;
   version: number;
   counting: boolean;

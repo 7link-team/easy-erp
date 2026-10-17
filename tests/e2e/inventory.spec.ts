@@ -28,7 +28,7 @@ test.describe.serial("真实主机与浏览器的库存闭环", () => {
     await expect(page.getByRole("heading", { name: /的工作台/ })).toBeVisible();
 
     await page
-      .getByRole("navigation")
+      .getByRole("navigation", { name: /^(主要导航|更多功能)$/ })
       .getByRole("link", { name: "物料", exact: true })
       .click();
     await page.getByRole("button", { name: "添加物料", exact: true }).click();
@@ -63,7 +63,7 @@ test.describe.serial("真实主机与浏览器的库存闭环", () => {
       .click();
     await expect(page.getByLabel("搜索物料", { exact: true })).toBeVisible();
     await page
-      .getByRole("navigation")
+      .getByRole("navigation", { name: /^(主要导航|更多功能)$/ })
       .getByRole("link", { name: "工作台", exact: true })
       .click();
     await page.getByRole("link", { name: /我要出库/ }).click();
@@ -82,7 +82,7 @@ test.describe.serial("真实主机与浏览器的库存闭环", () => {
     await expect(page.getByText("本次操作完成后的库存：80 个")).toBeVisible();
 
     await page
-      .getByRole("navigation")
+      .getByRole("navigation", { name: /^(主要导航|更多功能)$/ })
       .getByRole("link", { name: "出入库", exact: true })
       .click();
     await page.getByRole("button", { name: /领用出库.*镀锌螺丝/ }).click();
@@ -95,7 +95,7 @@ test.describe.serial("真实主机与浏览器的库存闭环", () => {
     await expect(page.getByRole("dialog")).toHaveCount(0);
 
     await page
-      .getByRole("navigation")
+      .getByRole("navigation", { name: /^(主要导航|更多功能)$/ })
       .getByRole("link", { name: "清点", exact: true })
       .click();
     await page.getByRole("button", { name: "开始清点", exact: true }).click();
@@ -130,7 +130,7 @@ test.describe.serial("真实主机与浏览器的库存闭环", () => {
     await page.getByRole("button", { name: "确认并更新库存" }).click();
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await page
-      .getByRole("navigation")
+      .getByRole("navigation", { name: /^(主要导航|更多功能)$/ })
       .getByRole("link", { name: "物料", exact: true })
       .click();
     await expect(
@@ -194,7 +194,7 @@ test.describe.serial("真实主机与浏览器的库存闭环", () => {
     expect(stock.items[0].balance).toBe(2000);
 
     await page
-      .getByRole("navigation")
+      .getByRole("navigation", { name: /^(主要导航|更多功能)$/ })
       .getByRole("link", { name: "人员" })
       .click();
     await page.getByRole("button", { name: "添加人员账号" }).click();
@@ -251,7 +251,7 @@ test.describe.serial("真实主机与浏览器的库存闭环", () => {
       .fill("Factory-test-2026");
     await page.getByRole("button", { name: "登录", exact: true }).click();
     await page
-      .getByRole("navigation")
+      .getByRole("navigation", { name: /^(主要导航|更多功能)$/ })
       .getByRole("link", { name: "备份" })
       .click();
     await page.getByLabel("选择表格文件", { exact: false }).setInputFiles({
