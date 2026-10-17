@@ -2140,10 +2140,20 @@ test("打印配置逐项保存三种金额规则、地址规则及默认隐藏�
     settings.getByRole("combobox", { name: "送货地址 选填", exact: true }),
     "never",
   );
+  // A slow refresh may still return the catalog from before the save.
+  const staleCatalog = await (await page.request.get("/api/sales/catalog")).json();
+  await page.route("**/api/sales/catalog", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({ json: staleCatalog });
+    } else {
+      await route.continue();
+    }
+  });
   await page.getByRole("button", { name: "保存配置", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("配置已保存");
   await page.getByRole("button", { name: "保存配置", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("配置已保存");
+  await page.unroute("**/api/sales/catalog");
   await page.reload();
   await page.getByRole("tab", { name: "开单与打印设置", exact: true }).click();
   await expect(

@@ -63,3 +63,6 @@ v0.2.3发布源71c760ecdd5c0c68718dd984fd061333766db4a1，main与tag已推送。
 
 ## Release validation correction
 发布前销售全量测试发现3个旧场景隐含默认unpaid；已显式选择unpaid以覆盖后续收款/库存验证/部分收款，保留全部原断言，产品默认full不变。修正后sales.spec Chromium25/25 PASS，e2e TS PASS。旧包/镜像构建取消，v0.2.3尚未创建Release；将仅更新本轮未发布tag到修正提交，再以同一SHA构建全部产物。
+
+## Release regression fix — settings versions
+8205743的云端MySQL57项中56PASS，连续保存打印设置失败。根因：Sales.entries合并时旧catalog覆盖刚保存的savedEntries，刷新较慢时第二次保存提交旧version。现在逐项保留较高version，刷新仍可接收外部更新；测试固定返回旧GET快照，两次POST必须成功且刷新后配置持久化。此回归用旧前端FAIL、新前端PASS；TS/e2e TS与diff检查PASS。隔离本地MySQL完整业务57项运行中（release_checks_20261017）；旧SQLite全量回归仍在跑。8205743构建已取消，待本次修正提交并再次更新未发布v0.2.3标签。

@@ -3242,12 +3242,14 @@ export default function Sales({
   const [savedEntries, setSavedEntries] = useState<
     Record<string, CatalogEntry>
   >({});
-  const entries = Object.values({
-    ...savedEntries,
-    ...Object.fromEntries(
-      (catalog.data?.items || []).map((entry) => [entry.id, entry]),
-    ),
-  });
+  const entriesById = { ...savedEntries };
+  for (const entry of catalog.data?.items || []) {
+    const saved = entriesById[entry.id];
+    if (!saved || entry.version >= saved.version) {
+      entriesById[entry.id] = entry;
+    }
+  }
+  const entries = Object.values(entriesById);
   const catalogCreated = (entry: CatalogEntry) => {
     setSavedEntries((current) => ({ ...current, [entry.id]: entry }));
     setLocal((n) => n + 1);
