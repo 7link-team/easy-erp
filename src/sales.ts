@@ -4,8 +4,8 @@ export const printAmountFields = [
   { key: "rounding", label: "抹零金额" },
   { key: "total", label: "原单应收" },
   { key: "return_credit", label: "退货减免" },
-  { key: "due", label: "当前应收" },
-  { key: "paid", label: "净实收" },
+  { key: "due", label: "应收金额" },
+  { key: "paid", label: "已收金额" },
   { key: "debt", label: "剩余欠款" },
 ] as const;
 export type PrintAmountKey = (typeof printAmountFields)[number]["key"];
@@ -16,7 +16,7 @@ export interface PrintSettings {
   delivery_address?: PrintAddressRule;
 }
 export const defaultPrintAmountRule = (key: PrintAmountKey): PrintAmountRule =>
-  key === "debt" ? "never" : "nonzero";
+  key === "debt" || key === "paid" ? "never" : "nonzero";
 
 export interface CatalogEntry {
   id: string;

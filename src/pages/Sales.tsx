@@ -353,7 +353,7 @@ function SalesSettings({
     entry?.data.print_settings ?? {},
   );
   const [defaultSettlement, setDefaultSettlement] = useState(
-    entry?.data.default_settlement ?? "unpaid",
+    entry?.data.default_settlement ?? "full",
   );
   const action = useAction();
   const [saved, setSaved] = useState(false);
@@ -538,7 +538,7 @@ function SaleEditor({
       : sale || !can(user, "sales.pay")
         ? "unpaid"
         : (catalog.find((entry) => entry.kind === "company")?.data
-            .default_settlement ?? "unpaid"),
+            .default_settlement ?? "full"),
   );
   const [receiptAmount, setReceiptAmount] = useState(
     sale?.initial_payment?.amount || "",

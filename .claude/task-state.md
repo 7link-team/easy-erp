@@ -47,3 +47,10 @@ ACCEPTANCE — 实现、测试、真实服务升级与只读验收完成。
 
 ## Last Checkpoint
 2026-10-17 19:25 SGT，原服务升级与数据比对、最新Chromium4/4和WebKit10/10完成。
+
+## Follow-up — 默认全部收款与已收金额打印（2026-10-17 19:52 SGT）
+- 用户明确：默认结算为全部收款；只隐藏右下角已收金额这一行，不隐藏整块收款记录，并可配置开启。
+- 程序无配置时默认full，当前4291公司配置已保存full；草稿和无sales.pay权限仍按原规则处理。
+- paid默认打印规则never（与debt一致）；打印设置名称改为「已收金额」「应收金额」以匹配打印。当前4291已保存paid=never；收款记录明细不变。
+- TS/e2e TS PASS；Chromium打印规则/默认结算/有实际收款时已收默认隐藏并可开启3/3 PASS。
+- 前端build-artifacts/tmp/default-full-print-web已更新dist；当前服务实际验证设置full、paid=never、新开单full PASS，无单据业务写入。

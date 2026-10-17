@@ -2109,13 +2109,16 @@ test("打印配置逐项保存三种金额规则、地址规则及默认隐藏�
   for (const [key, label] of fields) {
     await expect(
       settings.getByRole("combobox", {
-        name: `${key === "due" ? "当前应收" : key === "paid" ? "净实收" : label} 选填`,
+        name: `${label} 选填`,
         exact: true,
       }),
-    ).toHaveAttribute("data-value", key === "debt" ? "never" : "nonzero");
+    ).toHaveAttribute(
+      "data-value",
+      key === "debt" || key === "paid" ? "never" : "nonzero",
+    );
     await chooseSelect(
       settings.getByRole("combobox", {
-        name: `${key === "due" ? "当前应收" : key === "paid" ? "净实收" : label} 选填`,
+        name: `${label} 选填`,
         exact: true,
       }),
       "always",
@@ -2137,10 +2140,10 @@ test("打印配置逐项保存三种金额规则、地址规则及默认隐藏�
   await expect(
     page.getByRole("combobox", { name: "默认结算方式 选填", exact: true }),
   ).toHaveAttribute("data-value", "full");
-  for (const [key, label] of fields) {
+  for (const [, label] of fields) {
     await expect(
       settings.getByRole("combobox", {
-        name: `${key === "due" ? "当前应收" : key === "paid" ? "净实收" : label} 选填`,
+        name: `${label} 选填`,
         exact: true,
       }),
     ).toHaveAttribute("data-value", "always");
@@ -2235,12 +2238,21 @@ test("默认结算方式只影响新单、草稿保留原选择且无收款权�
   let company = (
     await (await page.request.get("/api/sales/catalog")).json()
   ).items.find((entry: { kind: string }) => entry.kind === "company");
-  if (!company)
+  if (!company) {
+    await page.goto("/#/invoice");
+    await expect(
+      page.getByRole("combobox", { name: "结算方式 必填", exact: true }),
+    ).toHaveAttribute("data-value", "full");
+    await page.goto("/#/catalog/settings");
+    await expect(
+      page.getByRole("combobox", { name: "默认结算方式 选填", exact: true }),
+    ).toHaveAttribute("data-value", "full");
     company = await post(page.request, "/sales/catalog", {
       kind: "company",
       name: "结算设置",
       data: {},
     });
+  }
   for (const rule of ["full", "partial", "unpaid"]) {
     company = await post(page.request, "/sales/catalog", {
       ...company,
@@ -2319,4 +2331,47 @@ test("默认结算方式只影响新单、草稿保留原选择且无收款权�
     ...company,
     data: { ...company.data, default_settlement: "unpaid" },
   });
+});
+
+test("已收金额有收款时仍默认不打印，启用后显示实际已收金额", async ({
+  page,
+}) => {
+  const { input } = await fixture(page.request);
+  const catalog = await (await page.request.get("/api/sales/catalog")).json();
+  let company = catalog.items.find(
+    (entry: { kind: string }) => entry.kind === "company",
+  );
+  company = await post(page.request, "/sales/catalog", {
+    id: company?.id || "",
+    version: company?.version || 0,
+    kind: "company",
+    name: company?.name || "打印设置测试",
+    active: true,
+    data: { ...(company?.data ?? {}), print_settings: {} },
+  });
+  const sale = await command(page.request, {
+    action: "confirm",
+    input: {
+      ...input,
+      initial_payment: { account_id: "cash", amount: "1000" },
+    },
+  });
+  expect(sale.paid).toBe(100000);
+  await page.goto(`/?sale_print=${sale.id}#/sales`);
+  const labels = page.locator(".print-summary dt");
+  await expect(labels).toHaveText(["原金额", "原单应收", "应收金额"]);
+  await post(page.request, "/sales/catalog", {
+    ...company,
+    data: { ...company.data, print_settings: { amounts: { paid: "always" } } },
+  });
+  await page.reload();
+  await expect(labels).toHaveText([
+    "原金额",
+    "原单应收",
+    "应收金额",
+    "已收金额",
+  ]);
+  await expect(
+    page.locator(".print-summary dl > div").filter({ hasText: "已收金额" }),
+  ).toContainText("¥1,000.00");
 });

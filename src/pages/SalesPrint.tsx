@@ -155,13 +155,7 @@ export default function SalesPrint({
               <dl>
                 {summary.map(({ key, label }) => (
                   <div key={key}>
-                    <dt>
-                      {key === "paid"
-                        ? "已收金额"
-                        : key === "due"
-                          ? "应收金额"
-                          : label}
-                    </dt>
+                    <dt>{label}</dt>
                     <dd>¥{moneyText(amounts[key])}</dd>
                   </div>
                 ))}
