@@ -83,6 +83,8 @@ try {
     cookie,
   );
   docker("restart", name);
+  // Docker can allocate a new host port when restarting a port-0 mapping.
+  base = `http://${docker("port", name, "4280/tcp")}`;
   const status = await ready(true);
   assert.equal(status.initialized, true);
   const again = await post("/login", {
