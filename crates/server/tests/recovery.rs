@@ -905,3 +905,41 @@ async fn mysql_web_setup_restart_and_full_backup_restore() {
     assert!(!data.path().join("inventory.sqlite").exists());
     restarted.stop().await;
 }
+
+#[tokio::test]
+async fn desktop_database_setup_reads_stdin_and_keeps_an_existing_database() {
+    use tokio::io::AsyncWriteExt;
+    let data = TempDir::new().unwrap();
+    for first in [true, false] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_easy-erp-server"));
+        command
+            .arg("--data-dir")
+            .arg(data.path())
+            .arg("--configure-database")
+            .env_remove("ERP_DATABASE_URL")
+            .env_remove("ERP_SETUP_TOKEN")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
+        #[cfg(windows)]
+        command.creation_flags(0x08000000);
+        let mut child = command.spawn().unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        stdin.write_all(b"{\"kind\":\"sqlite\"}").await.unwrap();
+        drop(stdin);
+        let output = child.wait_with_output().await.unwrap();
+        if first {
+            success(output);
+            let settings: Value =
+                serde_json::from_slice(&fs::read(data.path().join("database.json")).unwrap())
+                    .unwrap();
+            assert_eq!(settings, json!({"kind":"sqlite"}));
+        } else {
+            failure(output);
+        }
+    }
+    let mut server = Server::start(data.path(), None).await;
+    server.setup().await;
+    server.stop().await;
+}
