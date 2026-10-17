@@ -1,71 +1,65 @@
 # Task State
 
 ## Task / Objective
-完成独立开单与打印设置入口、物料成本价/售价与库存金额、客户打印用语、面包屑和合理路由；更新用户当前本地服务并保留原数据。
+用户授权「全部提交推送 发版 打包镜像」。完成本轮功能，提交推送main，正式发布v0.2.3安装包及服务器amd64/arm64镜像，并实际验证公开下载、签名和数据持久化。
 
 ## Current Phase
-ACCEPTANCE — 实现、测试、真实服务升级与只读验收完成。
+COMPLETE。Direct执行；源码、发布产物与容器均对应ad6622cca250058fdb28bf48f34d9ae5acbcf611。发布记录提交独立于产物源，使用[skip ci]避免重复构建。
 
-## Completed Work
-- 基础资料独立「开单与打印设置」，直接编辑，复用原公司记录存储/权限；公司信息只维护联系资料。
-- 物料cost_price/sale_price：4位小数整数存储，数据库-1/API null代表未设置；旧客户端不传字段更新时保留价格。
-- 当前筛选全部分页库存金额，逐物料按存量×当前成本价四舍五入到分后合计，i128避免乘积溢出，金额以字符串输出；有库存但未填成本的物料单独提示。
-- 售价>0仅在选料/库存开单时带入；空/0不填，手改及历史/草稿保持原价；成本不参与销售快照。
-- SQLite/MySQL迁移item_prices_v1，历史备份临时副本升级兼容；MySQL完整备份/恢复/重启保留两种价格。
-- 客户打印「部门」「业务员」「日期」「商品名称/规格」「应收金额」「已收金额」「已撤销」，内部业绩用语不变。
-- 全站面包屑；基础资料#/catalog/{section}独立地址、刷新/浏览器前后退/键盘切换；直达仍检查原查看权限。编辑页保留固定按钮，不被面包屑挤出屏幕。
+## Confirmed Requirements / Delivered
+- 基础资料独立「开单与打印设置」，不再藏在公司信息；路径#/catalog/settings，目录分栏合理路由及面包屑，刷新/前进/后退和权限保护。
+- 物料成本价仅用于库存余额估值；可选售价>0时选料带入销售单，手改和已保存单据价格保留；成本价不进入销售快照。存储精度10000，null/旧数据库-1为未设置。
+- 库存总额覆盖所有筛选分页，金额精度及缺成本提示；SQLite/MySQL迁移、旧备份兼容、完整备份恢复。
+- 客户打印使用部门/业务员等用语；金额和送货地址逐项可配置，默认空地址不打印、欠款及已收金额不打印、其他金额为0不打印。
+- 用户特别确认只隐藏「已收金额」这一行，保留收款记录整块明细。默认结算全部收款；草稿保留原选择，无收款权限沿用保护规则。
+- SQLite/MySQL首次初始化在服务器网页和桌面启动窗口均支持，MySQL提供连接表单。
+- 修复连续保存配置遇到慢刷新时旧catalog覆盖新版本的问题；按较高version合并，避免误报版本冲突。
+
+## Published
+- 正式Latest：https://github.com/7link-team/easy-erp/releases/tag/v0.2.3
+- 23个文件：Windows NSIS、macOS Intel/ARM64 dmg与更新包、Linux AppImage/deb、Android APK/AAB、iOS模拟器、各平台服务端、Web、更新签名/manifest/checksums。
+- 公开镜像：https://github.com/7link-team/easy-erp/releases/tag/server-ad6622cca250
+- 镜像包含amd64/arm64 tar.gz、compose.yaml、compose.mysql.yaml、DEPLOY.md、SHA256SUMS。
+- GHCR：ghcr.io/7link-team/easy-erp-server:latest；不可变tag sha-ad6622cca250058fdb28bf48f34d9ae5acbcf611（及-amd64/-arm64）。
+- GHCR包沿用private；Release归档已经验证可匿名下载，离线docker load无需登录GHCR。
+- macOS为ad-hoc签名；未配置iOS真机分发签名，仅提供模拟器包。
+
+## Verification — PASS
+- Build and release 39033544303 SUCCESS，headSha=ad6622c，全部启用平台通过。
+- Chromium180/180、WebKit180/180全量通过。
+- Rust12单元/8恢复测试；云端SQLite和MySQL检查通过。
+- 本地全新MySQL release_clean_20261017业务57/57，最终SQLite catalog/item-prices/sales34/34。
+- 连续保存回归：强制GET返回旧快照，旧前端失败、修复前端通过，第二次保存及刷新持久化正常。
+- Server container 39033546087 SUCCESS：两个原生架构初始化、保护令牌、内嵌前端、重启持久化均通过。
+- Public server image archives 39034998225 SUCCESS：公开下载两架构及compose校验和通过；本机amd64 docker load、启动、初始化、登录、重启持久化PASS，revision标签匹配ad6622c。
+- 下载全部23个v0.2.3文件，SHA256全部与清单/GitHub资产摘要一致；4平台Ed25519更新签名与trusted comment均验证通过。
+- macOS Intel下载产物codesign --verify --deep --strict PASS；独立原生服务器0.2.3启动、内嵌Web、价格字段、登录及重启持久化PASS。
+- Windows工作流升级/数据保留与原生更新测试PASS；iOS模拟器安装启动工作流PASS。
+- 正式发布后匿名latest/download/latest.json与已验证manifest一致；GitHub latest明确v0.2.3，draft=false/prerelease=false。
+- TS/e2e TS、git diff --check PASS；自审与原始需求验收PASS。
+
+## Test Corrections / Resolved Issues
+- 默认full改变后，原先假设unpaid的销售/价格测试显式选择unpaid，保留原断言与产品默认行为。
+- 早期本地全量178/180中一处临时盘SQLITE_FULL，后续测试数据目录移到项目盘；最终云端全量和本地相关场景全部通过。
+- MySQL曾尝试4294并行，旧测试额外context硬编码4289导致环境失败；另一次复用中断测试库造成汇总/行数污染。最终使用4289和全新库57/57通过。不得把这些中间失败当成未解决产品问题。
+- 未发布v0.2.3标签在修复时使用精确lease更新，旧运行已取消；正式发布后未改tag、未覆盖旧版本。
 
 ## Live Service / Data Preservation
-- 正确地址：http://127.0.0.1:4291/；原数据目录build-artifacts/tmp/desktop-v0.2.1-test。
-- 新server运行session7467：target/debug/easy-erp-server --data-dir "$PWD/build-artifacts/tmp/desktop-v0.2.1-test" --bind 0.0.0.0:4291 --web-dir "$PWD/dist"。
-- 最新前端源build-artifacts/tmp/item-prices-webkit-web，已复制dist并保留旧assets。刷新页面可用；原demo账号不变。
-- 升级前安全备份build-artifacts/tmp/before-item-prices-20261017-191941.sqlite。
-- 原数据1用户/5物料/10库存单据/5销售单。升级后逐列逐行比对items/documents/sales完全相同；新增价格均未设置。
-- 真实4291只读验收：价格表单打开后取消、独立设置路由与面包屑、客户打印用语PASS。未执行业务测试写入。
+- 用户服务：http://127.0.0.1:4291/，原数据目录build-artifacts/tmp/desktop-v0.2.1-test，库存数据库inventory.sqlite。
+- 原服务session7467：target/debug/easy-erp-server --data-dir .../desktop-v0.2.1-test --bind 0.0.0.0:4291 --web-dir .../dist。运行二进制仍报告0.2.2，包含功能变更；没有为了发版中断用户服务。
+- dist已同步build-artifacts/tmp/v0.2.3-verified-web，保留旧assets；最新设置修复可刷新使用。
+- 原有数据1用户/5物料/10库存单据/5销售单；升级比对原列完全一致。备份build-artifacts/tmp/before-item-prices-20261017-191941.sqlite。
+- 当前公司配置default_settlement=full、print_settings.amounts.paid=never。未对用户数据运行任何业务测试。
+- 本次原生4296与容器冒烟已停止并清理测试容器/卷；本地MySQL验证容器easy-erp-mysql-check为既有隔离测试环境。
 
-## Verification
-- TS / e2e TS / Rust fmt / diff check PASS；Python性能fixture语法PASS。
-- Rust12单元PASS；recovery8/8含真实隔离MySQL PASS（ERP_MYSQL_TEST_URL设置），价格备份恢复及重启已覆盖。
-- 定向Chromium库存/字典旧备份/新功能11/11 PASS。
-- 初轮全量Chromium178项：167通过；11项发现编辑页布局、导航测试重名及新增末尾tab问题。修正后相关24项全部PASS，涵盖所有11项失败。
-- 最终新功能Chromium4/4 PASS；WebKit新功能、打印、键盘导航、编辑页按钮10/10 PASS。
-- 桌面/手机实际截图核对PASS，无横向溢出；库存开单直接带入8.1234元只在隔离4293验证。
-- 自审：范围、权限、价格精度、旧数据/备份、销售快照、路由/焦点、屏幕布局PASS。最终需求验收PASS。
-
-## Evidence / Test Environment
-- build-artifacts/tmp/item-prices-{full-e2e,final-regression,webkit,chromium-final}.log；prices-inventory-{desktop,mobile}.png；prices-invoice-{desktop,mobile}.png，均ignored。
-- 隔离视觉库build-artifacts/tmp/item-prices-visual（4293）；MySQL验证容器easy-erp-mysql-check:43306、price_test_20261017库。均非用户业务库。
-
-## Prior Release Context
-- 上一轮SQLite/MySQL首次初始化（服务器网页/桌面启动器）、打印配置/默认结算已完成并发布。
-- GHCR ghcr.io/7link-team/easy-erp-server:latest / sha-a10a9dedb0a1fec092a3fa4f24259c7d62ed436c，包默认private。
-- 可匿名下载的上一版镜像：https://github.com/7link-team/easy-erp/releases/tag/server-a10a9dedb0a1，amd64/arm64 tar.gz、compose、DEPLOY.md、SHA256SUMS已实际验证。
-- 当前这轮新增功能只更新本地服务；未重新发布GitHub镜像或桌面安装包。不要声称旧Release含本轮功能。
+## Evidence
+ignored build-artifacts/tmp/v0.2.3-{mysql-clean,sqlite-final,cloud-sqlite,cloud-webkit}.log。
+v023-release-assets、v023-server-assets、v023-native-assets、v023-native-server、v023-native-app。
+verify-v023-release.mjs（签名/hash），smoke-v023-native.mjs（原生启动/持久化）。
+v0.2.3-release-notes.md，v023-public-latest.json。
 
 ## Remaining Work / Next Action
-本轮实现与验收无待办。整理本地提交后交付刷新入口；GitHub镜像及桌面安装包未更新。
+无功能、发布或镜像待办。提交推送本记录并确认工作区干净/与origin/main同步后交付链接。无需用户审批。
 
 ## Last Checkpoint
-2026-10-17 19:25 SGT，原服务升级与数据比对、最新Chromium4/4和WebKit10/10完成。
-
-## Follow-up — 默认全部收款与已收金额打印（2026-10-17 19:52 SGT）
-- 用户明确：默认结算为全部收款；只隐藏右下角已收金额这一行，不隐藏整块收款记录，并可配置开启。
-- 程序无配置时默认full，当前4291公司配置已保存full；草稿和无sales.pay权限仍按原规则处理。
-- paid默认打印规则never（与debt一致）；打印设置名称改为「已收金额」「应收金额」以匹配打印。当前4291已保存paid=never；收款记录明细不变。
-- TS/e2e TS PASS；Chromium打印规则/默认结算/有实际收款时已收默认隐藏并可开启3/3 PASS。
-- 前端build-artifacts/tmp/default-full-print-web已更新dist；当前服务实际验证设置full、paid=never、新开单full PASS，无单据业务写入。
-
-## Active Release — 2026-10-17
-用户明确授权「全部提交推送 发版 打包镜像」。Direct执行，复用现有build/server-image/server-archives工作流；发布v0.2.3，完整安装包与服务器amd64/arm64镜像及公开下载归档。同步所有版本/锁文件，推送main及新tag。构建检查与产物验收通过后发布正式Release；不得覆盖既有v0.2.2。当前阶段RELEASE PREPARATION，待push、Actions验收、产物下载验证、正式发布。
-
-## Release checkpoint
-v0.2.3发布源71c760ecdd5c0c68718dd984fd061333766db4a1，main与tag已推送。正式包工作流39031346278（tag）；服务器镜像39031346192（main）。重复main构建39031346185已主动取消，避免重复消耗。发布说明build-artifacts/tmp/v0.2.3-release-notes.md。后续等待两条流水线并修复失败，验收draft产物后正式发布；镜像成功后dispatch server-archives(source_sha=发布源SHA)并验证公开下载。
-
-## Release validation correction
-发布前销售全量测试发现3个旧场景隐含默认unpaid；已显式选择unpaid以覆盖后续收款/库存验证/部分收款，保留全部原断言，产品默认full不变。修正后sales.spec Chromium25/25 PASS，e2e TS PASS。旧包/镜像构建取消，v0.2.3尚未创建Release；将仅更新本轮未发布tag到修正提交，再以同一SHA构建全部产物。
-
-## Release regression fix — settings versions
-8205743的云端MySQL57项中56PASS，连续保存打印设置失败。根因：Sales.entries合并时旧catalog覆盖刚保存的savedEntries，刷新较慢时第二次保存提交旧version。现在逐项保留较高version，刷新仍可接收外部更新；测试固定返回旧GET快照，两次POST必须成功且刷新后配置持久化。此回归用旧前端FAIL、新前端PASS；TS/e2e TS与diff检查PASS。隔离本地MySQL完整业务57项运行中（release_checks_20261017）；旧SQLite全量回归仍在跑。8205743构建已取消，待本次修正提交并再次更新未发布v0.2.3标签。
-
-## Final fixture follow-up
-旧前端全量180项178PASS：catalog登录因系统临时盘空间不足(SQLITE_FULL)，item-prices保存草稿需显式unpaid。后者测试修正且定向PASS；后续ERP_E2E_DATA放项目盘。MySQL并行测试尝试使用4294，但旧测试另建context硬编码4289，产生测试环境失败；已停止此尝试并在4289重跑57项（当前无失败）。本次只提交价格测试fixture，产品代码保持57eeed8。
+2026-10-17 21:20 SGT，v0.2.3正式发布与公开自动更新manifest核验完成。
