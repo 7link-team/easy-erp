@@ -2,6 +2,13 @@ name: Server container
 
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Version tag to attach to an existing verified image (leave empty to build)
+        type: string
+        default: ""
+  release:
+    types: [published]
   push:
     branches: [main]
     paths:
@@ -23,6 +30,7 @@ concurrency:
 
 jobs:
   sqlite:
+    if: github.event_name != 'release' && !inputs.release_tag
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -47,6 +55,7 @@ jobs:
           path: build-artifacts/playwright/chromium/
 
   mysql:
+    if: github.event_name != 'release' && !inputs.release_tag
     runs-on: ubuntu-24.04
     services:
       mysql:
@@ -151,3 +160,41 @@ jobs:
           docker buildx imagetools create --tag "$IMAGE:sha-$GITHUB_SHA" --tag "$IMAGE:latest" \
             "$IMAGE:sha-$GITHUB_SHA-amd64" "$IMAGE:sha-$GITHUB_SHA-arm64"
           docker buildx imagetools inspect "$IMAGE:latest"
+
+
+  version:
+    if: github.event_name == 'release' || inputs.release_tag != ''
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}-server
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Tag the verified image without rebuilding
+        shell: bash
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
+          SOURCE_SHA=$(git rev-parse --verify "refs/tags/$RELEASE_TAG^{commit}")
+          source="$IMAGE:sha-$SOURCE_SHA"
+          docker buildx imagetools inspect "$source" --raw > source.json
+          jq -e '[.manifests[].platform | select(.os == "linux") | .architecture] | sort == ["amd64", "arm64"]' source.json
+          if docker buildx imagetools inspect "$IMAGE:$RELEASE_TAG" --raw > version.json 2> inspect-error.txt; then
+            cmp source.json version.json || { echo "Refusing to overwrite a different version image"; exit 1; }
+          else
+            grep -Eqi 'not found|manifest_unknown|manifest unknown' inspect-error.txt || { cat inspect-error.txt; exit 1; }
+            docker buildx imagetools create --tag "$IMAGE:$RELEASE_TAG" "$source"
+          fi
+          docker buildx imagetools inspect "$IMAGE:$RELEASE_TAG" --raw > version.json
+          cmp source.json version.json
+          docker buildx imagetools inspect "$IMAGE:$RELEASE_TAG"
