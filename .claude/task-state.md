@@ -73,3 +73,8 @@ v0.2.3-release-notes.md，v023-public-latest.json。
 server-image.yml新增release.published和手动release_tag入口，只给既有已验证多架构镜像加版本标签、不重建；按版本Git标签解析源SHA，检查两个平台和manifest一致，拒绝覆盖不同镜像。
 实际云端任务39041655911 SUCCESS，v0.2.3对应manifest sha256:bbfc4ee7e0143ce5247fb47a293f1468652d7e5da34e5cf7e83aab0861575e70，含linux/amd64与linux/arm64；没有本地镜像下载或打包。
 v0.2.3 Release说明已保存并回读确认短版本拉取命令、GHCR地址、Compose链接，移除旧归档链接。YAML解析/diff检查PASS。当前交付无待办。
+
+## GHCR obsolete SHA cleanup — 2026-10-17
+用户授权清理sha-*镜像。新增云端image_maintenance=audit/cleanup入口和scripts/cleanup-server-images.mjs：从全部非SHA标签递归保护manifest依赖，仅删除不被引用且所有标签均为SHA格式的旧版本，每次删除前重查，删除后复查保留标签及manifest。
+审计39042847895成功；实际清理39042992641成功。删除旧a10a9de索引及amd64/arm64三个版本（1400562076、1400561521、1400559962）。保留当前ad6622c三条记录：v0.2.3/latest/SHA共用索引及两个架构manifest，不能直接删版本否则会破坏当前镜像。全程云端，无本地镜像下载。
+用户询问刚发布的下载记录：验收中的云端拉取/归档及本机验证会产生访问统计；不能根据次数推断独立用户数或断言全部来自本次验收。
