@@ -13,9 +13,13 @@
 
 ## 服务器容器部署
 
-服务器镜像：`ghcr.io/7link-team/easy-erp-server:latest`，支持 Linux amd64 / arm64。镜像包含 Web，无需单独部署前端。固定某次构建可使用 `sha-完整提交SHA` 标签。
+服务器镜像支持 Linux amd64 / arm64，包含 Web，无需单独部署前端。从 [GitHub 服务器镜像 Release](https://github.com/7link-team/easy-erp/releases/tag/server-a10a9dedb0a1) 下载对应架构的 `.tar.gz`、`compose.yaml`（如需 MySQL 同时下载 `compose.mysql.yaml`），可使用同页的 `SHA256SUMS` 校验文件。
+
+GHCR 地址为 `ghcr.io/7link-team/easy-erp-server:latest`，也有 `sha-完整提交SHA` 固定标签。GHCR 当前为私有包，直接拉取需要具备包读取权限；使用公开的 Release 镜像文件加载后，Compose 可以直接启动。
 
 ```sh
+# Intel/AMD；ARM64 将文件名中的 amd64 替换为 arm64
+docker load -i easy-erp-server-linux-amd64.tar.gz
 docker compose up -d
 docker compose logs inventory
 ```

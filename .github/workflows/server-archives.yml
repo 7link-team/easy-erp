@@ -1,0 +1,103 @@
+name: Public server image archives
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full source SHA of the verified server image
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: server-archives-${{ inputs.source_sha }}
+  cancel-in-progress: false
+
+jobs:
+  archive:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: read
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}-server
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Pull immutable image
+        run: |
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          docker pull "$IMAGE:sha-$SOURCE_SHA-$ARCH"
+          test "$(docker image inspect "$IMAGE:sha-$SOURCE_SHA-$ARCH" --format '{{.Architecture}}')" = "$ARCH"
+          test "$(docker image inspect "$IMAGE:sha-$SOURCE_SHA-$ARCH" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$SOURCE_SHA"
+      - name: Verify the pulled image before exporting
+        run: node scripts/smoke-server-image.mjs "$IMAGE:sha-$SOURCE_SHA-$ARCH"
+      - name: Export deployable image
+        run: |
+          mkdir -p server-assets
+          docker tag "$IMAGE:sha-$SOURCE_SHA-$ARCH" "$IMAGE:latest"
+          docker save "$IMAGE:latest" | gzip > "server-assets/easy-erp-server-linux-$ARCH.tar.gz"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-image-${{ matrix.arch }}
+          path: server-assets/*.tar.gz
+          if-no-files-found: error
+
+  release:
+    needs: archive
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: server-image-*
+          merge-multiple: true
+          path: server-assets
+      - name: Publish server images without changing the desktop release
+        run: |
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          tag="server-${SOURCE_SHA:0:12}"
+          cp compose.yaml compose.mysql.yaml server-assets/
+          (cd server-assets && sha256sum *.tar.gz compose*.yaml > SHA256SUMS)
+          cat > server-assets/DEPLOY.md <<'NOTES'
+          下载对应架构的镜像（Intel/AMD 选择 amd64；ARM64 选择 arm64），以及 compose.yaml。
+
+          ```sh
+          docker load -i easy-erp-server-linux-amd64.tar.gz
+          docker compose up -d
+          docker compose exec inventory cat /data/setup-token
+          ```
+
+          ARM64 将 load 的文件名替换为 easy-erp-server-linux-arm64.tar.gz。
+          打开 http://服务器地址:4280/，选择 SQLite 或 MySQL 并创建管理员。
+          使用服务器IP或域名时，在 .env 设置 ERP_ALLOWED_HOSTS=对应IP或域名。
+          数据保存在持久卷；重启不会清空。不要执行 docker compose down -v 删除卷。
+          GHCR 包默认私有；这些镜像文件可公开下载并离线加载，不需要登录 GHCR。
+          MySQL 同时部署及其他参数见仓库 README 与 compose.mysql.yaml。
+          NOTES
+          gh release create "$tag" server-assets/* --target "$SOURCE_SHA" --latest=false \
+            --title "服务器镜像 · ${SOURCE_SHA:0:7}" --notes-file server-assets/DEPLOY.md
