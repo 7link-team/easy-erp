@@ -66,3 +66,6 @@ v0.2.3发布源71c760ecdd5c0c68718dd984fd061333766db4a1，main与tag已推送。
 
 ## Release regression fix — settings versions
 8205743的云端MySQL57项中56PASS，连续保存打印设置失败。根因：Sales.entries合并时旧catalog覆盖刚保存的savedEntries，刷新较慢时第二次保存提交旧version。现在逐项保留较高version，刷新仍可接收外部更新；测试固定返回旧GET快照，两次POST必须成功且刷新后配置持久化。此回归用旧前端FAIL、新前端PASS；TS/e2e TS与diff检查PASS。隔离本地MySQL完整业务57项运行中（release_checks_20261017）；旧SQLite全量回归仍在跑。8205743构建已取消，待本次修正提交并再次更新未发布v0.2.3标签。
+
+## Final fixture follow-up
+旧前端全量180项178PASS：catalog登录因系统临时盘空间不足(SQLITE_FULL)，item-prices保存草稿需显式unpaid。后者测试修正且定向PASS；后续ERP_E2E_DATA放项目盘。MySQL并行测试尝试使用4294，但旧测试另建context硬编码4289，产生测试环境失败；已停止此尝试并在4289重跑57项（当前无失败）。本次只提交价格测试fixture，产品代码保持57eeed8。

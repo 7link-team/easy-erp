@@ -58,6 +58,10 @@ test("物料成本统计与售价带入、手改和草稿价格保持独立", as
     page.getByRole("combobox", { name: "客户 必填", exact: true }),
     customer.id,
   );
+  await chooseSelect(
+    page.getByRole("combobox", { name: "结算方式 必填", exact: true }),
+    "unpaid",
+  );
   await page.getByRole("button", { name: "添加一行", exact: true }).click();
   await page.getByLabel("开单查找物料").fill(name);
   await page.getByRole("button", { name: `选择${name}`, exact: true }).click();
