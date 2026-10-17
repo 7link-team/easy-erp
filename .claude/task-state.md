@@ -18,10 +18,9 @@ COMPLETE。Direct执行；源码、发布产物与容器均对应ad6622cca250058
 ## Published
 - 正式Latest：https://github.com/7link-team/easy-erp/releases/tag/v0.2.3
 - 23个文件：Windows NSIS、macOS Intel/ARM64 dmg与更新包、Linux AppImage/deb、Android APK/AAB、iOS模拟器、各平台服务端、Web、更新签名/manifest/checksums。
-- 公开镜像：https://github.com/7link-team/easy-erp/releases/tag/server-ad6622cca250
-- 镜像包含amd64/arm64 tar.gz、compose.yaml、compose.mysql.yaml、DEPLOY.md、SHA256SUMS。
-- GHCR：ghcr.io/7link-team/easy-erp-server:latest；不可变tag sha-ad6622cca250058fdb28bf48f34d9ae5acbcf611（及-amd64/-arm64）。
-- GHCR包沿用private；Release归档已经验证可匿名下载，离线docker load无需登录GHCR。
+- GHCR：ghcr.io/7link-team/easy-erp-server:v0.2.3；latest和sha-ad6622cca250058fdb28bf48f34d9ae5acbcf611追踪标签保留。
+- 用户要求镜像只放GHCR，两个server-*镜像Release及其附件已删除；安装包v0.2.3保留并注明GHCR版本拉取命令。
+- GHCR包当前private，拉取需要有包读取权限的GitHub账号登录。
 - macOS为ad-hoc签名；未配置iOS真机分发签名，仅提供模拟器包。
 
 ## Verification — PASS
@@ -67,3 +66,10 @@ v0.2.3-release-notes.md，v023-public-latest.json。
 ## Disk cleanup — 2026-10-17
 用户指出本地磁盘占用过高，并提醒已有GHCR。已清理283个可再生目录：性能测试合成数据、254个系统临时e2e库、Rust编译缓存和v0.2.3下载验收副本。约释放49GiB；项目盘可用59→104GiB，系统盘5.4→9.1GiB。发布包/镜像仍在GitHub/GHCR，以上本地大型产物证据路径已清除，文本日志与验证记录保留。
 保留用户4291业务库、升级前备份、dist及正在运行的服务二进制；API状态检查正常。以后使用GitHub Actions/GHCR构建发布，本地只下载必要的验收产物，验收结束即清理；性能/e2e合成库和构建缓存不得长期堆积。其他项目及Docker虚拟机未清理。
+
+
+## GHCR version tags / Release cleanup — 2026-10-17
+用户确认使用版本tag，Release不存Docker镜像。已删除server-ad6622cca250、server-a10a9dedb0a1两条镜像Release及附件（Git标签保留），删除server-archives.yml避免再生成；README和发布文档改用GHCR。
+server-image.yml新增release.published和手动release_tag入口，只给既有已验证多架构镜像加版本标签、不重建；按版本Git标签解析源SHA，检查两个平台和manifest一致，拒绝覆盖不同镜像。
+实际云端任务39041655911 SUCCESS，v0.2.3对应manifest sha256:bbfc4ee7e0143ce5247fb47a293f1468652d7e5da34e5cf7e83aab0861575e70，含linux/amd64与linux/arm64；没有本地镜像下载或打包。
+v0.2.3 Release说明已保存并回读确认短版本拉取命令、GHCR地址、Compose链接，移除旧归档链接。YAML解析/diff检查PASS。当前交付无待办。
