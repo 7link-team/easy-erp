@@ -239,6 +239,12 @@ impl FileStorage {
                     let entry = entry?;
                     let meta = entry.file_type()?;
                     if meta.is_symlink() {
+                        // Refusing the whole listing is deliberate, not just
+                        // blast radius: object_store walks with follow_links, so
+                        // this pre-walk is the only thing that keeps a link from
+                        // being enumerated at all. Skipping it here would let a
+                        // symlinked archive reach the delete paths, which then
+                        // fail later in check_local_path anyway.
                         return Err(ApiError::bad("备份目录内不允许符号链接。"));
                     }
                     if meta.is_dir() {

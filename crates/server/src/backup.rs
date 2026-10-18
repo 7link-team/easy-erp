@@ -147,15 +147,32 @@ pub async fn create(s: &AppState, actor: &User, source: &str) -> Result<BackupIn
     .await?;
     save_value(s, "backup_last_success", &info.created_at.to_string()).await?;
     save_value(s, "backup_last_error", "").await?;
-    let policy = settings(s).await?;
-    s.files
-        .put(
-            s.files.primary,
-            "backups/policy.json",
-            serde_json::to_vec(&policy).unwrap().into(),
-        )
-        .await?;
-    prune(s).await?;
+    // Retention drives irreversible deletion, so a damaged or missing policy file
+    // must never be silently replaced by the default here: that would rewrite the
+    // file with 7 days and prune everything older. Keep the archives, leave the
+    // file alone, and let the backups page rewrite it deliberately.
+    match stored_policy(s).await? {
+        // Absent is the normal pre-first-backup state: publish the effective
+        // policy and prune as before.
+        Policy::Valid(_) | Policy::Absent => {
+            let policy = settings(s).await?;
+            s.files
+                .put(
+                    s.files.primary,
+                    "backups/policy.json",
+                    serde_json::to_vec(&policy).unwrap().into(),
+                )
+                .await?;
+            prune(s).await?;
+        }
+        // Damaged means the configured retention is unknown. Replacing it with the
+        // default would rewrite the file as 7 days and prune everything older, so
+        // keep every archive and let the backups page rewrite it deliberately.
+        Policy::Damaged => tracing::warn!(
+            name = %info.name,
+            "备份保留策略文件损坏，已保留全部归档未清理；请在备份页重新保存保留天数"
+        ),
+    }
     Ok(info)
 }
 
@@ -294,13 +311,20 @@ async fn snapshot_with_storage(
     };
     files.put_file(files.primary, &key, &archive).await?;
     // Archive is authoritative; missing metadata must never hide a valid backup.
-    files
+    // The archive is already stored durably here, so a failed sidecar must not
+    // fail the backup: that would skip recording success and pruning, leaving
+    // the scheduler to rewrite a full archive every tick. Listing falls back to
+    // reading the archive's own manifest.
+    if let Err(error) = files
         .put(
             files.primary,
             &format!("{key}.json"),
             serde_json::to_vec(&info).unwrap().into(),
         )
-        .await?;
+        .await
+    {
+        tracing::warn!(%error, name = %info.name, "备份元数据写入失败，归档已保存");
+    }
     Ok(info)
 }
 async fn embed_attachments(path: &FsPath, files: &crate::storage::FileStorage) -> Result<()> {
@@ -389,22 +413,37 @@ pub(crate) async fn validate_database(path: &FsPath) -> Result<sea_orm::Database
     crate::roles::validate_backup(&db).await?;
     Ok(db)
 }
-pub async fn settings(s: &AppState) -> Result<Schedule> {
+/// Absence and corruption are different: a missing file is the normal state
+/// before the first backup, while an unreadable one means the configured
+/// retention is unknown and must not be guessed by anything that deletes.
+enum Policy {
+    Valid(Schedule),
+    Absent,
+    Damaged,
+}
+async fn stored_policy(s: &AppState) -> Result<Policy> {
     match s
         .files
         .read(s.files.primary, "backups/policy.json", 65536)
         .await
     {
-        Ok(bytes) => {
-            let policy: Schedule = serde_json::from_slice(&bytes)
-                .map_err(|_| ApiError::bad("备份保留策略文件损坏，请重新保存备份计划。"))?;
-            if !(1..=365).contains(&policy.keep_days) {
-                return Err(ApiError::bad("备份保留天数无效。"));
+        Ok(bytes) => Ok(match serde_json::from_slice::<Schedule>(&bytes) {
+            Ok(policy) if (1..=365).contains(&policy.keep_days) => Policy::Valid(policy),
+            _ => {
+                tracing::warn!("备份保留策略文件无效");
+                Policy::Damaged
             }
-            return Ok(policy);
-        }
-        Err(e) if e.0 == axum::http::StatusCode::NOT_FOUND => {}
-        Err(e) => return Err(e),
+        }),
+        Err(e) if e.0 == axum::http::StatusCode::NOT_FOUND => Ok(Policy::Absent),
+        Err(e) => Err(e),
+    }
+}
+pub async fn settings(s: &AppState) -> Result<Schedule> {
+    // A damaged policy file must not break the backups page, which is the only
+    // place that can rewrite it. Fall back to the stored value or the default
+    // for display; pruning is handled separately and refuses to guess.
+    if let Policy::Valid(policy) = stored_policy(s).await? {
+        return Ok(policy);
     }
     let value = one(
         &s.db,
@@ -585,10 +624,18 @@ async fn stored_files(
                     info.source = cached.source;
                     info.photo_count = cached.photo_count;
                 } else {
-                    let stage = tempfile::tempdir_in(data_dir)?;
-                    let archive = stage.path().join("metadata.zip");
+                    // Only the S3 path stages the archive; a local read happens
+                    // in place, so listing pre-sidecar archives must not create
+                    // a temp directory (nor require a writable data dir) per
+                    // archive just to read a manifest.
+                    let stage = if backend == "s3" {
+                        Some(tempfile::tempdir_in(data_dir)?)
+                    } else {
+                        None
+                    };
                     let metadata: Result<Manifest> = async {
-                        let archive = if backend == "s3" {
+                        let archive = if let Some(stage) = stage.as_ref() {
+                            let archive = stage.path().join("metadata.zip");
                             copy_archive(storage, backend, &key, &archive).await?;
                             archive
                         } else {
@@ -684,7 +731,14 @@ pub async fn download(
     current(&s, &headers).await?.admin()?;
     let f = locate(&s, &name).await?;
     let object = s.files.get(&f.backend, &f.key).await?;
+    // Without a length the response is chunked, so a stream that breaks midway
+    // looks like a finished download and the short file is only caught by the
+    // checksum at restore time.
+    let size = object.meta.size;
     let mut response = axum::body::Body::from_stream(object.into_stream()).into_response();
+    response
+        .headers_mut()
+        .insert(header::CONTENT_LENGTH, size.into());
     response.headers_mut().insert(
         header::CONTENT_TYPE,
         header::HeaderValue::from_static("application/zip"),
@@ -861,6 +915,16 @@ pub async fn restore(
         schemas(&s.db).await?,
     )
     .await?;
+    // Every externalized image is unreferenced once a restore lands: the archive's
+    // rows carry their copies inline, because validate_database refuses an archive
+    // that still points outside. Nothing would ever reclaim them, since new
+    // uploads take fresh ids. The data is already in place by the time this runs,
+    // so a cleanup failure must not report the finished restore as failed.
+    async fn clear_restored_attachments(s: &AppState) {
+        if let Err(error) = s.files.clear_attachments().await {
+            tracing::warn!(%error, "数据已恢复，但外置图片清理未完成");
+        }
+    }
     // Snapshot current data first. Failure leaves all current data untouched.
     let before = create(&s, &actor, "restore").await?;
     let _writes = s.writes.lock().await;
@@ -872,6 +936,7 @@ pub async fn restore(
             json!({"restore_point":manifest.created_at,"before_backup":before.name}),
         )
         .await?;
+        clear_restored_attachments(&s).await;
         return Ok(Json(
             json!({"ok":true,"message":"数据已恢复，请重新登录。"}),
         ));
@@ -949,6 +1014,7 @@ pub async fn restore(
         connection.close().await.map_err(ApiError::from)?;
     }
     outcome?;
+    clear_restored_attachments(&s).await;
     Ok(Json(
         json!({"ok":true,"message":"数据已恢复，请重新登录。"}),
     ))

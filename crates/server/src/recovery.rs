@@ -282,6 +282,31 @@ pub async fn run(
                 e.1
             )
         })?;
+        // Import previews hold the customer names, phones and addresses of past
+        // uploads, are never in the backup set, and were previously left behind
+        // by a full wipe. The database is already gone by now, so a failure here
+        // must not abort with a retry hint, and anything that is not a plain
+        // directory is left alone rather than failing the whole reset.
+        let imports = data_dir.join("imports");
+        match fs::symlink_metadata(&imports) {
+            Ok(meta) if meta.is_dir() && !is_link(&meta) => {
+                if let Err(e) = fs::remove_dir_all(&imports) {
+                    eprintln!("业务数据已清空，但导入预览清理未完成：{e}");
+                }
+            }
+            Ok(_) => eprintln!("业务数据已清空，但 imports 不是普通目录，未清理导入预览。"),
+            Err(_) => {}
+        }
+    } else {
+        // A restore replaces the rows with the archive's inline images, so the
+        // externalized objects are now unreferenced. Unlike the HTTP restore
+        // path, this one takes no pre-restore snapshot, so there is no safety
+        // copy of those objects — but the database that referenced them is
+        // already gone. A cleanup failure must not report the restore as failed.
+        let storage = crate::storage::FileStorage::from_env(data_dir)?;
+        if let Err(e) = storage.clear_attachments().await {
+            eprintln!("备份已恢复，但外置图片清理未完成：{}", e.1);
+        }
     }
     Ok(
         json!({"message": if action == Action::Reset {"数据已清空（不含备份数据）。下次启动请重新创建管理员。"} else {"备份已恢复（包括凭证图片），请使用备份中的账号重新登录。"}}),
