@@ -14,6 +14,7 @@ pub struct State {
     pub browser_tickets: Mutex<HashMap<String, crate::auth::BrowserTicket>>,
     pub backup_lock: Mutex<()>,
     pub secure: bool,
+    pub trusted_proxy: bool,
     pub bind: std::net::SocketAddr,
     pub maintenance: RwLock<()>,
     pub desktop_token: Option<String>,

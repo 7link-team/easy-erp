@@ -75,6 +75,11 @@ struct Config {
     web_dir: Option<PathBuf>,
     #[arg(long, env = "ERP_SECURE_COOKIE", default_value_t = false)]
     secure_cookie: bool,
+    /// Trust the last X-Forwarded-For entry as the client address. Only set this
+    /// when a reverse proxy sets that header, otherwise a client can choose its
+    /// own throttle bucket.
+    #[arg(long, env = "ERP_TRUSTED_PROXY", default_value_t = false)]
+    trusted_proxy: bool,
     #[arg(long, env = "ERP_ALLOWED_HOSTS", value_delimiter = ',')]
     allowed_hosts: Vec<String>,
 }
@@ -247,6 +252,7 @@ async fn main() -> anyhow::Result<()> {
         browser_tickets: Mutex::new(HashMap::new()),
         backup_lock: Mutex::new(()),
         secure: cfg.secure_cookie,
+        trusted_proxy: cfg.trusted_proxy,
         bind: cfg.bind,
         maintenance: RwLock::new(()),
         desktop_token: std::env::var("ERP_DESKTOP_CONTROL_TOKEN")

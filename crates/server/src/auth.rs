@@ -291,16 +291,40 @@ pub struct Login {
     #[serde(default)]
     remember: bool,
 }
+/// Throttle bucket for a login attempt. Behind a reverse proxy every request
+/// arrives from the proxy's address, so one attacker's 15 failures would lock
+/// out every user. With ERP_TRUSTED_PROXY the last X-Forwarded-For entry is used
+/// instead: that is the one the proxy itself appended, so a client cannot forge
+/// it by sending its own header.
+fn throttle_key(trusted_proxy: bool, headers: &HeaderMap, peer: SocketAddr) -> String {
+    if trusted_proxy
+        && let Some(client) = headers
+            // The LAST header line, not the first: a proxy that appends a new
+            // line rather than extending the existing one leaves the client's
+            // own forged header in front.
+            .get_all("x-forwarded-for")
+            .iter()
+            .next_back()
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.rsplit(',').next())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    {
+        return client.to_owned();
+    }
+    peer.ip().to_string()
+}
 pub async fn login(
     State(s): State<AppState>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Json(input): Json<Login>,
 ) -> Result<Response> {
     let login = username(&input.username)?;
     if input.password.len() > 128 {
         return Err(ApiError::bad("账号或密码不正确。"));
     }
-    let key = peer.ip().to_string();
+    let key = throttle_key(s.trusted_proxy, &headers, peer);
     {
         let mut failures = s.failures.lock().await;
         failures.retain(|_, (_, since)| now() - *since < 900_000);
@@ -368,6 +392,15 @@ pub async fn login(
             now().into(),
             age.into(),
         ],
+    )
+    .await?;
+    // Expired rows were only ever filtered out, never removed, so the table grew
+    // by one row per login for the life of the deployment. A login is the thing
+    // that adds them, so it is also where they are cheapest to reclaim.
+    execute(
+        &s.db,
+        "DELETE FROM sessions WHERE expires_at<?",
+        vec![now().into()],
     )
     .await?;
     s.failures.lock().await.remove(&key);
@@ -707,4 +740,34 @@ pub async fn update_user(
     audit(&txn,&actor,"修改账号权限",&uid,json!({"role":role,"active":input.active,"can_in":can_in,"can_out":can_out,"can_count":can_count})).await?;
     txn.commit().await?;
     Ok(Json(json!({"ok":true})))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn forwarded_client_is_only_trusted_when_configured() {
+        let peer: SocketAddr = "10.0.0.9:5000".parse().unwrap();
+        let mut proxied = HeaderMap::new();
+        proxied.insert("x-forwarded-for", "1.2.3.4, 203.0.113.7".parse().unwrap());
+
+        // Default: the peer address, so the header cannot pick a bucket.
+        assert_eq!(throttle_key(false, &proxied, peer), "10.0.0.9");
+        // Trusted: the rightmost entry is the one the proxy appended, so a
+        // client-supplied 1.2.3.4 on the left cannot be chosen.
+        assert_eq!(throttle_key(true, &proxied, peer), "203.0.113.7");
+        // A proxy that appends a SECOND header line instead of extending the
+        // first must still win over the client's own forged line.
+        let mut two_lines = HeaderMap::new();
+        two_lines.append("x-forwarded-for", "9.9.9.9".parse().unwrap());
+        two_lines.append("x-forwarded-for", "203.0.113.7".parse().unwrap());
+        assert_eq!(throttle_key(true, &two_lines, peer), "203.0.113.7");
+        // Trusted but the proxy sent nothing usable: fall back to the peer
+        // rather than bucketing every request together.
+        assert_eq!(throttle_key(true, &HeaderMap::new(), peer), "10.0.0.9");
+        let mut blank = HeaderMap::new();
+        blank.insert("x-forwarded-for", "   ".parse().unwrap());
+        assert_eq!(throttle_key(true, &blank, peer), "10.0.0.9");
+    }
 }
