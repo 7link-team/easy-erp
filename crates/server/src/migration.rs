@@ -46,7 +46,35 @@ impl MigratorTrait for Migrator {
             Box::new(MaterialOptionMetadata),
             Box::new(QueryIndexes),
             Box::new(ItemPrices),
+            Box::new(FileStorage),
         ]
+    }
+}
+
+struct FileStorage;
+impl MigrationName for FileStorage {
+    fn name(&self) -> &str {
+        "file_storage_v1"
+    }
+}
+#[async_trait::async_trait]
+impl MigrationTrait for FileStorage {
+    async fn up(&self, m: &SchemaManager) -> std::result::Result<(), DbErr> {
+        for column in ["storage_backend", "storage_key"] {
+            if !m.has_column("sales_attachments", column).await? {
+                execute_schema(
+                    m,
+                    &format!(
+                        "ALTER TABLE sales_attachments ADD COLUMN {column} TEXT NOT NULL DEFAULT ''"
+                    ),
+                )
+                .await?;
+            }
+        }
+        Ok(())
+    }
+    async fn down(&self, _: &SchemaManager) -> std::result::Result<(), DbErr> {
+        Err(DbErr::Custom("不自动删除文件存储位置".into()))
     }
 }
 

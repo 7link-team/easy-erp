@@ -5,6 +5,13 @@ services:
     ports:
       - "4280:4280"
     environment:
+      # Optional: preconfigure MySQL; URL-encode special characters in the password.
+      ERP_DATABASE_URL: ${ERP_DATABASE_URL:-}
+      ERP_SETUP_TOKEN: ${ERP_SETUP_TOKEN:-}
+      # Local files: /data/attachments and /data/backups/YYYY/MM/DD by default.
+      # To use another directory, also mount a persistent volume at that path.
+      ERP_FILE_STORAGE: ${ERP_FILE_STORAGE:-local}
+      ERP_STORAGE_LOCAL_DIR: ${ERP_STORAGE_LOCAL_DIR:-/data}
       # Set to the domain or server IP used by browsers (without scheme/port).
       ERP_ALLOWED_HOSTS: ${ERP_ALLOWED_HOSTS:-localhost,127.0.0.1}
     volumes:

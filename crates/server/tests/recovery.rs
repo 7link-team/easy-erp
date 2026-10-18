@@ -33,6 +33,15 @@ impl Server {
     }
 
     async fn start_mode(data: &Path, client: Option<Client>, server_mode: bool) -> Self {
+        Self::start_config(data, client, server_mode, &[]).await
+    }
+
+    async fn start_config(
+        data: &Path,
+        client: Option<Client>,
+        server_mode: bool,
+        storage: &[(&str, &str)],
+    ) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         drop(listener);
@@ -43,6 +52,17 @@ impl Server {
             .env_remove("ERP_DATABASE_URL")
             .env_remove("ERP_SETUP_TOKEN")
             .env("ERP_SERVER_MODE", server_mode.to_string());
+        for name in [
+            "ERP_FILE_STORAGE",
+            "ERP_STORAGE_LOCAL_DIR",
+            "ERP_S3_BUCKET",
+            "ERP_S3_ENDPOINT",
+            "ERP_S3_ACCESS_KEY_ID",
+            "ERP_S3_SECRET_ACCESS_KEY",
+        ] {
+            command.env_remove(name);
+        }
+        command.envs(storage.iter().copied());
         if server_mode {
             command.env("ERP_SETUP_TOKEN", TOKEN);
         }
@@ -166,7 +186,17 @@ async fn recovery(
     confirmation: Option<&str>,
     backup: Option<&Path>,
 ) -> Output {
+    recovery_config(data, action, confirmation, backup, &[]).await
+}
+async fn recovery_config(
+    data: &Path,
+    action: &str,
+    confirmation: Option<&str>,
+    backup: Option<&Path>,
+    storage: &[(&str, &str)],
+) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_easy-erp-server"));
+    command.envs(storage.iter().copied());
     #[cfg(windows)]
     command.creation_flags(0x08000000);
     command
@@ -209,17 +239,19 @@ fn files(directory: &Path) -> BTreeMap<String, Vec<u8>> {
     if !directory.exists() {
         return BTreeMap::new();
     }
-    fs::read_dir(directory)
-        .unwrap()
-        .map(|entry| entry.unwrap())
-        .filter(|entry| entry.file_type().unwrap().is_file())
-        .map(|entry| {
-            (
-                entry.file_name().to_string_lossy().into_owned(),
-                fs::read(entry.path()).unwrap(),
-            )
-        })
-        .collect()
+    let mut result = BTreeMap::new();
+    for entry in fs::read_dir(directory).unwrap() {
+        let entry = entry.unwrap();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if entry.file_type().unwrap().is_dir() {
+            for (child, data) in files(&entry.path()) {
+                result.insert(format!("{name}/{child}"), data);
+            }
+        } else if entry.file_type().unwrap().is_file() {
+            result.insert(name, fs::read(entry.path()).unwrap());
+        }
+    }
+    result
 }
 
 struct Fixture {
@@ -230,7 +262,9 @@ struct Fixture {
 }
 
 async fn fixture(server: &Server) -> Fixture {
-    server.setup().await;
+    if server.get("/status").await["initialized"] != true {
+        server.setup().await;
+    }
     let item = server
         .post(
             "/items",
@@ -379,10 +413,35 @@ async fn complete_backup_reset_restore_and_clear_preserve_their_respective_data(
         .unwrap()
         .to_owned();
     let backup = server.post("/backups", json!({})).await;
-    let backup_path = data
-        .path()
-        .join("backups")
-        .join(backup["name"].as_str().unwrap());
+    let backup_path = std::path::PathBuf::from(backup["path"].as_str().unwrap());
+    assert!(
+        backup_path
+            .parent()
+            .unwrap()
+            .strip_prefix(data.path().canonicalize().unwrap().join("backups"))
+            .unwrap()
+            .components()
+            .count()
+            == 3
+    );
+    assert!(std::path::PathBuf::from(format!("{}.json", backup_path.display())).exists());
+    // Metadata cache loss must not hide the archive or lose its photo count.
+    fs::remove_file(format!("{}.json", backup_path.display())).unwrap();
+    let listed = server.get("/backups").await;
+    let found = listed["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|b| b["name"] == backup["name"])
+        .unwrap();
+    assert_eq!(found["photo_count"], 2);
+    assert_eq!(found["metadata_error"], false);
+    for (id, bytes, _) in &fixture.photos {
+        assert_eq!(
+            fs::read(data.path().join("attachments").join(id)).unwrap(),
+            *bytes
+        );
+    }
     let legacy = external.path().join("external.erpbackup");
     fs::copy(&backup_path, &legacy).unwrap();
     let original_backups = files(&data.path().join("backups"));
@@ -425,7 +484,14 @@ async fn complete_backup_reset_restore_and_clear_preserve_their_respective_data(
             .unwrap()
             .is_empty()
     );
-    assert_eq!(empty.get("/backups").await["schedule"]["keep_days"], 7);
+    assert_eq!(empty.get("/backups").await["schedule"]["keep_days"], 19);
+    assert!(
+        empty.get("/backups").await["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|b| b["name"] == backup["name"])
+    );
     for (id, _, _) in &fixture.photos {
         assert_eq!(
             empty
@@ -441,6 +507,7 @@ async fn complete_backup_reset_restore_and_clear_preserve_their_respective_data(
     let reset_client = empty.client.clone();
     empty.stop().await;
 
+    fs::remove_dir_all(data.path().join("attachments")).unwrap();
     // Restore the external legacy extension and invalidate the reset account's session.
     success(recovery(data.path(), "restore", Some("恢复全部数据"), Some(&legacy)).await);
     let mut restored = Server::start(data.path(), Some(reset_client)).await;
@@ -489,7 +556,14 @@ async fn complete_backup_reset_restore_and_clear_preserve_their_respective_data(
     );
     assert_eq!(
         files(&backups),
-        BTreeMap::from([("keep.txt".to_owned(), b"unrelated file".to_vec())])
+        BTreeMap::from([
+            ("keep.txt".to_owned(), b"unrelated file".to_vec()),
+            ("nested.zip/keep.zip".to_owned(), b"nested file".to_vec()),
+            (
+                "policy.json".to_owned(),
+                serde_json::to_vec(&json!({"keep_days":19})).unwrap()
+            ),
+        ])
     );
     assert_eq!(
         fs::read(backups.join("nested.zip/keep.zip")).unwrap(),
@@ -511,10 +585,7 @@ async fn wrong_confirmation_and_live_server_lock_never_modify_data() {
     let mut server = Server::start(data.path(), None).await;
     let fixture = fixture(&server).await;
     let backup = server.post("/backups", json!({})).await;
-    let backup = data
-        .path()
-        .join("backups")
-        .join(backup["name"].as_str().unwrap());
+    let backup = std::path::PathBuf::from(backup["path"].as_str().unwrap());
     let rejected = server
         .client
         .post(format!("{}/api/desktop/prepare-recovery", server.base))
@@ -592,13 +663,7 @@ async fn damaged_database_can_be_recovered_but_invalid_archives_leave_it_untouch
     let fixture = fixture(&server).await;
     let backup = server.post("/backups", json!({})).await;
     let valid = external.path().join("valid.zip");
-    fs::copy(
-        data.path()
-            .join("backups")
-            .join(backup["name"].as_str().unwrap()),
-        &valid,
-    )
-    .unwrap();
+    fs::copy(backup["path"].as_str().unwrap(), &valid).unwrap();
     server.stop().await;
     let database = data.path().join("inventory.sqlite");
     fs::write(
@@ -865,6 +930,7 @@ async fn mysql_web_setup_restart_and_full_backup_restore() {
     configure_server(&server,json!({"kind":"mysql","host":url.host_str().unwrap(),"port":url.port().unwrap_or(3306),"database":url.path().trim_start_matches('/'),"username":url.username(),"password":url.password().unwrap_or(""),"tls":false})).await;
     assert!(!data.path().join("inventory.sqlite").exists());
     setup_server_admin(&server).await;
+    let images = fixture(&server).await;
     let item = server
         .post(
             "/items",
@@ -887,6 +953,7 @@ async fn mysql_web_setup_restart_and_full_backup_restore() {
         .await;
     assert_eq!(restored["ok"], true);
     server.login().await;
+    verify_fixture(&server, &images).await;
     assert_eq!(
         server.get("/items?q=备份后新增").await["items"]
             .as_array()
@@ -901,6 +968,7 @@ async fn mysql_web_setup_restart_and_full_backup_restore() {
     server.stop().await;
     let mut restarted = Server::start_mode(data.path(), None, true).await;
     restarted.login().await;
+    verify_fixture(&restarted, &images).await;
     assert_eq!(
         restarted.get("/items?q=MySQL重启库存").await["items"][0]["balance"],
         10000
@@ -949,4 +1017,308 @@ async fn desktop_database_setup_reads_stdin_and_keeps_an_existing_database() {
     let mut server = Server::start(data.path(), None).await;
     server.setup().await;
     server.stop().await;
+}
+
+#[tokio::test]
+async fn local_storage_retention_and_custom_directory() {
+    let data = TempDir::new().unwrap();
+    let storage = TempDir::new().unwrap();
+    let config = [("ERP_STORAGE_LOCAL_DIR", storage.path().to_str().unwrap())];
+    let mut server = Server::start_config(data.path(), None, false, &config).await;
+    let fixture = fixture(&server).await;
+    let backup = server.post("/backups", json!({})).await;
+    let path = Path::new(backup["path"].as_str().unwrap());
+    assert!(path.starts_with(storage.path().canonicalize().unwrap()));
+    assert!(!data.path().join("attachments").exists());
+    let old_dir = storage.path().join("backups/2020/01/02");
+    fs::create_dir_all(&old_dir).unwrap();
+    let old = old_dir.join("backup-20200102-010101-old.zip");
+    fs::copy(path, &old).unwrap();
+    fs::write(format!("{}.json", old.display()), b"{}").unwrap();
+    fs::File::options()
+        .write(true)
+        .open(&old)
+        .unwrap()
+        .set_times(
+            std::fs::FileTimes::new()
+                .set_modified(std::time::UNIX_EPOCH + Duration::from_secs(1_600_000_000)),
+        )
+        .unwrap();
+    fs::write(old_dir.join("keep.txt"), b"unrelated").unwrap();
+    let image = storage
+        .path()
+        .join("attachments")
+        .join(&fixture.photos[0].0);
+    fs::remove_file(&image).unwrap();
+    let failed = server
+        .client
+        .post(format!("{}/api/backups", server.base))
+        .header("X-ERP-Request", "1")
+        .json(&json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert!(!failed.status().is_success());
+    assert!(
+        old.exists(),
+        "failed backups must not prune existing archives"
+    );
+    fs::write(&image, &fixture.photos[0].1).unwrap();
+    server.post("/backups", json!({})).await;
+    assert!(!old.exists());
+    assert!(!Path::new(&format!("{}.json", old.display())).exists());
+    assert!(old_dir.join("keep.txt").exists());
+    verify_fixture(&server, &fixture).await;
+    server.stop().await;
+    let mut restarted = Server::start_config(data.path(), None, false, &config).await;
+    restarted.login().await;
+    verify_fixture(&restarted, &fixture).await;
+    restarted.stop().await;
+}
+
+// Run against a disposable S3-compatible endpoint and a precreated bucket.
+#[tokio::test]
+async fn s3_images_backup_reset_and_portable_restore() {
+    use object_store::{ObjectStore, aws::AmazonS3Builder, path::Path as ObjectPath};
+    let Ok(endpoint) = std::env::var("ERP_S3_TEST_ENDPOINT") else {
+        eprintln!("ERP_S3_TEST_ENDPOINT not set: S3 integration requires a disposable endpoint");
+        return;
+    };
+    let bucket = std::env::var("ERP_S3_TEST_BUCKET").unwrap_or_else(|_| "storage-tests".into());
+    let prefix = uuid::Uuid::new_v4().to_string();
+    let config = [
+        ("ERP_FILE_STORAGE", "s3"),
+        ("ERP_S3_ENDPOINT", endpoint.as_str()),
+        ("ERP_S3_BUCKET", bucket.as_str()),
+        ("ERP_S3_ACCESS_KEY_ID", "storage-test"),
+        ("ERP_S3_SECRET_ACCESS_KEY", "Storage-test-2026"),
+        ("ERP_S3_PREFIX", prefix.as_str()),
+        ("ERP_S3_ALLOW_HTTP", "true"),
+    ];
+    let objects = AmazonS3Builder::new()
+        .with_bucket_name(&bucket)
+        .with_region("us-east-1")
+        .with_endpoint(&endpoint)
+        .with_access_key_id("storage-test")
+        .with_secret_access_key("Storage-test-2026")
+        .with_allow_http(true)
+        .build()
+        .unwrap();
+    let data = TempDir::new().unwrap();
+    let local = TempDir::new().unwrap();
+    let mut server = Server::start_config(data.path(), None, false, &config).await;
+    let fixture = fixture(&server).await;
+    verify_fixture(&server, &fixture).await;
+    assert!(!data.path().join("attachments").exists());
+    for (id, bytes, _) in &fixture.photos {
+        let result = objects
+            .get(&ObjectPath::from(format!("{prefix}/attachments/{id}")))
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
+        assert_eq!(result.as_ref(), bytes);
+    }
+    // Exercise multipart streaming (>8 MiB) with a disposable setting payload.
+    use sea_orm::{ConnectionTrait, Database};
+    let db = Database::connect(format!(
+        "sqlite://{}",
+        data.path().join("inventory.sqlite").display()
+    ))
+    .await
+    .unwrap();
+    db.execute_unprepared("INSERT INTO settings (id,value) VALUES ('storage_test_padding',hex(randomblob(5*1024*1024)))").await.unwrap();
+    db.close().await.unwrap();
+    let backup = server.post("/backups", json!({})).await;
+    assert!(backup["size"].as_u64().unwrap() > 8 * 1024 * 1024);
+    let label = backup["path"].as_str().unwrap();
+    assert!(label.starts_with(&format!("s3://{bucket}/{prefix}/backups/")));
+    let key = label.strip_prefix(&format!("s3://{bucket}/")).unwrap();
+    objects
+        .delete(&ObjectPath::from(format!("{key}.json")))
+        .await
+        .unwrap();
+    let list = server.get("/backups").await;
+    let found = list["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|b| b["name"] == backup["name"])
+        .unwrap();
+    assert_eq!(found["photo_count"], 2);
+    assert_eq!(found["metadata_error"], false);
+    let download = server
+        .client
+        .get(format!(
+            "{}/api/backups/{}",
+            server.base,
+            backup["name"].as_str().unwrap()
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(download.status(), StatusCode::OK);
+    let archive = local.path().join("portable.zip");
+    fs::write(&archive, download.bytes().await.unwrap()).unwrap();
+    server.stop().await;
+    success(recovery_config(data.path(), "reset", Some("清空全部数据"), None, &config).await);
+    let listed: Value = serde_json::from_slice(
+        &success(recovery_config(data.path(), "list", None, None, &config).await).stdout,
+    )
+    .unwrap();
+    assert!(
+        listed["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|b| b["name"] == backup["name"])
+    );
+    for (id, _, _) in &fixture.photos {
+        assert!(
+            objects
+                .get(&ObjectPath::from(format!("{prefix}/attachments/{id}")))
+                .await
+                .is_err()
+        );
+    }
+    let mut reset = Server::start_config(data.path(), None, false, &config).await;
+    reset.setup().await;
+    let list = reset.get("/backups").await;
+    assert_eq!(list["schedule"]["keep_days"], 19);
+    assert!(
+        list["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|b| b["name"] == backup["name"])
+    );
+    reset
+        .post(
+            "/backups/restore",
+            json!({"name":backup["name"],"confirmation":"恢复全部数据"}),
+        )
+        .await;
+    reset.login().await;
+    for (id, _, _) in &fixture.photos {
+        let _ = objects
+            .delete(&ObjectPath::from(format!("{prefix}/attachments/{id}")))
+            .await;
+    }
+    verify_fixture(&reset, &fixture).await;
+    reset.stop().await;
+    success(
+        recovery_config(
+            data.path(),
+            "restore",
+            Some("恢复全部数据"),
+            Some(Path::new(label)),
+            &config,
+        )
+        .await,
+    );
+    let mut offline_restored = Server::start_config(data.path(), None, false, &config).await;
+    offline_restored.login().await;
+    verify_fixture(&offline_restored, &fixture).await;
+    offline_restored.stop().await;
+    // A standalone archive restores with no S3 environment or original objects.
+    success(
+        recovery(
+            local.path(),
+            "restore",
+            Some("恢复全部数据"),
+            Some(&archive),
+        )
+        .await,
+    );
+    let mut restored = Server::start(local.path(), None).await;
+    restored.login().await;
+    verify_fixture(&restored, &fixture).await;
+    restored.stop().await;
+    use futures::TryStreamExt;
+    let leftovers: Vec<_> = objects
+        .list(Some(&ObjectPath::from(prefix)))
+        .try_collect()
+        .await
+        .unwrap();
+    for object in leftovers {
+        objects.delete(&object.location).await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn previous_blob_backup_restores_but_external_references_are_rejected() {
+    use sea_orm::{ConnectionTrait, Database};
+    let data = TempDir::new().unwrap();
+    let work = TempDir::new().unwrap();
+    let mut server = Server::start(data.path(), None).await;
+    let fixture = fixture(&server).await;
+    let backup = server.post("/backups", json!({})).await;
+    server.stop().await;
+    let mut zip =
+        zip::ZipArchive::new(fs::File::open(backup["path"].as_str().unwrap()).unwrap()).unwrap();
+    let mut bytes = Vec::new();
+    zip.by_name("inventory.sqlite")
+        .unwrap()
+        .read_to_end(&mut bytes)
+        .unwrap();
+    let manifest: Value = serde_json::from_reader(zip.by_name("manifest.json").unwrap()).unwrap();
+    for legacy in [false, true] {
+        let path = work.path().join(if legacy {
+            "legacy.sqlite"
+        } else {
+            "external.sqlite"
+        });
+        fs::write(&path, &bytes).unwrap();
+        let db = Database::connect(format!("sqlite://{}", path.display()))
+            .await
+            .unwrap();
+        let mut manifest = manifest.clone();
+        if legacy {
+            db.execute_unprepared("ALTER TABLE sales_attachments DROP COLUMN storage_backend")
+                .await
+                .unwrap();
+            db.execute_unprepared("ALTER TABLE sales_attachments DROP COLUMN storage_key")
+                .await
+                .unwrap();
+            db.execute_unprepared("DELETE FROM seaql_migrations WHERE version='file_storage_v1'")
+                .await
+                .unwrap();
+            manifest["schema"]
+                .as_array_mut()
+                .unwrap()
+                .retain(|v| v != "file_storage_v1");
+        } else {
+            db.execute_unprepared("UPDATE sales_attachments SET storage_backend='local',storage_key='attachments/../../inventory.sqlite'").await.unwrap();
+        }
+        db.close().await.unwrap();
+        let payload = fs::read(&path).unwrap();
+        manifest["sha256"] = json!(hex::encode(Sha256::digest(&payload)));
+        let archive = work
+            .path()
+            .join(if legacy { "legacy.zip" } else { "external.zip" });
+        let mut zip = zip::ZipWriter::new(fs::File::create(&archive).unwrap());
+        let options = zip::write::SimpleFileOptions::default();
+        zip.start_file("manifest.json", options).unwrap();
+        zip.write_all(&serde_json::to_vec(&manifest).unwrap())
+            .unwrap();
+        zip.start_file("inventory.sqlite", options).unwrap();
+        zip.write_all(&payload).unwrap();
+        zip.finish().unwrap();
+        let before = fs::read(data.path().join("inventory.sqlite")).unwrap();
+        let result = recovery(data.path(), "restore", Some("恢复全部数据"), Some(&archive)).await;
+        if legacy {
+            success(result);
+        } else {
+            failure(result);
+            assert_eq!(
+                fs::read(data.path().join("inventory.sqlite")).unwrap(),
+                before
+            );
+        }
+    }
+    let mut restored = Server::start(data.path(), None).await;
+    restored.login().await;
+    verify_fixture(&restored, &fixture).await;
+    restored.stop().await;
 }

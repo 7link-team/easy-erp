@@ -385,7 +385,7 @@ def restore_probe(probe, backup, timeout):
     finally:
         connection.close()
     expected_hash = hashlib.sha256()
-    with (probe.directory / "backups" / info["name"]).open("rb") as archive:
+    with Path(info["path"]).open("rb") as archive:
         while chunk := archive.read(1024 * 1024):
             expected_hash.update(chunk)
     assert size == info["size"] and digest.hexdigest() == expected_hash.hexdigest()

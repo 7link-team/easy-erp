@@ -19,6 +19,7 @@ mod roles;
 mod sales;
 mod state;
 mod stocktake;
+mod storage;
 mod transfer;
 
 use axum::{
@@ -87,7 +88,10 @@ async fn main() -> anyhow::Result<()> {
                 .unwrap_or_else(|_| "easy_erp_server=info,tower_http=info".into()),
         )
         .init();
-    let cfg = Config::parse();
+    let mut cfg = Config::parse();
+    // Compose optional substitutions are empty strings when unset.
+    cfg.database_url = cfg.database_url.filter(|v| !v.is_empty());
+    cfg.setup_token = cfg.setup_token.filter(|v| !v.is_empty());
     let mysql = cfg.database_url.is_some() || database::configured_mysql(&cfg.data_dir)?;
     if mysql
         && matches!(
@@ -229,9 +233,11 @@ async fn main() -> anyhow::Result<()> {
         let before = backup::snapshot(&db, &cfg.data_dir, "upgrade").await?;
         tracing::info!(backup=?serde_json::to_value(before)?, "业务模块升级前备份已完成");
     }
+    let files = storage::FileStorage::from_env(&cfg.data_dir)?;
     migration::Migrator::up(&db, None).await?;
     let s = Arc::new(state::State {
         db,
+        files,
         setup_token,
         server_mode: cfg.server_mode,
         writes: Mutex::new(()),

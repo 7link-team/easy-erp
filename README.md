@@ -15,12 +15,12 @@
 
 服务器镜像支持 Linux amd64 / arm64，包含 Web，无需单独部署前端。镜像统一发布到 [GHCR](https://github.com/orgs/7link-team/packages/container/package/easy-erp-server)，Release 不再附带 Docker 镜像归档。从仓库下载 [compose.yaml](compose.yaml)（如需 MySQL 同时下载 [compose.mysql.yaml](compose.mysql.yaml)）。
 
-使用版本标签 `ghcr.io/7link-team/easy-erp-server:v0.2.3` 固定版本，或 `:latest` 跟随最新构建。GHCR 当前为私有包，需使用具有包读取权限的 GitHub 账号登录。
+使用版本标签 `ghcr.io/7link-team/easy-erp-server:v0.2.4` 固定版本，或 `:latest` 跟随最新构建。GHCR 当前为私有包，需使用具有包读取权限的 GitHub 账号登录。
 
 ```sh
 docker login ghcr.io
-docker pull ghcr.io/7link-team/easy-erp-server:v0.2.3
-# 固定版本部署时，将 compose.yaml 的 image 标签改为 v0.2.3（默认 latest）
+docker pull ghcr.io/7link-team/easy-erp-server:v0.2.4
+# 固定版本部署时，将 compose.yaml 的 image 标签改为 v0.2.4（默认 latest）
 docker compose up -d
 docker compose logs inventory
 ```
@@ -37,6 +37,51 @@ docker compose logs inventory
 
 服务器管理员可在备份页生成、下载和恢复完整备份；MySQL 使用一致性快照并沿用包含附件的备份格式。桌面本机离线维护仍只用于 SQLite，MySQL 请在已连接的备份页面操作。
 
+### 文件存储（本地目录 / S3）
+
+数据库类型与文件存储分别配置：SQLite/MySQL 都可以配本地目录或 S3。新上传的签字、凭证图片写入文件存储，旧数据库内图片继续读取，无需搬迁。通过 Compose 的 `environment` 或服务器进程环境变量配置，修改后重启服务。
+
+本地默认 `ERP_FILE_STORAGE=local`、`ERP_STORAGE_LOCAL_DIR=/data`。自定义路径须挂载持久目录并给予容器 `10001:10001` 读写权限。目录结构如下（日期为 UTC）：
+
+```text
+/data/
+  inventory.sqlite             # 使用 SQLite 时
+  attachments/<图片ID>          # 签字与凭证图片
+  backups/
+    policy.json                # 保留天数，独立于业务数据库
+    2026/10/18/
+      backup-20261018-....zip
+      backup-20261018-....zip.json
+  backup-staging/               # 生成完整备份时的临时空间
+```
+
+S3：下载 [compose.s3.yaml](compose.s3.yaml)，在部署目录 `.env` 配置后启动：
+
+```dotenv
+ERP_S3_BUCKET=inventory-files
+ERP_S3_REGION=us-east-1
+ERP_S3_ACCESS_KEY_ID=替换为访问密钥
+ERP_S3_SECRET_ACCESS_KEY=替换为密钥密码
+ERP_S3_PREFIX=inventory-production
+# MinIO等兼容服务填写endpoint；AWS S3留空
+ERP_S3_ENDPOINT=https://s3.example.com
+ERP_S3_PATH_STYLE=true
+```
+
+```sh
+docker compose -f compose.yaml -f compose.s3.yaml up -d
+# 同时部署MySQL可再追加 -f compose.mysql.yaml（放在up之前）
+```
+
+S3 内使用同样的 `attachments/` 和 `backups/年/月/日/` 结构，位于指定 prefix 下。Bucket 须预先创建，凭据需要该 prefix 的列举、读取、写入、删除及分片上传/中止权限。默认 HTTPS；仅可信内网 HTTP 服务显式设置 `ERP_S3_ALLOW_HTTP=true`。临时凭据还可配置 `ERP_S3_SESSION_TOKEN`。每套库存系统使用独立 prefix；不要把不同系统共用一个目录。凭据不写入业务数据库或备份包。
+
+完整备份把图片（包含历史凭证）嵌入包内，下载后可在无原 S3 配置的环境恢复。S3 模式仍需要 `/data` 持久卷保存实例配置和 SQLite（如使用），并需要本地空间生成/校验备份；临时文件在任务结束后删除。
+
+备份页及本机维护直接扫描已配置的存储，**清空业务数据不删除备份和保留策略**。每份 ZIP 的 `.json` 是显示信息缓存，不是唯一索引；丢失或损坏时从 ZIP 内部清单读取，备份仍可发现。旧版平铺 `.zip` / `.erpbackup` 继续识别。默认保留7天，可在备份页设置1–365天；每小时成功生成完整备份后清理过期归档和对应 `.json`，始终保留最新一份，备份失败时不清理。S3开启版本控制时，删除仅生成删除标记，历史版本的空间回收需在Bucket生命周期策略中配置。
+
+切换本地/S3只影响新文件，不自动迁移历史文件。切回本地后须保留S3连接环境变量，才能访问原S3文件；更换本地根目录、Bucket或prefix前须迁移原目录内容。清空业务数据后会清理已配置存储中的凭证图片；备份包内的图片不受影响。若外置存储不可用，界面会报告图片清理未完成，可修复连接后再次执行清空。备份过期清理只管理备份目录，不删除附件。
+
+
 ## 开单与打印配置
 
 在“基础资料 → 公司信息 → 设置公司信息”中选择新单的默认结算方式：全部收款、部分收款、全部欠款；未配置时沿用全部欠款。草稿保留原选择，无收款权限的账号不会预选收款。
@@ -49,7 +94,7 @@ docker compose logs inventory
 
 - **清空数据（不含备份数据）**：删除当前业务、凭证图片、账号和设置，回到首次使用，启动后重新创建管理员。已有完整备份保留。
 - **从备份恢复**：选择列表里的备份或外部 `.zip` / `.erpbackup` 文件，校验通过后替换当前数据。备份包含凭证图片，恢复后使用备份中的账号重新登录。
-- **清空备份**：仅删除本机备份目录中的备份文件，不删除当前业务和图片；不会删除已复制到其他位置的备份。以后仍按原有自动备份计划生成新备份。
+- **清空备份**：仅删除当前配置存储中的备份文件及配套元数据，不删除当前业务和图片；不会删除已复制到其他位置的备份。以后仍按原有自动备份计划生成新备份。
 
 三个操作分别输入对应确认文字。可勾选完成后启动，也可先连续维护再手动启动；支持先清空再恢复、先恢复再清空。维护会停止本机服务，请先让同事保存操作。离线清空和恢复不会强制另存当前数据，需保留的内容应先手动备份。
 

@@ -84,3 +84,40 @@ v0.2.3 Release说明已保存并回读确认短版本拉取命令、GHCR地址�
 Docker接口卡死，正常desktop restart超时。TERM退出后仍残留卡住后端67999，结束该进程并重新open Docker后恢复查询。唯一既有容器easy-erp-mysql-check此前已Exited；无运行容器被中断。
 执行docker builder prune -a -f和docker image prune -a -f，分别报告8.156GB/8.753GB回收；构建缓存归零，保留MySQL容器引用镜像。60个数据卷全部保留（包括其他项目数据库），未执行volume prune。
 Docker虚拟磁盘实际占用28→15GiB；自动回收后系统盘最终83%/30GiB空闲（df现场验证）。4291库存服务状态正常、用户业务库/备份未改动。本机镜像验收副本已清理，后续以GitHub Actions/GHCR为主。无清理待办。
+
+## Active task — 2026-10-18 File storage local/S3
+用户要求增加本地目录/S3可选文件存储；已确认范围覆盖附件、签字图片和完整备份。当前阶段DESIGN/IMPLEMENTATION，Direct执行（涉及存储/备份/恢复强耦合）。
+源码核对：现有sales_attachments.data是数据库BLOB，备份ZIP在data/backups；之前关于图片在/data的回答已向用户纠正。
+按当前Compose部署语境通过环境变量配置；默认本地，支持S3兼容endpoint/bucket/region/access-key/secret/prefix/path-style。旧BLOB读取保留，新上传外置；备份将引用图片嵌入临时数据库再打包，使恢复不依赖原Bucket。复用现有鉴权、事务、完整备份校验、保留策略；不自动搬迁历史文件。需兼容本地旧备份及SQLite/MySQL。
+计划新增storage.rs和附件文件定位迁移，接入sales/backup/state/main，更新Compose示例和README，隔离本地与S3兼容服务测试成功/失败/恢复。禁止改动用户4291数据；构建放项目盘、禁增量/调试信息并完成后清理下载/测试缓存。当前尚未实现。
+
+### 2026-10-18 storage implementation checkpoint
+用户补充：目录隔离、备份按日期、清空业务后仍发现备份、超期自动清理。采用attachments/与backups/YYYY/MM/DD/；每ZIP有.json元数据，文件列举为准而非全局索引，policy.json独立保留策略，ZIP内部清单与hash仍为恢复依据。保留最新一份、成功备份后才清理。
+已接入初版storage模块、附件外置/旧BLOB读取、备份内嵌外部图片、流式S3读写、独立策略和递归清单、清空备份路径。尚未编译通过/验证，正在首次cargo check；下一步修复编译、更新恢复测试和Compose文档，验证本地及S3完整闭环。用户4291库与服务未动。
+
+### Storage verification checkpoint
+实现阶段已进入TESTING：本地/S3存储、附件外置、完整备份嵌图、日期目录/侧车/独立保留策略、清空数据保留备份及清理外置附件、在线与离线S3恢复已接入；Compose示例及README更新，旧路径假设的测试已调整。
+已实际通过12单元测试，本地完整恢复/重置/旧扩展名、目录隔离、侧车丢失回读、过期清理、备份失败不清理、SQLite与MySQL（含图片）恢复；S3小文件实际闭环通过，服务使用项目盘临时Moto S3兼容HTTP端点（非真实AWS/MinIO）。MinIO两仓库镜像拉取被拒，未更改鉴权，改用Moto；最终会清理环境。
+补测10MiB分片及离线S3恢复发现下载source.zip残留在恢复journal staging导致Directory not empty，已修复为校验后删除临时归档，正在重跑S3。旧BLOB无file_storage_v1迁移备份兼容和恶意外部引用拒绝测试正在运行。
+编译产物build-artifacts/storage-target约1.1GiB。临时Python环境storage-python约200MiB，Moto session39933端口43900；MySQL容器easy-erp-mysql-check已启动，新增仅测试库storage_test_20261018/storage_test_final_20261018；结束需删除这两库并停回容器。用户4291服务及业务数据未动。
+待办：确认补测通过、运行桌面维护与API E2E相关检查、检查Compose和diff、自审验收、清理本次缓存/测试服务；不发布新版，当前请求无新的发布指令。
+
+
+### Storage final acceptance — 2026-10-18 08:24 SGT
+Phase: ACCEPTANCE / PASS. Direct执行，无子代理。用户要求的本地/S3覆盖附件/签字/完整备份、目录隔离、UTC日期目录、独立发现/元数据/保留策略和过期清理均已实现。复用原鉴权/事务/恢复验证与定时任务。
+最终验证：
+- `cargo test -p easy-erp-server -- --test-threads=1`：12单元+11集成全部PASS，同时明确配置ERP_MYSQL_TEST_URL与ERP_S3_TEST_ENDPOINT，未跳过对应两类测试。日志storage-acceptance-tests.log。
+- SQLite与真实隔离MySQL包括图片的完整恢复；S3使用Moto HTTP兼容端点（非实际AWS或MinIO），10MiB归档触发真实分片请求，在线/离线恢复、清空DB后列表/保留天数、删除原对象后本地恢复通过。
+- 旧BLOB无file_storage_v1备份恢复PASS；外部路径引用备份被拒且原库逐字节不变。自定义本地目录、元数据丢失、失败备份不清理、过期归档/侧车同时删除及无关文件保留PASS。
+- 桌面控制实际进程测试1/1 PASS；使用临时副本仅替换测试二进制路径，不改用户target/debug。ZIP下载/恢复与销售图片/金额/库存+升级前备份Chrome E2E2/2 PASS（使用已安装Chrome，无新增浏览器下载）。
+- npm run typecheck:e2e、Compose普通/S3配置解析、git diff --check PASS。
+发现并解决：S3离线恢复source.zip须在journal提交前移除；销售旧版测试丢弃sales表时须同时去除file_storage_v1标记（否则假旧库声称已执行不存在表的迁移）。上传COMMIT网络结果不明时保留对象，避免删除可能已提交的图片。
+Self-review: Scope/Reuse/Architecture/Regression/Complexity/Durable State PASS；Final acceptance PASS。清单以存储为准，侧车非唯一索引；policy.json保留，清空备份不会删附件，清空业务会清理已配置附件但不删备份。
+清理：已删除本次三个MySQL测试库并将既有测试容器停回；停止Moto并删除项目盘storage-target、storage-python及本次测试库/浏览器临时产物，约回收1.5GiB，保留文本日志。未动其他Docker卷/镜像或用户业务目录。
+当前4291用户服务API状态正常，仍原0.2.2运行二进制，业务数据未修改。本次功能源码未提交、未推送、未发布新版本，未替换用户服务；当前请求为存储功能与备份机制，本轮没有新的发版指令。
+Next Action: 本轮实现及验证无待办；后续发版时提交本次源码、按既有GHCR版本tag流程发布，勿构建/附带Release镜像归档。
+
+## Active release — v0.2.4
+用户明确要求提交、推送、发版。当前REVIEW/RELEASE，Direct执行。范围为已验收文件存储及独立备份机制，不包含建议中的锁定备份/失败提醒。
+同步版本0.2.4，提交推送main后使用GitHub Actions全平台构建/全量回归与双架构镜像；成功产物生成Release草稿，核对清单与摘要后正式发布，附GHCR v0.2.4地址。不得附镜像归档、不得在本机下载全平台产物；不改4291业务数据。无需再次审批。
+下一步：完成版本/发布说明检查并提交、推送，跟踪Build and release和Server container结果。

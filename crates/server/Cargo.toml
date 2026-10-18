@@ -36,5 +36,9 @@ tempfile = "3"
 if-addrs = "0.14"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 
+object_store = { version = "0.12", default-features = false, features = ["aws", "fs"] }
+bytes = "1"
+futures = "0.3"
+
 [dev-dependencies]
 reqwest = { version = "0.12", default-features = false, features = ["json", "cookies", "rustls-tls"] }

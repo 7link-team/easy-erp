@@ -13,7 +13,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, relative } from "node:path";
 import { randomBytes } from "node:crypto";
 import { once } from "node:events";
 
@@ -148,20 +148,23 @@ test(
       assert.equal(backup.backup.source, "shutdown");
       assert.equal(backup.backup.photo_count, 0);
       assert.ok(
-        (await readdir(join(directory, "backups"))).some((name) =>
-          name.endsWith(".zip"),
-        ),
+        (await readdir(join(directory, "backups"), { recursive: true }))
+          .some((name) => name.endsWith(".zip")),
       );
       const [code] = await exited;
       assert.equal(code, 0);
-      const beforeOffline = await readdir(join(directory, "backups"));
+      const beforeOffline = (
+        await readdir(join(directory, "backups"), { recursive: true })
+      ).filter((name) => name.endsWith(".zip"));
       const offline = await backupOnly();
       const archived = JSON.parse(offline.stdout.trim());
       assert.ok(archived.name.endsWith(".zip"));
       assert.equal(archived.source, "maintenance");
       assert.equal(archived.photo_count, 0);
       assert.equal(
-        (await readdir(join(directory, "backups"))).length,
+        (await readdir(join(directory, "backups"), { recursive: true })).filter(
+          (name) => name.endsWith(".zip"),
+        ).length,
         beforeOffline.length + 1,
       );
       await mkdir(migratedDirectory);
@@ -179,7 +182,10 @@ test(
       await assert.rejects(readdir(originalDirectory), { code: "ENOENT" });
       directory = migratedDirectory;
       assert.ok(
-        (await readdir(join(directory, "backups"))).includes(archived.name),
+        (await readdir(join(directory, "backups"), { recursive: true }))
+          .includes(
+            relative(join(originalDirectory, "backups"), archived.path),
+          ),
       );
       base = await start();
       const status = await (await fetch(base + "/api/status")).json();
@@ -208,7 +214,10 @@ test(
         assert.equal((await saveRetention(invalid)).ok, false);
       const oldFile = join(directory, "backups", "backup-expired.zip");
       const recentFile = join(directory, "backups", "backup-recent.zip");
-      const archive = join(directory, "backups", archived.name);
+      const archive = join(
+        directory,
+        relative(originalDirectory, archived.path),
+      );
       await copyFile(archive, oldFile);
       await copyFile(archive, recentFile);
       const daysAgo = (days) => new Date(Date.now() - days * 86400000);

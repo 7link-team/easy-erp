@@ -652,14 +652,14 @@ test("签字图片、资金与库存完整备份恢复，并兼容升级前备�
     `import sys,os,zipfile,tempfile,sqlite3,json,hashlib
 root,source,target,sid=sys.argv[1:]
 with tempfile.TemporaryDirectory() as d:
- with zipfile.ZipFile(os.path.join(root,'backups',source)) as z:
+ with zipfile.ZipFile(source) as z:
   manifest=json.loads(z.read('manifest.json')); path=os.path.join(d,'db.sqlite'); open(path,'wb').write(z.read('inventory.sqlite'))
  db=sqlite3.connect(path); db.execute('UPDATE sales_cash SET amount=amount+9999999 WHERE sale_id=? AND amount>0',(sid,)); db.commit(); db.close()
  data=open(path,'rb').read(); manifest['sha256']=hashlib.sha256(data).hexdigest()
  with zipfile.ZipFile(os.path.join(root,'backups',target),'w') as z: z.writestr('inventory.sqlite',data); z.writestr('manifest.json',json.dumps(manifest))
 `,
     process.env.ERP_E2E_DATA!,
-    backup.name,
+    backup.path,
     corrupted,
     sale.id,
   ]);
@@ -682,7 +682,7 @@ with tempfile.TemporaryDirectory() as d:
  src=sqlite3.connect(os.path.join(root,'inventory.sqlite')); dest=sqlite3.connect(os.path.join(d,'legacy.sqlite')); src.backup(dest); src.close()
  for (name,) in dest.execute("SELECT name FROM sqlite_master WHERE type='table' AND (name='sales' OR name LIKE 'sales_%')").fetchall(): dest.execute('DROP TABLE '+name)
  for index in ['audit_ordered','audit_owner_ordered','audit_actions','audit_owner_actions']: dest.execute('DROP INDEX IF EXISTS '+index)
- dest.execute("DELETE FROM seaql_migrations WHERE version IN ('sales_v1','material_options_v1','roles_v1','material_options_meta_v1','query_indexes_v1')"); dest.execute("DROP TABLE material_options"); dest.execute("UPDATE users SET role='worker' WHERE role LIKE 'worker-%'"); dest.execute("UPDATE users SET role='viewer',can_in=0,can_out=0,can_count=0 WHERE role NOT IN ('admin','worker','viewer')"); dest.execute("DROP TABLE roles"); dest.execute('UPDATE items SET precision=0'); dest.commit()
+ dest.execute("DELETE FROM seaql_migrations WHERE version IN ('sales_v1','material_options_v1','roles_v1','material_options_meta_v1','query_indexes_v1','file_storage_v1')"); dest.execute("DROP TABLE material_options"); dest.execute("UPDATE users SET role='worker' WHERE role LIKE 'worker-%'"); dest.execute("UPDATE users SET role='viewer',can_in=0,can_out=0,can_count=0 WHERE role NOT IN ('admin','worker','viewer')"); dest.execute("DROP TABLE roles"); dest.execute('UPDATE items SET precision=0'); dest.commit()
  schema=[r[0] for r in dest.execute("SELECT version FROM seaql_migrations WHERE version <> 'session_idle_v1' ORDER BY version")]; dest.close()
  data=open(os.path.join(d,'legacy.sqlite'),'rb').read()
  with zipfile.ZipFile(os.path.join(root,'backups',sys.argv[2]),'w') as z:

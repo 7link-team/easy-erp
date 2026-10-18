@@ -148,8 +148,9 @@ pub async fn list(data_dir: &Path) -> Result<Value> {
         std::path::absolute(data_dir)?
     };
     directory_or_absent(&data_dir.join("backups"))?;
+    let storage = crate::storage::FileStorage::from_env(&data_dir)?;
     Ok(json!({
-        "data_dir":data_dir, "backups_dir":data_dir.join("backups"),
+        "data_dir":data_dir, "backups_dir":storage.label(storage.primary, "backups"),
         "has_data":regular_or_absent(&data_dir.join("inventory.sqlite"))?,
         "items":backup::files_in(&data_dir, true).await.map_err(|e| anyhow::anyhow!(e.1))?,
         "pending":data_dir.join(PENDING).exists(),
@@ -173,31 +174,9 @@ pub async fn run(
     directory_or_absent(&data_dir.join("backups"))?;
     finish_pending(data_dir)?;
     if action == Action::ClearBackups {
-        let dir = data_dir.join("backups");
-        let mut paths = vec![];
-        if dir.exists() {
-            for entry in fs::read_dir(&dir)? {
-                let path = entry?.path();
-                if matches!(
-                    path.extension().and_then(|v| v.to_str()),
-                    Some("zip" | "erpbackup")
-                ) {
-                    let metadata = fs::symlink_metadata(&path)?;
-                    if metadata.is_dir() && !is_link(&metadata) {
-                        continue;
-                    }
-                    regular_or_absent(&path)?;
-                    paths.push(path);
-                }
-            }
-        }
-        let count = paths.len();
-        for path in paths {
-            fs::remove_file(path)?;
-        }
-        if dir.exists() {
-            sync_dir(&dir)?;
-        }
+        let count = backup::clear_in(data_dir)
+            .await
+            .map_err(|e| anyhow::anyhow!(e.1))?;
         return Ok(json!({"message":"备份文件已清空，当前数据未清空。", "deleted":count}));
     }
     for name in DATA_FILES {
@@ -209,6 +188,15 @@ pub async fn run(
     let new_db = stage.path().join("new.sqlite");
     if action == Action::Restore {
         let source = source.context("请选择要恢复的完整备份文件。")?;
+        let remote = stage.path().join("source.zip");
+        let source = if source.to_string_lossy().starts_with("s3://") {
+            backup::materialize_remote(data_dir, &source.to_string_lossy(), &remote)
+                .await
+                .map_err(|e| anyhow::anyhow!(e.1))?;
+            remote.as_path()
+        } else {
+            source
+        };
         ensure!(regular_or_absent(source)?, "备份文件不存在。");
         let current_schema = Migrator::migrations()
             .iter()
@@ -226,6 +214,9 @@ pub async fn run(
         )
         .await
         .map_err(|e| anyhow::anyhow!(e.1))?;
+        if remote.exists() {
+            fs::remove_file(&remote)?;
+        }
     }
     let path = new_db.clone();
     let mut options = ConnectOptions::new("sqlite://recovery-stage");
@@ -283,6 +274,15 @@ pub async fn run(
     fs::rename(stage.path(), &pending)?;
     sync_dir(data_dir)?;
     finish_pending(data_dir)?;
+    if action == Action::Reset {
+        let storage = crate::storage::FileStorage::from_env(data_dir)?;
+        storage.clear_attachments().await.map_err(|e| {
+            anyhow::anyhow!(
+                "业务数据已清空，但外置图片清理未完成，请检查存储配置后再次清空：{}",
+                e.1
+            )
+        })?;
+    }
     Ok(
         json!({"message": if action == Action::Reset {"数据已清空（不含备份数据）。下次启动请重新创建管理员。"} else {"备份已恢复（包括凭证图片），请使用备份中的账号重新登录。"}}),
     )

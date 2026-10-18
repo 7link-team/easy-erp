@@ -249,7 +249,7 @@ test("不含性能索引的旧备份能恢复，损坏备份拒绝且保留当�
 import sys,zipfile,tempfile,sqlite3,json,hashlib,pathlib
 folder=pathlib.Path(sys.argv[1])
 with tempfile.TemporaryDirectory() as tmp:
- with zipfile.ZipFile(folder/sys.argv[2]) as z:
+ with zipfile.ZipFile(sys.argv[2]) as z:
   manifest=json.loads(z.read('manifest.json')); z.extract('inventory.sqlite',tmp)
  dbpath=pathlib.Path(tmp)/'inventory.sqlite'; db=sqlite3.connect(dbpath)
  for row in db.execute("SELECT name FROM sqlite_master WHERE type='index' AND name IN ('sales_ordered','sales_owner_ordered','sales_customer_ordered','sales_status_ordered','sales_business_date','sales_reporting','returns_parent','cash_balances','cash_account_totals','cash_ordered','cash_account_ordered','cash_business_date','audit_ordered','audit_owner_ordered','audit_actions','audit_owner_actions')").fetchall(): db.execute('DROP INDEX '+row[0])
@@ -267,7 +267,7 @@ with tempfile.TemporaryDirectory() as tmp:
   z.writestr('manifest.json',json.dumps(manifest));z.write(dbpath,'inventory.sqlite')
 `,
     directory,
-    backup.name,
+    backup.path,
   ]);
   const missing = await request.get("/api/backups/missing-performance.zip");
   expect(missing.status()).toBe(404);

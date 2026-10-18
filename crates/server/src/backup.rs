@@ -50,7 +50,7 @@ impl Default for Schedule {
         Self { keep_days: 7 }
     }
 }
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct BackupInfo {
     name: String,
     created_at: i64,
@@ -60,6 +60,10 @@ pub struct BackupInfo {
     photo_count: Option<u64>,
     path: String,
     metadata_error: bool,
+    #[serde(skip)]
+    backend: String,
+    #[serde(skip)]
+    key: String,
 }
 
 fn local(peer: SocketAddr, server_mode: bool) -> Result<()> {
@@ -69,7 +73,7 @@ fn local(peer: SocketAddr, server_mode: bool) -> Result<()> {
         Err(ApiError::forbidden())
     }
 }
-fn archive_path(s: &AppState, name: &str) -> Result<PathBuf> {
+fn validate_name(name: &str) -> Result<()> {
     if !(name.ends_with(".zip") || name.ends_with(".erpbackup"))
         || !name
             .bytes()
@@ -78,7 +82,7 @@ fn archive_path(s: &AppState, name: &str) -> Result<PathBuf> {
     {
         return Err(ApiError::bad("备份文件名无效。"));
     }
-    Ok(s.data_dir.join("backups").join(name))
+    Ok(())
 }
 fn file_hash(path: &FsPath) -> std::io::Result<String> {
     let mut file = std::fs::File::open(path)?;
@@ -132,7 +136,7 @@ fn check_space(path: &FsPath, required: u64) -> Result<()> {
 }
 pub async fn create(s: &AppState, actor: &User, source: &str) -> Result<BackupInfo> {
     let _backup = s.backup_lock.lock().await;
-    let info = snapshot(&s.db, &s.data_dir, source).await?;
+    let info = snapshot_with_storage(&s.db, &s.data_dir, source, &s.files).await?;
     audit(
         &s.db,
         actor,
@@ -143,6 +147,14 @@ pub async fn create(s: &AppState, actor: &User, source: &str) -> Result<BackupIn
     .await?;
     save_value(s, "backup_last_success", &info.created_at.to_string()).await?;
     save_value(s, "backup_last_error", "").await?;
+    let policy = settings(s).await?;
+    s.files
+        .put(
+            s.files.primary,
+            "backups/policy.json",
+            serde_json::to_vec(&policy).unwrap().into(),
+        )
+        .await?;
     prune(s).await?;
     Ok(info)
 }
@@ -153,7 +165,17 @@ pub async fn snapshot(
     data_dir: &FsPath,
     source: &str,
 ) -> Result<BackupInfo> {
-    let dir = data_dir.join("backups");
+    let files = crate::storage::FileStorage::from_env(data_dir)
+        .map_err(|e| ApiError::bad(e.to_string()))?;
+    snapshot_with_storage(db, data_dir, source, &files).await
+}
+async fn snapshot_with_storage(
+    db: &sea_orm::DatabaseConnection,
+    data_dir: &FsPath,
+    source: &str,
+    files: &crate::storage::FileStorage,
+) -> Result<BackupInfo> {
+    let dir = data_dir.join("backup-staging");
     tokio::fs::create_dir_all(&dir).await?;
     let started = std::time::Instant::now();
     let estimated = database_size(db).await?;
@@ -187,6 +209,12 @@ pub async fn snapshot(
         elapsed_ms = started.elapsed().as_millis(),
         "备份快照复制完成"
     );
+    embed_attachments(&snapshot, files).await?;
+    if tokio::fs::metadata(&snapshot).await?.len() > MAX_SNAPSHOT {
+        return Err(ApiError::bad(
+            "数据库（含凭证图片）超过当前 16 GiB 备份上限。",
+        ));
+    }
     let checked = validate_database(&snapshot).await?;
     let photo_count = if one(
         &checked,
@@ -219,12 +247,10 @@ pub async fn snapshot(
     );
     let schema = schemas(db).await?;
     let temporary = stage.path().join("snapshot.zip");
-    let target = dir.join(&name);
-    let path = tokio::fs::canonicalize(&dir)
-        .await?
-        .join(&name)
-        .to_string_lossy()
-        .to_string();
+    let target = stage.path().join("complete.zip");
+    let archive = target.clone();
+    let key = format!("backups/{}/{name}", chrono::Utc::now().format("%Y/%m/%d"));
+    let path = files.label(files.primary, &key);
     let source = source.to_string();
     let manifest_source = source.clone();
     tokio::task::spawn_blocking(move || -> std::io::Result<()> {
@@ -257,14 +283,71 @@ pub async fn snapshot(
     let info = BackupInfo {
         name: name.clone(),
         created_at,
-        size: tokio::fs::metadata(dir.join(&name)).await?.len(),
+        size: tokio::fs::metadata(&archive).await?.len(),
         snapshot_at: Some(created_at),
         source: Some(source),
         photo_count: Some(photo_count),
         path,
         metadata_error: false,
+        backend: files.primary.into(),
+        key: key.clone(),
     };
+    files.put_file(files.primary, &key, &archive).await?;
+    // Archive is authoritative; missing metadata must never hide a valid backup.
+    files
+        .put(
+            files.primary,
+            &format!("{key}.json"),
+            serde_json::to_vec(&info).unwrap().into(),
+        )
+        .await?;
     Ok(info)
+}
+async fn embed_attachments(path: &FsPath, files: &crate::storage::FileStorage) -> Result<()> {
+    let stage_path = path.to_owned();
+    let path = path.to_owned();
+    let mut options = ConnectOptions::new("sqlite://backup-images");
+    options
+        .max_connections(1)
+        .sqlx_logging(false)
+        .map_sqlx_sqlite_opts(move |o| o.filename(&path));
+    let db = Database::connect(options).await?;
+    if all(&db, "PRAGMA table_info(sales_attachments)", vec![])
+        .await?
+        .iter()
+        .any(|r| text(r, "name") == "storage_backend")
+    {
+        let rows = all(&db, "SELECT id,storage_backend,storage_key FROM sales_attachments WHERE storage_backend<>''", vec![]).await?;
+        for row in rows {
+            let data = files
+                .attachment(&text(&row, "storage_backend"), &text(&row, "storage_key"))
+                .await?;
+            check_space(
+                stage_path.parent().unwrap(),
+                (data.len() as u64)
+                    .saturating_mul(3)
+                    .saturating_add(SPACE_MARGIN),
+            )?;
+            if tokio::fs::metadata(&stage_path)
+                .await?
+                .len()
+                .saturating_add(data.len() as u64)
+                > MAX_SNAPSHOT
+            {
+                return Err(ApiError::bad(
+                    "数据库（含凭证图片）超过当前 16 GiB 备份上限。",
+                ));
+            }
+            execute(
+                &db,
+                "UPDATE sales_attachments SET data=?,storage_backend='',storage_key='' WHERE id=?",
+                vec![data.to_vec().into(), text(&row, "id").into()],
+            )
+            .await?;
+        }
+    }
+    db.close().await?;
+    Ok(())
 }
 pub(crate) async fn validate_database(path: &FsPath) -> Result<sea_orm::DatabaseConnection> {
     let path = path.to_owned();
@@ -288,11 +371,41 @@ pub(crate) async fn validate_database(path: &FsPath) -> Result<sea_orm::Database
             "备份中的库存数量与出入库记录对不上，不能恢复，请选择其他备份。",
         ));
     }
+    if all(&db, "PRAGMA table_info(sales_attachments)", vec![])
+        .await?
+        .iter()
+        .any(|r| text(r, "name") == "storage_backend")
+        && one(
+            &db,
+            "SELECT id FROM sales_attachments WHERE storage_backend<>'' OR storage_key<>'' LIMIT 1",
+            vec![],
+        )
+        .await?
+        .is_some()
+    {
+        return Err(ApiError::bad("完整备份包含外部图片引用，不能恢复。"));
+    }
     crate::sales::validate_backup(&db).await?;
     crate::roles::validate_backup(&db).await?;
     Ok(db)
 }
 pub async fn settings(s: &AppState) -> Result<Schedule> {
+    match s
+        .files
+        .read(s.files.primary, "backups/policy.json", 65536)
+        .await
+    {
+        Ok(bytes) => {
+            let policy: Schedule = serde_json::from_slice(&bytes)
+                .map_err(|_| ApiError::bad("备份保留策略文件损坏，请重新保存备份计划。"))?;
+            if !(1..=365).contains(&policy.keep_days) {
+                return Err(ApiError::bad("备份保留天数无效。"));
+            }
+            return Ok(policy);
+        }
+        Err(e) if e.0 == axum::http::StatusCode::NOT_FOUND => {}
+        Err(e) => return Err(e),
+    }
     let value = one(
         &s.db,
         "SELECT value FROM settings WHERE id='backup_schedule'",
@@ -345,7 +458,15 @@ pub async fn update_schedule(
     if !(1..=365).contains(&input.keep_days) {
         return Err(ApiError::bad("备份保留天数须为 1–365 的整数。"));
     }
+    let _backup = s.backup_lock.lock().await;
     let _lock = s.writes.lock().await;
+    s.files
+        .put(
+            s.files.primary,
+            "backups/policy.json",
+            serde_json::to_vec(&input).unwrap().into(),
+        )
+        .await?;
     save_value(
         &s,
         "backup_schedule",
@@ -370,60 +491,167 @@ fn read_manifest(zip: &mut zip::ZipArchive<std::fs::File>) -> Result<Manifest> {
 }
 
 async fn files(s: &AppState, details: bool) -> Result<Vec<BackupInfo>> {
-    files_in(&s.data_dir, details).await
+    stored_files(&s.files, &s.data_dir, details).await
 }
 pub(crate) async fn files_in(data_dir: &FsPath, details: bool) -> Result<Vec<BackupInfo>> {
-    let dir = data_dir.join("backups");
-    if !dir.exists() {
-        return Ok(vec![]);
+    let storage = crate::storage::FileStorage::from_env(data_dir)
+        .map_err(|e| ApiError::bad(e.to_string()))?;
+    stored_files(&storage, data_dir, details).await
+}
+// Only flat legacy archives and our YYYY/MM/DD layout are managed.
+fn managed_archive(key: &str) -> bool {
+    let parts: Vec<_> = key.split('/').collect();
+    if parts.first() != Some(&"backups") {
+        return false;
     }
-    let dir = tokio::fs::canonicalize(dir).await?;
-    let mut entries = tokio::fs::read_dir(dir).await?;
+    if parts.len() != 2
+        && !(parts.len() == 5
+            && parts[1].len() == 4
+            && parts[2].len() == 2
+            && parts[3].len() == 2
+            && parts[1..4]
+                .iter()
+                .all(|v| v.bytes().all(|c| c.is_ascii_digit())))
+    {
+        return false;
+    }
+    validate_name(parts.last().unwrap()).is_ok()
+}
+async fn copy_archive(
+    files: &crate::storage::FileStorage,
+    kind: &str,
+    key: &str,
+    target: &FsPath,
+) -> Result<()> {
+    use futures::TryStreamExt;
+    use tokio::io::AsyncWriteExt;
+    let result = files.get(kind, key).await?;
+    if result.meta.size > MAX_SNAPSHOT + 1024 * 1024 {
+        return Err(ApiError::bad("备份文件超过大小限制。"));
+    }
+    check_space(
+        target.parent().unwrap(),
+        result.meta.size.saturating_add(SPACE_MARGIN),
+    )?;
+    let mut stream = result.into_stream();
+    let mut out = tokio::fs::File::create(target).await?;
+    while let Some(bytes) = stream
+        .try_next()
+        .await
+        .map_err(crate::storage::storage_error)?
+    {
+        out.write_all(&bytes).await?;
+    }
+    out.sync_all().await?;
+    Ok(())
+}
+async fn stored_files(
+    storage: &crate::storage::FileStorage,
+    data_dir: &FsPath,
+    details: bool,
+) -> Result<Vec<BackupInfo>> {
     let mut results = vec![];
-    while let Some(entry) = entries.next_entry().await? {
-        let name = entry.file_name().to_string_lossy().to_string();
-        if !(name.ends_with(".zip") || name.ends_with(".erpbackup")) {
-            continue;
-        }
-        let meta = entry.metadata().await?;
-        if !meta.is_file() {
-            continue;
-        }
-        let mut info = BackupInfo {
-            name,
-            created_at: meta
-                .modified()?
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis() as i64,
-            size: meta.len(),
-            snapshot_at: None,
-            source: None,
-            photo_count: None,
-            path: entry.path().to_string_lossy().to_string(),
-            metadata_error: false,
-        };
-        if details {
-            let path = entry.path();
-            let metadata = tokio::task::spawn_blocking(move || -> Result<Manifest> {
-                let mut zip = zip::ZipArchive::new(std::fs::File::open(path)?)
-                    .map_err(|_| ApiError::bad("无法读取备份信息。"))?;
-                read_manifest(&mut zip)
-            })
-            .await;
-            match metadata {
-                Ok(Ok(manifest)) if (0..=8_640_000_000_000_000).contains(&manifest.created_at) => {
-                    info.snapshot_at = Some(manifest.created_at);
-                    info.source = manifest.source;
-                    info.photo_count = manifest.photo_count;
-                }
-                _ => info.metadata_error = true,
+    for backend in storage.kinds() {
+        for object in storage.list(backend, "backups").await? {
+            let key = object.location.to_string();
+            if !managed_archive(&key) {
+                continue;
             }
+            let mut info = BackupInfo {
+                name: key.rsplit('/').next().unwrap().into(),
+                created_at: object.last_modified.timestamp_millis(),
+                size: object.size,
+                snapshot_at: None,
+                source: None,
+                photo_count: None,
+                path: storage.label(backend, &key),
+                metadata_error: false,
+                backend: backend.into(),
+                key: key.clone(),
+            };
+            if details {
+                let metadata = storage.read(backend, &format!("{key}.json"), 65536).await;
+                let cached = metadata
+                    .ok()
+                    .and_then(|b| serde_json::from_slice::<BackupInfo>(&b).ok())
+                    .filter(|v| {
+                        v.name == info.name
+                            && v.size == info.size
+                            && v.snapshot_at
+                                .is_some_and(|t| (0..=8_640_000_000_000_000).contains(&t))
+                    });
+                if let Some(cached) = cached {
+                    info.snapshot_at = cached.snapshot_at;
+                    info.source = cached.source;
+                    info.photo_count = cached.photo_count;
+                } else {
+                    let stage = tempfile::tempdir_in(data_dir)?;
+                    let archive = stage.path().join("metadata.zip");
+                    let metadata: Result<Manifest> = async {
+                        copy_archive(storage, backend, &key, &archive).await?;
+                        tokio::task::spawn_blocking(move || {
+                            let mut zip = zip::ZipArchive::new(std::fs::File::open(archive)?)
+                                .map_err(|_| ApiError::bad("无法读取备份信息。"))?;
+                            read_manifest(&mut zip)
+                        })
+                        .await
+                        .map_err(|_| ApiError::bad("无法读取备份信息。"))?
+                    }
+                    .await;
+                    match metadata {
+                        Ok(m) if (0..=8_640_000_000_000_000).contains(&m.created_at) => {
+                            info.snapshot_at = Some(m.created_at);
+                            info.source = m.source;
+                            info.photo_count = m.photo_count;
+                        }
+                        _ => info.metadata_error = true,
+                    }
+                }
+            }
+            results.push(info);
         }
-        results.push(info);
     }
     results.sort_by_key(|a| std::cmp::Reverse(a.created_at));
     Ok(results)
+}
+async fn locate(s: &AppState, name: &str) -> Result<BackupInfo> {
+    validate_name(name)?;
+    files(s, false)
+        .await?
+        .into_iter()
+        .find(|f| f.name == name)
+        .ok_or_else(ApiError::missing)
+}
+async fn remove_archive(storage: &crate::storage::FileStorage, f: &BackupInfo) -> Result<()> {
+    storage.delete(&f.backend, &f.key).await?;
+    match storage.delete(&f.backend, &format!("{}.json", f.key)).await {
+        Err(e) if e.0 != axum::http::StatusCode::NOT_FOUND => Err(e),
+        _ => Ok(()),
+    }
+}
+pub(crate) async fn materialize_remote(
+    data_dir: &FsPath,
+    source: &str,
+    target: &FsPath,
+) -> Result<()> {
+    let storage = crate::storage::FileStorage::from_env(data_dir)
+        .map_err(|e| ApiError::bad(e.to_string()))?;
+    let f = stored_files(&storage, data_dir, false)
+        .await?
+        .into_iter()
+        .find(|f| f.backend == "s3" && f.path == source)
+        .ok_or_else(ApiError::missing)?;
+    copy_archive(&storage, &f.backend, &f.key, target).await
+}
+pub(crate) async fn clear_in(data_dir: &FsPath) -> Result<usize> {
+    let storage = crate::storage::FileStorage::from_env(data_dir)
+        .map_err(|e| ApiError::bad(e.to_string()))?;
+    let files = stored_files(&storage, data_dir, false).await?;
+    let count = files.len();
+    for f in files {
+        remove_archive(&storage, &f).await?;
+    }
+    Ok(count)
 }
 async fn prune(s: &AppState) -> Result<()> {
     let settings = settings(s).await?;
@@ -433,7 +661,7 @@ async fn prune(s: &AppState) -> Result<()> {
     // create() calls this only after a complete, validated ZIP has been saved.
     for f in files.into_iter().skip(1) {
         if f.created_at < cutoff {
-            tokio::fs::remove_file(archive_path(s, &f.name)?).await?;
+            remove_archive(&s.files, &f).await?;
         }
     }
     Ok(())
@@ -446,14 +674,9 @@ pub async fn download(
 ) -> Result<Response> {
     local(peer, s.server_mode)?;
     current(&s, &headers).await?.admin()?;
-    let mut service = tower_http::services::ServeFile::new(archive_path(&s, &name)?);
-    let request = axum::http::Request::builder()
-        .body(axum::body::Body::empty())
-        .unwrap();
-    let mut response = service.try_call(request).await?.into_response();
-    if !response.status().is_success() {
-        return Err(ApiError::missing());
-    }
+    let f = locate(&s, &name).await?;
+    let object = s.files.get(&f.backend, &f.key).await?;
+    let mut response = axum::body::Body::from_stream(object.into_stream()).into_response();
     response.headers_mut().insert(
         header::CONTENT_TYPE,
         header::HeaderValue::from_static("application/zip"),
@@ -511,6 +734,7 @@ pub(crate) async fn prepare_restore(
     // Only known older business schemas can be staged forward.
     let legacy = manifest.schema.len() < current_schema.len()
         && [
+            current_schema.clone(),
             current_schema
                 .iter()
                 .filter(|v| v.as_str() != "item_prices_v1")
@@ -554,12 +778,19 @@ pub(crate) async fn prepare_restore(
         ]
         .into_iter()
         .any(|schema| {
-            schema == manifest.schema
-                || schema
-                    .into_iter()
-                    .filter(|v| v != "item_prices_v1")
-                    .collect::<Vec<_>>()
-                    == manifest.schema
+            [false, true].into_iter().any(|prices| {
+                [false, true].into_iter().any(|storage| {
+                    schema
+                        .iter()
+                        .filter(|v| {
+                            !(prices && v.as_str() == "item_prices_v1"
+                                || storage && v.as_str() == "file_storage_v1")
+                        })
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        == manifest.schema
+                })
+            })
         });
     if manifest.schema != current_schema.to_vec() && !legacy {
         return Err(ApiError::bad(
@@ -611,8 +842,11 @@ pub async fn restore(
     }
     let stage = tempfile::tempdir_in(&s.data_dir)?;
     let snapshot = stage.path().join("restore.sqlite");
+    let f = locate(&s, &input.name).await?;
+    let archive = stage.path().join("restore.zip");
+    copy_archive(&s.files, &f.backend, &f.key, &archive).await?;
     let manifest = prepare_restore(
-        archive_path(&s, &input.name)?,
+        archive,
         snapshot.clone(),
         s.data_dir.clone(),
         database_size(&s.db).await?,

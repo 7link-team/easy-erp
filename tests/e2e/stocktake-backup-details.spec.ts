@@ -184,7 +184,7 @@ with zipfile.ZipFile(sys.argv[1]) as z, tempfile.TemporaryDirectory() as d:
  m=json.loads(z.read('manifest.json'));z.extract('inventory.sqlite',d)
  db=sqlite3.connect(d+'/inventory.sqlite');n=db.execute('select count(*) from sales_attachments').fetchone()[0];db.close()
  print(json.dumps({'manifest':m,'count':n}))`,
-      join(directory(), backup.name),
+      backup.path,
     ),
   );
   expect(actual.count).toBe(backup.photo_count);
@@ -210,7 +210,7 @@ with zipfile.ZipFile(sys.argv[1]) as old, zipfile.ZipFile(sys.argv[2],'w') as ne
   if name=='manifest.json':
    m=json.loads(data);m.pop('source',None);m.pop('photo_count',None);data=json.dumps(m).encode()
   new.writestr(name,data)`,
-    join(directory(), backup.name),
+    backup.path,
     join(directory(), legacy),
   );
   writeFileSync(join(directory(), corrupt), "not a zip archive");
@@ -222,10 +222,10 @@ with zipfile.ZipFile(sys.argv[1]) as old, zipfile.ZipFile(sys.argv[2],'w') as ne
   if name=='manifest.json':
    m=json.loads(data);m['created_at']=9000000000000000000;data=json.dumps(m).encode()
   new.writestr(name,data)`,
-    join(directory(), backup.name),
+    backup.path,
     join(directory(), badDate),
   );
-  copyFileSync(join(directory(), backup.name), join(directory(), aged));
+  copyFileSync(backup.path, join(directory(), aged));
   utimesSync(
     join(directory(), aged),
     new Date("2020-01-01"),
@@ -240,7 +240,7 @@ with zipfile.ZipFile(sys.argv[1]) as old, zipfile.ZipFile(sys.argv[2],'w') as ne
     snapshot_at: backup.snapshot_at,
     metadata_error: false,
   });
-  expect(byName(backup.name).path).toBe(join(directory(), backup.name));
+  expect(byName(backup.name).path).toBe(backup.path);
   expect(byName(legacy)).toMatchObject({
     photo_count: null,
     source: null,
@@ -336,7 +336,7 @@ test("自动与离线维护备份记录真实来源，管理员以外不能读�
   const offline = mkdtempSync(join(tmpdir(), "erp-offline-metadata-"));
   python(
     "import zipfile,sys\nwith zipfile.ZipFile(sys.argv[1]) as z:z.extract('inventory.sqlite',sys.argv[2])",
-    join(directory(), backup.name),
+    backup.path,
     offline,
   );
   execFileSync(
@@ -344,14 +344,14 @@ test("自动与离线维护备份记录真实来源，管理员以外不能读�
     ["--data-dir", offline, "--backup-only"],
     { windowsHide: true },
   );
-  const name = readdirSync(join(offline, "backups")).find((name) =>
-    name.endsWith(".zip"),
+  const name = readdirSync(join(offline, "backups"), { recursive: true }).find(
+    (name) => typeof name === "string" && name.endsWith(".zip"),
   )!;
   expect(
     JSON.parse(
       python(
         "import zipfile,sys,json\nwith zipfile.ZipFile(sys.argv[1]) as z:print(z.read('manifest.json').decode())",
-        join(offline, "backups", name),
+        join(offline, "backups", String(name)),
       ),
     ).source,
   ).toBe("maintenance");
