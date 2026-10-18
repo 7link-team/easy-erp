@@ -112,7 +112,7 @@ if (-not $old.WaitForExit(10000)) { throw 'Old detached service still running.' 
 $server = StartServer (Join-Path $userDir 'easy-erp-server.exe')
 if ((Ready).instance_id -ne $identity) { throw 'Inventory identity changed.' }
 AssertStock
-if (@(Get-ChildItem "$data/backups/*.zip").Count -lt 2) { throw 'Live/offline upgrade backups missing.' }
+if (@(Get-ChildItem -LiteralPath "$data/backups" -Recurse -File -Filter "*.zip").Count -lt 2) { throw 'Live/offline upgrade backups missing.' }
 Write-Output 'PASS: manual upgrade migrates inventory to UserProfile/EasyErp and preserves identity, stock, login and ZIP backups.'
 
 # Explicitly switching scope migrates the program, not the inventory directory.

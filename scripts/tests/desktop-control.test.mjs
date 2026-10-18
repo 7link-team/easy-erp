@@ -27,6 +27,7 @@ test(
     const token = randomBytes(32).toString("hex");
     let child;
     let exited;
+    let logs = "";
     async function start() {
       child = spawn(
         resolve(
@@ -43,7 +44,7 @@ test(
         },
       );
       exited = once(child, "exit");
-      let logs = "";
+      logs = "";
       return await new Promise((resolve, reject) => {
         const timer = setTimeout(
           () => reject(new Error(`Server startup timed out: ${logs}`)),
@@ -237,6 +238,9 @@ test(
       );
       await assert.rejects(readFile(recentFile), { code: "ENOENT" });
       assert.ok((await getBackups()).items.length >= 1);
+    } catch (error) {
+      console.error("Inventory service output before failure:\n" + logs);
+      throw error;
     } finally {
       if (child?.exitCode === null) {
         child.kill("SIGTERM");

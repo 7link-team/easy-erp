@@ -121,3 +121,11 @@ Next Action: 本轮实现及验证无待办；后续发版时提交本次源码�
 用户明确要求提交、推送、发版。当前REVIEW/RELEASE，Direct执行。范围为已验收文件存储及独立备份机制，不包含建议中的锁定备份/失败提醒。
 同步版本0.2.4，提交推送main后使用GitHub Actions全平台构建/全量回归与双架构镜像；成功产物生成Release草稿，核对清单与摘要后正式发布，附GHCR v0.2.4地址。不得附镜像归档、不得在本机下载全平台产物；不改4291业务数据。无需再次审批。
 下一步：完成版本/发布说明检查并提交、推送，跟踪Build and release和Server container结果。
+
+### v0.2.4 publication checkpoint
+已提交推送15c9f77bb497e3201c7faebd725540d1386cc487（版本全部0.2.4），待创建tag，尚未创建Release。
+Build and release run39099225831，Server container run39099225710。Linux checks、Chromium全量、Linux安装包、Android以及容器SQLite/MySQL回归均成功；其他构建仍运行。
+Windows checks job117591866759：Rust测试/编译成功，Node desktop-control出现UND_ERR_SOCKET other side closed，无业务断言信息。完整日志build-artifacts/tmp/v024-windows-check.log；当前run未完，gh run rerun --job被拒。等整轮完成后先重跑失败job辨别是否暂态，若再失败补充服务日志定位，不能跳过该门禁。
+发布计划：main全平台和镜像成功后，为相同已验证SHA创建v0.2.4 tag；复用publish-verified.yml(run_id/tag)生成草稿避免重复构建。发布说明docs/releases/v0.2.4.md；临时验证脚本build-artifacts/tmp/verify-v024-release.py仅下载latest.json与SHA256SUMS，用GitHub资产digest核对全部产物（不下载大文件）。给GHCR源SHA镜像打v0.2.4标签，验证后正式发布并核对匿名latest。最终提交任务状态[skip ci]且确认工作树干净。当前所有失败未解决前不发布，不需再次问用户。
+
+Windows installer job117591866724失败已定位：脚本Get-ChildItem backups/*.zip只数根目录，与日期目录不符。改递归过滤ZIP，保留至少2份备份断言；desktop-control捕获失败时输出已收集服务日志，连接中断不加重试、不降低断言。需新提交重新运行云端检查。
