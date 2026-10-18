@@ -35,7 +35,9 @@ export default function Movement({
   const [person, setPerson] = useState("");
   const [note, setNote] = useState("");
   const [result, setResult] = useState<{ number: string; lines: Line[] }>();
-  const request = useRef(crypto.randomUUID());
+  const request = useRef<{ fingerprint: string; id: string } | undefined>(
+    undefined,
+  );
   const action = useAction();
   const [pendingLine, setPendingLine] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -115,7 +117,7 @@ export default function Movement({
     setPerson("");
     setNote("");
     setResult(undefined);
-    request.current = crypto.randomUUID();
+    request.current = undefined;
     action.setError("");
   }
   if (result)
@@ -164,18 +166,21 @@ export default function Movement({
               if (pendingLine)
                 throw new Error("请先选择新增行的物料，或删除空行。");
               if (!selected.length) throw new Error("请先添加一行并选择物料。");
+              const payload = {
+                kind,
+                person,
+                note,
+                lines: selected.map((line) => ({
+                  item_id: line.item.id,
+                  quantity: line.value,
+                })),
+              };
+              const fingerprint = JSON.stringify(payload);
+              if (request.current?.fingerprint !== fingerprint)
+                request.current = { fingerprint, id: crypto.randomUUID() };
               const response = await send<{ number: string; lines: Line[] }>(
                 "/movements",
-                {
-                  request_id: request.current,
-                  kind,
-                  person,
-                  note,
-                  lines: selected.map((line) => ({
-                    item_id: line.item.id,
-                    quantity: line.value,
-                  })),
-                },
+                { ...payload, request_id: request.current!.id },
               );
               setResult(response);
               done();

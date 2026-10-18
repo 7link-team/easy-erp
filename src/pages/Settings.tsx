@@ -1,7 +1,7 @@
 import TableImport from "../TableImport";
 import { Disclosure } from "../ui";
 import { Form, Input, Button } from "../ui";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, send, dateTime } from "../api";
 import { nativeBrowser } from "../browserLogin";
 import { useAppUpdates } from "../NativeTools";
@@ -63,8 +63,15 @@ export default function Settings({
     last_success: string;
     last_error: string;
   }>("/backups", revision);
+  // A background refetch (window focus) must not overwrite an edit in progress,
+  // so the loaded value is adopted once per load cycle rather than on every
+  // response.
+  const scheduleLoaded = useRef(false);
   useEffect(() => {
-    if (data) setSchedule(data.schedule);
+    if (data && !scheduleLoaded.current) {
+      scheduleLoaded.current = true;
+      setSchedule(data.schedule);
+    }
   }, [data]);
   const backupCount = data?.items.length ?? 0;
   const backupPages = Math.max(1, Math.ceil(backupCount / backupPageSize));
@@ -103,6 +110,7 @@ export default function Settings({
             form(e, () =>
               action.run(async () => {
                 await send("/backups/schedule", schedule, "PUT");
+                scheduleLoaded.current = false;
                 setMessage("备份保留天数已保存。");
                 refresh();
               }),

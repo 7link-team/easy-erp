@@ -656,7 +656,28 @@ function SaleEditor({
   };
   async function save(actionName: string) {
     if (pendingLine) throw new Error("请先选择新增行的物料，或移除空行。");
-    if (collecting && (receiptError || !receiptAccount)) {
+    // An unparseable quantity or price leaves the preview — and so the 全额收款
+    // amount — unknown. Focus that line and let the server name the problem
+    // instead of reporting a 收款金额 field this mode never rendered.
+    const unparsed = amounts
+      ? undefined
+      : input.lines.find(
+          (line) =>
+            !preview(
+              { ...input, lines: [line], discount_rate: "100", rounding: "0" },
+              billable,
+            ),
+        );
+    if (unparsed)
+      lineElements.current
+        ?.querySelector<HTMLInputElement>(
+          `[data-item-id="${CSS.escape(unparsed.item_id)}"] input`,
+        )
+        ?.focus();
+    // With no computable amounts the receipt error is an artifact of the broken
+    // input — including a bad 折扣率/抹零, where no single line is at fault — so
+    // it must not be reported in place of the real problem.
+    else if (amounts && collecting && (receiptError || !receiptAccount)) {
       settlementFields.current
         ?.querySelector<HTMLElement>(
           receiptError
@@ -814,7 +835,10 @@ function SaleEditor({
                       );
                       change("type_id", entry?.id || "");
                       change("type_name", entry ? "" : value);
-                      if (!entry?.data.billable) {
+                      // Clearing the discount follows a resolved non-billable
+                      // type only; intermediate typing matches no entry and must
+                      // not change the billed total.
+                      if (entry && !entry.data.billable) {
                         change("discount_rate", "100");
                         change("rounding", "0");
                       }
@@ -837,9 +861,14 @@ function SaleEditor({
                           ? ""
                           : String(input.type_billable)
                       }
-                      onChange={(e) =>
-                        change("type_billable", e.target.value === "true")
-                      }
+                      onChange={(e) => {
+                        const billing = e.target.value === "true";
+                        change("type_billable", billing);
+                        if (!billing) {
+                          change("discount_rate", "100");
+                          change("rounding", "0");
+                        }
+                      }}
                     >
                       <option value="">请选择</option>
                       <option value="true">计款</option>

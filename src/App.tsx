@@ -699,7 +699,8 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
     nav.some((entry) => entry.id === page) ||
     page === "updates" ||
     (page === "in" && can(user, "movement.in")) ||
-    (page === "out" && can(user, "movement.out"));
+    (page === "out" && can(user, "movement.out")) ||
+    (page === "returns" && can(user, "sales.read"));
   return (
     <div className="app-shell" data-flow={page === "in" || page === "out"}>
       {browserError && (
