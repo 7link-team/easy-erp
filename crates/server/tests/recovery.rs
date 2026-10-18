@@ -21,6 +21,18 @@ use tokio::{
 const PASSWORD: &str = "Recovery-test-2026";
 const TOKEN: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
+/// A backend-gated test that returns early reports success forever, which is how
+/// the S3 path stayed unexercised. The job that owns a backend sets its own
+/// ERP_REQUIRE_* flag, so a missing endpoint fails loudly there — and a job that
+/// only owns the other backend still skips this one instead of failing on it.
+fn require_integration(required: &str, variable: &str) {
+    assert!(
+        std::env::var_os(required).is_none(),
+        "{required} is set but {variable} is missing, so this integration test \
+         would silently skip"
+    );
+}
+
 struct Server {
     child: Child,
     base: String,
@@ -921,6 +933,7 @@ async fn server_first_setup_requires_token_and_persists_sqlite_across_restarts()
 #[tokio::test]
 async fn mysql_web_setup_restart_and_full_backup_restore() {
     let Ok(url) = std::env::var("ERP_MYSQL_TEST_URL") else {
+        require_integration("ERP_REQUIRE_MYSQL", "ERP_MYSQL_TEST_URL");
         eprintln!("ERP_MYSQL_TEST_URL not set: MySQL integration requires a disposable database");
         return;
     };
@@ -938,6 +951,30 @@ async fn mysql_web_setup_restart_and_full_backup_restore() {
         )
         .await;
     server.post("/movements",json!({"request_id":uuid::Uuid::new_v4().to_string(),"kind":"receipt","lines":[{"item_id":item["id"],"quantity":"10"}]})).await;
+    // MySQL forces utf8mb4_bin, so a case-sensitive LIKE would make every
+    // lowercase search miss. Codes are always stored uppercase, so this is the
+    // case that silently returned nothing on MySQL while working on SQLite.
+    server
+        .post(
+            "/items",
+            json!({"name":"Case Widget","code":"WL-CASE01","kind":"成品","unit":"个"}),
+        )
+        .await;
+    for query in [
+        "wl-case01",
+        "WL-CASE01",
+        "case01",
+        "CASE01",
+        "widget",
+        "Widget",
+    ] {
+        let found = server.get(&format!("/items?q={query}")).await;
+        assert_eq!(
+            found["total"], 1,
+            "search {query:?} must find the item on MySQL too"
+        );
+        assert_eq!(found["items"][0]["code"], "WL-CASE01", "query {query:?}");
+    }
     let backup = server.post("/backups", json!({})).await;
     server
         .post(
@@ -1081,6 +1118,7 @@ async fn local_storage_retention_and_custom_directory() {
 async fn s3_images_backup_reset_and_portable_restore() {
     use object_store::{ObjectStore, aws::AmazonS3Builder, path::Path as ObjectPath};
     let Ok(endpoint) = std::env::var("ERP_S3_TEST_ENDPOINT") else {
+        require_integration("ERP_REQUIRE_S3", "ERP_S3_TEST_ENDPOINT");
         eprintln!("ERP_S3_TEST_ENDPOINT not set: S3 integration requires a disposable endpoint");
         return;
     };

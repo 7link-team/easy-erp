@@ -18,6 +18,17 @@ test("ZIP 备份可下载恢复，旧后缀备份继续可用", async ({ request
   expect(
     (await request.post("/api/login", { headers, data: credentials })).ok(),
   ).toBeTruthy();
+  // A marker row makes the restore provable. Without it the 401 only shows that
+  // some database was swapped in, so restoring the wrong archive — the safety
+  // snapshot taken moments earlier, say — would look identical.
+  expect(
+    (
+      await request.post("/api/items", {
+        headers,
+        data: { name: "ZIP标记物料", kind: "成品", unit: "个" },
+      })
+    ).ok(),
+  ).toBeTruthy();
   const created = await request.post("/api/backups", { headers, data: {} });
   expect(created.ok()).toBeTruthy();
   const { name, path } = await created.json();
@@ -35,6 +46,15 @@ test("ZIP 备份可下载恢复，旧后缀备份继续可用", async ({ request
   );
   for (const file of [name, legacy]) {
     copyFileSync(fixture, file === name ? path : join(directory, file));
+    // Added after the archive, so a correct restore must remove it again.
+    expect(
+      (
+        await request.post("/api/items", {
+          headers,
+          data: { name: `备份后新增-${file}`, kind: "成品", unit: "个" },
+        })
+      ).ok(),
+    ).toBeTruthy();
     const downloaded = await request.get(`/api/backups/${file}`);
     expect(downloaded.status()).toBe(200);
     expect(downloaded.headers()["content-type"]).toBe("application/zip");
@@ -51,5 +71,16 @@ test("ZIP 备份可下载恢复，旧后缀备份继续可用", async ({ request
     expect(
       (await request.post("/api/login", { headers, data: credentials })).ok(),
     ).toBeTruthy();
+    // Prove the requested archive is the one that came back.
+    expect(
+      (await (await request.get("/api/items?q=ZIP标记物料")).json()).total,
+    ).toBe(1);
+    expect(
+      (
+        await (
+          await request.get(`/api/items?q=${encodeURIComponent(`备份后新增-${file}`)}`)
+        ).json()
+      ).total,
+    ).toBe(0);
   }
 });

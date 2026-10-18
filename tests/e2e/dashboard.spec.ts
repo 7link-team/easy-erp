@@ -152,9 +152,26 @@ test("工作台真实月度账款、每日金额、业绩、60天提醒与今日
   expect(filtered.sales.due).toBe(0);
   expect(filtered.sales.paid).toBe(0);
   await page.goto("/#/home");
-  await expect(
-    page.getByRole("region", { name: "本月经营概况" }),
-  ).toContainText("本月单据当前应收");
+  const band = page.getByRole("region", { name: "本月经营概况" });
+  await expect(band).toContainText("本月单据当前应收");
+  // The tiles were only ever checked for their labels, so a tile reading the
+  // wrong field — or losing moneyText and printing raw cents — showed the wrong
+  // receivable on the landing screen with every test still green. Assert each
+  // figure against the API value it is supposed to render, per tile.
+  const money = (cents: number) =>
+    new Intl.NumberFormat("zh-CN", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(cents / 100);
+  await expect(band.locator(".business-figure")).toHaveText(
+    `¥${money(data.finance.due)}`,
+  );
+  await expect(band.locator(".business-comparison")).toContainText(
+    `上月同期应收 ¥${money(data.finance.comparison_due)}`,
+  );
+  const balances = band.locator(".business-balances dd");
+  await expect(balances.nth(0)).toHaveText(`¥${money(data.finance.paid)}`);
+  await expect(balances.nth(1)).toHaveText(`¥${money(data.finance.debt)}`);
   await page.getByRole("button", { name: "查看每日金额", exact: true }).click();
   await expect(
     page.getByRole("list", { name: "每日应收明细" }).getByRole("listitem"),

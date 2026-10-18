@@ -8,6 +8,8 @@ services:
       ERP_S3_REGION: ${ERP_S3_REGION:-us-east-1}
       ERP_S3_ACCESS_KEY_ID: ${ERP_S3_ACCESS_KEY_ID:?Set ERP_S3_ACCESS_KEY_ID}
       ERP_S3_SECRET_ACCESS_KEY: ${ERP_S3_SECRET_ACCESS_KEY:?Set ERP_S3_SECRET_ACCESS_KEY}
+      # Only needed for temporary credentials; empty otherwise.
+      ERP_S3_SESSION_TOKEN: ${ERP_S3_SESSION_TOKEN:-}
       ERP_S3_ENDPOINT: ${ERP_S3_ENDPOINT:-}
       ERP_S3_PREFIX: ${ERP_S3_PREFIX:-easy-erp}
       ERP_S3_PATH_STYLE: ${ERP_S3_PATH_STYLE:-true}

@@ -111,21 +111,28 @@ test("整单事务、重复提交、库存不足、清点锁定与并发不超�
       lines: [{ item_id: item.id, quantity: "8", price: "1" }],
     },
   };
-  const outcomes = await Promise.all([
-    request.post("/api/sales/commands", { headers, data: payload }),
-    request.post("/api/sales/commands", {
-      headers,
-      data: { ...payload, request_id: randomUUID() },
-    }),
-  ]);
+  const racers = [payload, { ...payload, request_id: randomUUID() }];
+  const outcomes = await Promise.all(
+    racers.map((data) => request.post("/api/sales/commands", { headers, data })),
+  );
   expect(outcomes.map((r) => r.status()).sort()).toEqual([200, 409]);
-  const win = outcomes.find((r) => r.status() === 200)!;
-  const sale = await win.json();
-  const winningPayload = outcomes[0].status() === 200 ? payload : undefined;
-  if (winningPayload) {
-    const replay = await post(request, "/sales/commands", winningPayload);
-    expect(replay.id).toBe(sale.id);
-  }
+  const winner = outcomes.findIndex((r) => r.status() === 200);
+  const sale = await outcomes[winner].json();
+  // Whichever racer won, replaying its payload must return the same sale: the
+  // dedup row is written inside the committed transaction. Selecting the payload
+  // by a fixed index left this unasserted whenever the second racer won.
+  const replay = await post(request, "/sales/commands", racers[winner]);
+  expect(replay.id).toBe(sale.id);
+  // The loser retries after its 409 — the real production sequence, and the one
+  // neither branch used to cover. Its request_id was rolled back with the
+  // transaction, so the retry must be judged against stock again and refused,
+  // never answered with the winning sale as if the shipment had succeeded.
+  const loserRetry = await request.post("/api/sales/commands", {
+    headers,
+    data: racers[1 - winner],
+  });
+  expect(loserRetry.status()).toBe(409);
+  expect(await loserRetry.text()).not.toContain(sale.id);
   expect(await itemBalance(request, item.name)).toBe(2000);
   const linked = (
     await (await request.get("/api/documents")).json()
@@ -196,8 +203,11 @@ test("客户示例、分账户补收、更正冲销、修订退款、部分退�
     reason: "首次收款",
   };
   sale = await post(request, "/sales/commands", payPayload);
-  await post(request, "/sales/commands", payPayload);
   expect([sale.paid, sale.debt]).toEqual([500000, 500000]);
+  // Replaying the exact payment must return the first result rather than credit
+  // the customer twice; asserting the earlier body would pass either way.
+  const replayedPayment = await post(request, "/sales/commands", payPayload);
+  expect(replayedPayment).toEqual(sale);
   sale = await command(request, {
     sale_id: sale.id,
     version: sale.version,

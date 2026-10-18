@@ -74,6 +74,10 @@ jobs:
           --health-interval=10s --health-timeout=5s --health-retries=12
     env:
       ERP_MYSQL_TEST_URL: mysql://root:integration-only-password@127.0.0.1:3306/inventory
+      # Turn a missing MySQL endpoint into a failure instead of a silent skip.
+      # Scoped per backend: this job runs the whole test binary, and the S3 test
+      # must still skip here rather than fail.
+      ERP_REQUIRE_MYSQL: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -100,8 +104,50 @@ jobs:
           name: mysql-browser-evidence
           path: build-artifacts/playwright/chromium/
 
+  s3:
+    if: github.event_name != 'release' && !inputs.release_tag && (inputs.image_maintenance == '' || inputs.image_maintenance == 'none')
+    runs-on: ubuntu-24.04
+    services:
+      s3:
+        image: motoserver/moto:5.2.4
+        ports: ["5000:5000"]
+    env:
+      ERP_S3_TEST_ENDPOINT: http://127.0.0.1:5000
+      # Without this a missing endpoint would skip the only S3 coverage silently,
+      # which is how the S3 storage path went unexercised entirely.
+      ERP_REQUIRE_S3: "1"
+      AWS_ACCESS_KEY_ID: storage-test
+      AWS_SECRET_ACCESS_KEY: Storage-test-2026
+      AWS_DEFAULT_REGION: us-east-1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # dist/ is gitignored and rust-embed embeds it at compile time, so the
+      # server does not build from a clean checkout without this.
+      - run: npm ci
+      - run: npm run build
+      # A plain readiness loop instead of a service health-cmd: the check needs
+      # nested quoting that is easy to get wrong and would hang the job.
+      - name: Wait for the S3 service
+        run: for i in $(seq 1 30); do curl -sf -o /dev/null http://127.0.0.1:5000/ && exit 0; sleep 1; done; exit 1
+      - name: Create the disposable bucket
+        # moto rejects an unsigned request, so sign one with the boto3 that ships
+        # inside the service image rather than relying on a CLI on the runner.
+        run: >-
+          docker exec
+          -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_DEFAULT_REGION
+          ${{ job.services.s3.id }}
+          python -c "import boto3;boto3.client('s3',endpoint_url='http://localhost:5000').create_bucket(Bucket='storage-tests')"
+      - name: Verify attachments, backups and portable restore on S3
+        run: cargo test --locked -p easy-erp-server --test recovery s3_images_backup_reset_and_portable_restore
+
   build:
-    needs: [sqlite, mysql]
+    needs: [sqlite, mysql, s3]
     strategy:
       fail-fast: false
       matrix:
