@@ -318,3 +318,10 @@ Alternatives: 不采用单一backup-index.json，避免中断/丢失影响全清
 Tradeoffs: 缺少侧车时读取归档较慢；外部图片嵌入完整备份以支持脱离原S3恢复。更换存储根路径/桶不是迁移操作，应保留旧连接或先迁移文件。
 Scope: 新上传外置，旧BLOB不搬迁；默认7天/1–365设置和成功备份后清理、保留最新一份沿用。
 Status: 实现及本地验收完成；SQLite/MySQL与Moto S3兼容端点、分片、清空后发现、脱离S3恢复、旧格式和错误场景通过。
+
+## 2026-10-18 v0.2.4发布验收
+Decision: 发布复用同一SHA完整成功的main构建产物与多架构镜像；GHCR提供v0.2.4短版本标签，Release只附安装/更新/服务端包，不附Docker镜像归档。
+Reason: 用户授权发版，明确版本tag和磁盘使用要求。
+Tradeoffs: 本地只下载小型manifest/checksum并对比GitHub资产digest；不下载全部安装文件，不声称本轮逐包独立验签。
+Scope: 本轮发布与后续同类发布流程，保留正在使用的4291服务/业务数据。
+Status: v0.2.4已正式发布，全部启用门禁及公开Latest/镜像manifest核验通过。
