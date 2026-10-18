@@ -396,13 +396,19 @@ pub async fn login(
     .await?;
     // Expired rows were only ever filtered out, never removed, so the table grew
     // by one row per login for the life of the deployment. A login is the thing
-    // that adds them, so it is also where they are cheapest to reclaim.
-    execute(
+    // that adds them, so it is also where they are cheapest to reclaim — but
+    // housekeeping must never fail the login: SQLite can still answer a write
+    // with SQLITE_BUSY_SNAPSHOT when the backup scheduler commits in between,
+    // and busy_timeout does not retry that. Skipping a sweep costs nothing.
+    if let Err(error) = execute(
         &s.db,
         "DELETE FROM sessions WHERE expires_at<?",
         vec![now().into()],
     )
-    .await?;
+    .await
+    {
+        tracing::warn!(%error, "过期会话清理未完成，不影响本次登录");
+    }
     s.failures.lock().await.remove(&key);
     let mut response = Json(json!({"user":actor,"token":raw})).into_response();
     response

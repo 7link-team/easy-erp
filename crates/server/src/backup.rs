@@ -137,16 +137,25 @@ fn check_space(path: &FsPath, required: u64) -> Result<()> {
 pub async fn create(s: &AppState, actor: &User, source: &str) -> Result<BackupInfo> {
     let _backup = s.backup_lock.lock().await;
     let info = snapshot_with_storage(&s.db, &s.data_dir, source, &s.files).await?;
-    audit(
-        &s.db,
-        actor,
-        "完成备份",
-        &info.name,
-        json!({"size":info.size}),
-    )
-    .await?;
-    save_value(s, "backup_last_success", &info.created_at.to_string()).await?;
-    save_value(s, "backup_last_error", "").await?;
+    // These are live-database writes, and they are the only ones in this module
+    // that did not take the mutex every other writer holds. Without it a backup
+    // can commit between a request transaction's read snapshot and its write,
+    // and SQLite answers that request with SQLITE_BUSY_SNAPSHOT (517), which
+    // busy_timeout does not retry — so a background backup could make a user's
+    // save fail. prune() below touches only storage, so it stays outside.
+    {
+        let _writes = s.writes.lock().await;
+        audit(
+            &s.db,
+            actor,
+            "完成备份",
+            &info.name,
+            json!({"size":info.size}),
+        )
+        .await?;
+        save_value(s, "backup_last_success", &info.created_at.to_string()).await?;
+        save_value(s, "backup_last_error", "").await?;
+    }
     // Retention drives irreversible deletion, so a damaged or missing policy file
     // must never be silently replaced by the default here: that would rewrite the
     // file with 7 days and prune everything older. Keep the archives, leave the
@@ -1062,6 +1071,9 @@ pub async fn scheduler(s: AppState) {
         .await;
         if let Err(error) = result {
             tracing::error!(?error, "scheduled backup failed");
+            // Same reason as the writes in create(): serialize with the other
+            // writers so recording a failure cannot disturb a live request.
+            let _writes = s.writes.lock().await;
             let _ = save_value(&s, "backup_last_error", &error.1).await;
         }
     }
