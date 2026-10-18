@@ -133,7 +133,12 @@ fn item_search(filter: &Filter) -> Result<(String, Vec<sea_orm::Value>)> {
             .replace('%', "\\%")
             .replace('_', "\\_")
     );
-    let mut where_clause = "(name LIKE ? ESCAPE '\\' OR code LIKE ? ESCAPE '\\' OR spec LIKE ? ESCAPE '\\' OR barcode=?) AND (?='' OR kind=?)".to_string();
+    // SQLite's LIKE ignores ASCII case but MySQL's utf8mb4_bin collation does
+    // not, so codes (always stored uppercase) would never match a lowercase
+    // search there. UPPER on both sides keeps the two backends identical; the
+    // leading wildcard already prevents any index use. barcode stays an exact
+    // indexed match because scanners submit it verbatim.
+    let mut where_clause = "(UPPER(name) LIKE UPPER(?) ESCAPE '\\' OR UPPER(code) LIKE UPPER(?) ESCAPE '\\' OR UPPER(spec) LIKE UPPER(?) ESCAPE '\\' OR barcode=?) AND (?='' OR kind=?)".to_string();
     let mut values: Vec<sea_orm::Value> = vec![
         search.clone().into(),
         search.clone().into(),
@@ -520,9 +525,11 @@ pub(crate) async fn post_movement(s: &AppState, actor: User, input: Movement) ->
         return Ok(serde_json::from_str(&text(&old, "response")).unwrap());
     }
     let did = id();
+    // Local, like business dates and the dashboard: a UTC stamp here contradicted
+    // the created_at shown beside it for the first 8 hours of every day in UTC+8.
     let number = format!(
         "{}-{}",
-        chrono::Utc::now().format("%Y%m%d%H%M%S"),
+        chrono::Local::now().format("%Y%m%d%H%M%S"),
         &did[..8]
     );
     execute(

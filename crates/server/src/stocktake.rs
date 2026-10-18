@@ -158,6 +158,11 @@ pub async fn finish(
     {
         return Err(ApiError::conflict("该清点已经结束。"));
     }
+    // Validate on both paths: cancelling stored the raw request field, so an
+    // over-long or control-character reason reached the database and every
+    // reader of GET /stocktakes. Only a confirmed count with a difference
+    // requires a reason to be present.
+    let mut reason = clean(&input.reason, "差异原因", 500, false)?;
     let mut did = String::new();
     if input.confirm {
         let lines = all(
@@ -170,7 +175,7 @@ pub async fn finish(
             return Err(ApiError::bad("还有物料未填写实盘数量，没有库存请填 0。"));
         }
         let has_difference = lines.iter().any(|l| int(l, "actual") != int(l, "expected"));
-        let reason = clean(&input.reason, "差异原因", 500, has_difference)?;
+        reason = clean(&input.reason, "差异原因", 500, has_difference)?;
         did = id();
         execute(
             &txn,
@@ -182,7 +187,7 @@ pub async fn finish(
                 actor.id.clone().into(),
                 actor.name.clone().into(),
                 "".into(),
-                reason.into(),
+                reason.clone().into(),
                 "posted".into(),
                 sid.clone().into(),
                 now().into(),
@@ -226,7 +231,7 @@ pub async fn finish(
                 "cancelled"
             }
             .into(),
-            input.reason.clone().into(),
+            reason.clone().into(),
             sid.clone().into(),
         ],
     )
@@ -240,7 +245,7 @@ pub async fn finish(
             "取消清点"
         },
         &sid,
-        json!({"document_id":did,"reason":input.reason}),
+        json!({"document_id":did,"reason":reason}),
     )
     .await?;
     txn.commit().await?;

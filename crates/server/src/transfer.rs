@@ -14,7 +14,7 @@ use axum::{
     http::{HeaderMap, header},
     response::{IntoResponse, Response},
 };
-use calamine::{Reader, Xlsx};
+use calamine::{DataRef, Reader, Xlsx};
 use sea_orm::{ConnectionTrait, TransactionTrait};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -22,6 +22,9 @@ use std::{collections::HashSet, io::Cursor};
 
 const MAX_ROWS: usize = 100;
 const MAX_FILE: usize = 5 * 1024 * 1024;
+/// calamine materializes a sheet as a dense `rows * columns` block covering the
+/// used cell bounding box, so two far-apart cells allocate far beyond MAX_ROWS.
+const MAX_CELLS: u64 = 1_000_000;
 const ITEM_HEADERS: &[&str] = &[
     "物料编码",
     "物料名称",
@@ -708,6 +711,38 @@ fn parse_file(name: &str, bytes: Vec<u8>) -> Result<Table> {
             .first()
             .cloned()
             .ok_or_else(|| ApiError::bad("Excel 没有工作表。"))?;
+        // Measure the used range from the streaming reader before anything
+        // materializes it, so a tiny file claiming a huge range cannot allocate
+        // its whole bounding box. Ordinary oversized sheets stay within the cell
+        // budget and keep reporting the row-count message below.
+        {
+            let mut cells = book
+                .worksheet_cells_reader(&sheet)
+                .map_err(|_| ApiError::bad("无法读取工作表。"))?;
+            let mut rows: u64 = 0;
+            let mut columns: u64 = 0;
+            while let Some(cell) = cells
+                .next_cell()
+                .map_err(|_| ApiError::bad("无法读取工作表。"))?
+            {
+                if matches!(cell.get_value(), DataRef::Empty) {
+                    continue;
+                }
+                let (row, column) = cell.get_position();
+                rows = rows.max(u64::from(row) + 1);
+                columns = columns.max(u64::from(column) + 1);
+                if rows.saturating_mul(columns) > MAX_CELLS {
+                    // An ordinary oversized paste should still hear about the row
+                    // limit; the area message is for a few cells spanning a huge
+                    // range, which the row count cannot explain.
+                    return Err(ApiError::bad(if rows > MAX_ROWS as u64 + 1 {
+                        "每次请导入 1–100 行数据，更多数据请分批导入。"
+                    } else {
+                        "Excel 使用的单元格区域过大，请删除多余的行列后重新导出，或改用模板。"
+                    }));
+                }
+            }
+        }
         if let Ok(formulas) = book.worksheet_formula(&sheet)
             && formulas.cells().any(|(_, _, v)| !v.is_empty())
         {
@@ -735,6 +770,24 @@ fn parse_file(name: &str, bytes: Vec<u8>) -> Result<Table> {
         ));
     }
     Ok(Table { headers, rows })
+}
+/// Previews stop being usable after an hour (see `commit`), but the files were
+/// never removed, so every upload — including a fully rejected one — left the
+/// parsed table, with its customer contact data, on disk for good.
+async fn sweep_previews(dir: &std::path::Path) {
+    let Ok(mut entries) = tokio::fs::read_dir(dir).await else {
+        return;
+    };
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let stale = entry
+            .metadata()
+            .await
+            .and_then(|m| m.modified())
+            .is_ok_and(|t| t.elapsed().unwrap_or_default() > std::time::Duration::from_secs(3600));
+        if stale {
+            let _ = tokio::fs::remove_file(entry.path()).await;
+        }
+    }
 }
 pub async fn preview(
     State(s): State<AppState>,
@@ -881,6 +934,7 @@ pub async fn preview(
     }
     let dir = s.data_dir.join("imports");
     tokio::fs::create_dir_all(&dir).await?;
+    sweep_previews(&dir).await;
     tokio::fs::write(
         dir.join(format!("{}.json", result.id)),
         serde_json::to_vec(&result).unwrap(),
@@ -1031,5 +1085,75 @@ pub async fn commit(
     )
     .await?;
     txn.commit().await?;
+    // The preview file is deliberately NOT removed here: this handler reads it
+    // before it reaches the `requests` replay lookup, so deleting it would make
+    // a retried commit fail on the missing file instead of replaying the
+    // recorded response. sweep_previews reclaims it once it expires.
     Ok(Json(response))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `Table` is not `Debug`, so unwrap the refusal message by hand.
+    fn refusal(result: Result<Table>, what: &str) -> String {
+        match result {
+            Ok(_) => panic!("{what} must be refused"),
+            Err(error) => error.1,
+        }
+    }
+
+    /// Two cells far apart describe a huge bounding box from a tiny file. The
+    /// row-count check cannot catch it — only 2 rows survive the empty filter —
+    /// so the used-range budget is what must reject it.
+    #[test]
+    fn a_tiny_sheet_claiming_a_huge_used_range_is_refused() {
+        let mut workbook = rust_xlsxwriter::Workbook::new();
+        let sheet = workbook.add_worksheet();
+        sheet.write_string(0, 0, "物料编码").unwrap();
+        sheet.write_string(61, 16_383, "x").unwrap();
+        let bytes = workbook.save_to_buffer().unwrap();
+        assert!(
+            bytes.len() < 64 * 1024,
+            "fixture stays small: {}",
+            bytes.len()
+        );
+
+        let error = refusal(parse_file("far.xlsx", bytes), "oversized range");
+        assert!(error.contains("单元格区域过大"), "{error}");
+    }
+
+    /// The guard must not shadow the ordinary "too many rows" message, which is
+    /// what a user who pasted a long list should see.
+    #[test]
+    fn an_ordinary_oversized_sheet_still_reports_the_row_limit() {
+        let mut workbook = rust_xlsxwriter::Workbook::new();
+        let sheet = workbook.add_worksheet();
+        sheet.write_string(0, 0, "物料编码").unwrap();
+        for row in 1..=(MAX_ROWS as u32 + 5) {
+            sheet.write_string(row, 0, "WL-1").unwrap();
+        }
+        let bytes = workbook.save_to_buffer().unwrap();
+
+        let error = refusal(parse_file("long.xlsx", bytes), "over 100 rows");
+        assert!(error.contains("1–100 行"), "{error}");
+    }
+
+    /// A normal template-shaped sheet must still parse.
+    #[test]
+    fn a_normal_sheet_parses() {
+        let mut workbook = rust_xlsxwriter::Workbook::new();
+        let sheet = workbook.add_worksheet();
+        for (column, header) in ITEM_HEADERS.iter().enumerate() {
+            sheet.write_string(0, column as u16, *header).unwrap();
+        }
+        sheet.write_string(1, 0, "WL-1").unwrap();
+        sheet.write_string(1, 1, "物料").unwrap();
+        let bytes = workbook.save_to_buffer().unwrap();
+
+        let table = parse_file("ok.xlsx", bytes).expect("template must parse");
+        assert_eq!(table.headers[0], "物料编码");
+        assert_eq!(table.rows.len(), 1);
+    }
 }

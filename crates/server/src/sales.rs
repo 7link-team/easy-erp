@@ -671,7 +671,9 @@ async fn prepare(
     Ok(Sale {
         id: sid.clone(),
         number: old.map_or_else(
-            || format!("XS-{}-{}", chrono::Utc::now().format("%Y%m%d"), &sid[..8]),
+            // Local, like business_date and every dashboard bucket: a UTC date
+            // here printed the previous day for the first 8 hours in UTC+8.
+            || format!("XS-{}-{}", chrono::Local::now().format("%Y%m%d"), &sid[..8]),
             |o| o.number.clone(),
         ),
         actor_id: old.map_or(actor.id.clone(), |o| o.actor_id.clone()),
@@ -851,7 +853,10 @@ async fn cash(
             amount.into(),
             actor.name.clone().into(),
             date(date_value)?.into(),
-            clean(note, "收退款备注", 500, false)?.into(),
+            // sales_cash.note is VARCHAR(255) on MySQL; a longer value there
+            // fails the insert under STRICT_TRANS_TABLES and rolls the whole
+            // command back with a generic save error.
+            clean(note, "收退款备注", 255, false)?.into(),
             reversal.into(),
             now().into(),
         ],
@@ -1223,10 +1228,12 @@ pub async fn command(
             return Err(ApiError::conflict("已作废单据不能继续操作。"));
         }
     }
+    // sales_revisions.reason is VARCHAR(255) on MySQL; see the note on
+    // 收退款备注 above.
     let reason = clean(
         &input.reason,
         "操作原因",
-        500,
+        255,
         old.as_ref().is_some_and(|o| o.status == "posted"),
     )?;
     let before = if let Some(o) = &old {
