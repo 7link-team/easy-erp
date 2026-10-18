@@ -588,7 +588,15 @@ async fn stored_files(
                     let stage = tempfile::tempdir_in(data_dir)?;
                     let archive = stage.path().join("metadata.zip");
                     let metadata: Result<Manifest> = async {
-                        copy_archive(storage, backend, &key, &archive).await?;
+                        let archive = if backend == "s3" {
+                            copy_archive(storage, backend, &key, &archive).await?;
+                            archive
+                        } else {
+                            // Read the ZIP directory/manifest in place. Copying every
+                            // local archive makes listing old backups scale with all
+                            // database bytes instead of their small metadata records.
+                            PathBuf::from(&info.path)
+                        };
                         tokio::task::spawn_blocking(move || {
                             let mut zip = zip::ZipArchive::new(std::fs::File::open(archive)?)
                                 .map_err(|_| ApiError::bad("无法读取备份信息。"))?;

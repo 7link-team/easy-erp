@@ -129,3 +129,9 @@ Windows checks job117591866759：Rust测试/编译成功，Node desktop-control�
 发布计划：main全平台和镜像成功后，为相同已验证SHA创建v0.2.4 tag；复用publish-verified.yml(run_id/tag)生成草稿避免重复构建。发布说明docs/releases/v0.2.4.md；临时验证脚本build-artifacts/tmp/verify-v024-release.py仅下载latest.json与SHA256SUMS，用GitHub资产digest核对全部产物（不下载大文件）。给GHCR源SHA镜像打v0.2.4标签，验证后正式发布并核对匿名latest。最终提交任务状态[skip ci]且确认工作树干净。当前所有失败未解决前不发布，不需再次问用户。
 
 Windows installer job117591866724失败已定位：脚本Get-ChildItem backups/*.zip只数根目录，与日期目录不符。改递归过滤ZIP，保留至少2份备份断言；desktop-control捕获失败时输出已收集服务日志，连接中断不加重试、不降低断言。需新提交重新运行云端检查。
+当前候选改为4b09f231c9abfbde70aef2ad72ee998921e7a439；新Build run39100421873、新Server container run39100457370。旧Server container39099225710已全绿（双架构+冒烟+发布SHA）。旧Build另有iOS模拟器首次启动数据迁移超时（包已生成）、Windows安装测试平铺路径断言失败（已修）；其余桌面/Android/Chromium全部通过，仅WebKit还运行。为释放并发队列已取消旧Build，由新候选完整重跑所有门禁，旧产物不用于正式发布。
+
+### Release gate fixes (third candidate)
+新Windows checks job117596844187日志确认真实缺陷：object_store BufWriter.shutdown失败后再次abort会panic Already shut down。已拆分copy/finish错误路径，仅copy失败abort；完成失败返回HTTP500，新增目标目录冲突测试，保持原文件并验证后续写入可用。13单元+本地恢复集成通过（此轮MySQL/S3未启用，先前已实测），桌面维护实际进程回归PASS，日志v024-storage-fix-tests.log/v024-fixed-desktop-test.log。
+原WebKit trace按HTTP Range读取定位：备份页仍在加载，5秒内无行；API元数据断言此前已通过。发现旧本地无侧车备份列表复制整个ZIP的性能回归，修复为原地只读ZIP清单（S3仍流式暂存）。不改断言、不增加等待掩盖问题。桌面测试使用扫描所得相对路径，兼容Windows扩展路径和目录迁移。
+第二轮iOS模拟器安装启动已通过，首次超时为runner模拟器迁移。第二轮Server container39100457370双架构全绿。新代码仍须推送并跑完整发布门禁，尚无tag/Release。

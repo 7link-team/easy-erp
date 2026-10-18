@@ -205,18 +205,19 @@ impl FileStorage {
         let mut output =
             BufWriter::with_capacity(self.store(kind)?, key(object_key)?, 8 * 1024 * 1024)
                 .with_max_concurrency(2);
-        let result = async {
-            tokio::io::copy(&mut input, &mut output).await?;
-            output.shutdown().await?;
-            Ok::<_, std::io::Error>(())
-        }
-        .await;
-        if result.is_err() {
+        let failed = || {
+            ApiError(
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "文件上传存储失败，原有文件未删除，请检查连接和权限。".into(),
+            )
+        };
+        if tokio::io::copy(&mut input, &mut output).await.is_err() {
             let _ = output.abort().await;
-            return Err(ApiError::bad(
-                "文件上传存储失败，原有文件未删除，请检查连接和权限。",
-            ));
+            return Err(failed());
         }
+        // shutdown consumes the upload state and performs its own completion
+        // cleanup. Calling abort afterwards panics, including on failed PUTs.
+        output.shutdown().await.map_err(|_| failed())?;
         Ok(())
     }
     pub async fn list(&self, kind: &str, prefix: &str) -> Result<Vec<ObjectMeta>> {
@@ -286,5 +287,43 @@ impl FileStorage {
             return self.read("legacy", object_key, 10 * 1024 * 1024).await;
         }
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn failed_archive_completion_returns_error_without_aborting_closed_writer() {
+        let root = tempfile::tempdir().unwrap();
+        let files = FileStorage::from_env(root.path()).unwrap();
+        let blocked = root.path().join("backups/blocked.zip");
+        std::fs::create_dir_all(&blocked).unwrap();
+        std::fs::write(blocked.join("keep.txt"), b"preserve").unwrap();
+        let input = root.path().join("source.zip");
+        std::fs::write(&input, b"archive").unwrap();
+        assert!(
+            files
+                .put_file("local", "backups/blocked.zip", &input)
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            std::fs::read(blocked.join("keep.txt")).unwrap(),
+            b"preserve"
+        );
+        files
+            .put_file("local", "backups/valid.zip", &input)
+            .await
+            .unwrap();
+        assert_eq!(
+            files
+                .read("local", "backups/valid.zip", 100)
+                .await
+                .unwrap()
+                .as_ref(),
+            b"archive"
+        );
     }
 }

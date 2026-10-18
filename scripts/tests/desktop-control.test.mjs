@@ -13,7 +13,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve, relative } from "node:path";
+import { join, resolve, basename } from "node:path";
 import { randomBytes } from "node:crypto";
 import { once } from "node:events";
 
@@ -149,8 +149,9 @@ test(
       assert.equal(backup.backup.source, "shutdown");
       assert.equal(backup.backup.photo_count, 0);
       assert.ok(
-        (await readdir(join(directory, "backups"), { recursive: true }))
-          .some((name) => name.endsWith(".zip")),
+        (await readdir(join(directory, "backups"), { recursive: true })).some(
+          (name) => name.endsWith(".zip"),
+        ),
       );
       const [code] = await exited;
       assert.equal(code, 0);
@@ -162,6 +163,10 @@ test(
       assert.ok(archived.name.endsWith(".zip"));
       assert.equal(archived.source, "maintenance");
       assert.equal(archived.photo_count, 0);
+      const archivedRelativePath = (
+        await readdir(join(directory, "backups"), { recursive: true })
+      ).find((name) => basename(name) === archived.name);
+      assert.ok(archivedRelativePath);
       assert.equal(
         (await readdir(join(directory, "backups"), { recursive: true })).filter(
           (name) => name.endsWith(".zip"),
@@ -183,10 +188,9 @@ test(
       await assert.rejects(readdir(originalDirectory), { code: "ENOENT" });
       directory = migratedDirectory;
       assert.ok(
-        (await readdir(join(directory, "backups"), { recursive: true }))
-          .includes(
-            relative(join(originalDirectory, "backups"), archived.path),
-          ),
+        (
+          await readdir(join(directory, "backups"), { recursive: true })
+        ).includes(archivedRelativePath),
       );
       base = await start();
       const status = await (await fetch(base + "/api/status")).json();
@@ -215,10 +219,7 @@ test(
         assert.equal((await saveRetention(invalid)).ok, false);
       const oldFile = join(directory, "backups", "backup-expired.zip");
       const recentFile = join(directory, "backups", "backup-recent.zip");
-      const archive = join(
-        directory,
-        relative(originalDirectory, archived.path),
-      );
+      const archive = join(directory, "backups", archivedRelativePath);
       await copyFile(archive, oldFile);
       await copyFile(archive, recentFile);
       const daysAgo = (days) => new Date(Date.now() - days * 86400000);
