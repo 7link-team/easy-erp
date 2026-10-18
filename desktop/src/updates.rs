@@ -313,10 +313,40 @@ pub async fn install_update(
     desktop::wait_for_local_exit(&app).await?;
     let (update, bytes) = state.pending.lock().unwrap().take().unwrap();
     let bytes = bytes.ok_or("请先下载并验证新版本。")?;
-    let result = tauri::async_runtime::spawn_blocking(move || update.install(bytes))
-        .await
-        .map_err(|e| e.to_string())
-        .and_then(|result| result.map_err(|e| e.to_string()));
+    // The service releases the data-directory lock before the operating system
+    // has finished tearing its process down, and the installer then fails
+    // because a file it must replace is still open — on Windows the bundled
+    // service executable in particular. Waiting for the service to stop
+    // answering covers the listener, and retrying covers the teardown that
+    // follows it, so the operator no longer has to press 安装 again.
+    let local = url::Url::parse(LOCAL_URL).map_err(|e| e.to_string())?;
+    for _ in 0..40 {
+        if desktop::verify_server(&local).await.is_err() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    // Only the package is shared; cloning it per attempt would duplicate the
+    // whole installer in memory.
+    let package = std::sync::Arc::new(bytes);
+    let mut attempt = 0u32;
+    let result = loop {
+        attempt += 1;
+        let (installer, bytes) = (update.clone(), package.clone());
+        let outcome = tauri::async_runtime::spawn_blocking(move || installer.install(&**bytes))
+            .await
+            .map_err(|e| e.to_string())
+            .and_then(|result| result.map_err(|e| e.to_string()));
+        match outcome {
+            Ok(()) => break Ok(()),
+            // A failed install has not replaced anything, so another attempt is
+            // safe; the delay is what lets the exiting service release its files.
+            Err(_) if attempt < 3 => {
+                tokio::time::sleep(Duration::from_secs(2 * u64::from(attempt))).await;
+            }
+            Err(error) => break Err(error),
+        }
+    };
     if let Err(error) = result {
         if stopped {
             desktop::ensure_local(&app)
