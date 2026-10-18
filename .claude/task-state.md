@@ -6,10 +6,10 @@
 用户原话：「全部处理掉后再排查一次，主要是修真bug」。
 
 ## Current Phase
-ACCEPTANCE — 修复与第二轮排查完成，等用户决定是否提交
+COMPLETE — 已合并 main、推送，云端两条流水线全绿
 
 ## Current Step
-全部完成。chromium 180/180、webkit 180/180（均为最终代码）。未提交。
+交付完成。origin/main = 1499fbe（6 个提交，fast-forward）。
 
 ## Branch
 fix/review-findings-v024（基于 main @241aa68，工作树原本干净）
@@ -132,12 +132,21 @@ chromium 之前 180/180；webkit 178/180 → 2 个失败已定位（1 个是 #2 
   只在 README 写明信任边界。用户授权「你决定」。
 - E 类子阈值 9 项中除 E2 外未动（非 bug）。
 
-## Open items for the user
-1. 是否提交（分支 fix/review-findings-v024，26 文件，未提交、未暂存）。
-2. :4291 服务未运行（数据完好，17:05 干净关闭特征，原因不明）。
-   重启勿用 target/debug/easy-erp-server（已是本分支开发构建）。
-3. 本机 Playwright 浏览器：webkit 本次新装；安装 webkit 时 playwright 清掉了 chromium，
-   已重装 chromium+webkit，现两者齐备。
+## Published
+- origin/main：241aa68 → 1499fbe，fast-forward，6 个提交，26 文件 +769/−175。
+- Server container 39129526197 SUCCESS：sqlite/mysql/**s3(新增)**、双架构 build、publish 均成功。
+  s3 job 第 11 步在 ERP_REQUIRE_S3=1 下成功，证明 S3 测试真实执行而非静默跳过（史上首次）。
+  mysql job 的整包 cargo test 成功，证明按后端作用域的守卫正确（原 job 级写法会在此 panic）。
+- Build and release 39129526248 SUCCESS：windows/ubuntu checks、chromium 与 webkit e2e、
+  四平台桌面产物（macOS×2/Linux/Windows NSIS）、android、ios-simulator 全部成功。
+
+## Open item for the user（唯一）
+:4291 服务未运行（数据完好：inventory.sqlite 536KB + backups/149 项；17:05 干净关闭特征，
+原因未能确定）。重启勿用 target/debug/easy-erp-server（本地开发构建）。main 已含全部修复，
+可从 main 另编干净二进制到 build-artifacts/ 下启动。等用户决定。
+
+## 本机环境副作用（已告知）
+Playwright 本次新装 webkit；安装 webkit 时 playwright 清掉了 chromium，已重装，现两者齐备。
 
 ## Last Checkpoint
 2026-10-18 交付：27/28 项处理完毕 + 12 项自引入缺陷已修 + 双浏览器全绿。
