@@ -216,10 +216,13 @@ pub async fn recovery_execute(
     if confirmation != expected {
         return Err(format!("请输入“{expected}”确认操作。"));
     }
+    // Remote keys come from recovery_list; the service matches them against the
+    // stored files before reading anything.
     if action == "restore"
-        && !backup
-            .as_ref()
-            .is_some_and(|p| PathBuf::from(p).is_absolute())
+        && !backup.as_ref().is_some_and(|p| {
+            PathBuf::from(p).is_absolute()
+                || p.strip_prefix("s3://").is_some_and(|key| !key.is_empty())
+        })
     {
         return Err("请先选择要恢复的 ZIP 备份。".into());
     }
@@ -258,7 +261,7 @@ pub async fn recovery_execute(
             server_url: url.to_string(),
         }
         .save(&desktop::config_path(&app)?)?;
-        desktop::open_business(&app, url, true)?;
+        desktop::open_business(&app, url, true).await?;
         result["started"] = json!(true);
     }
     Ok(result)

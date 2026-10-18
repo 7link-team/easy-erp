@@ -62,6 +62,7 @@ async fn connect(
         .map_err(|_| "正在连接，请稍候。")?;
     let url = preferences::server_url(address)?;
     let response: Value = reqwest::Client::builder()
+        .no_proxy()
         .timeout(Duration::from_secs(8))
         .redirect(reqwest::redirect::Policy::none())
         .build()

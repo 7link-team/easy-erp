@@ -132,6 +132,7 @@ async fn set_autostart(
 
 pub(crate) async fn verify_server(url: &url::Url) -> Result<String, String> {
     let response = reqwest::Client::builder()
+        .no_proxy()
         .timeout(Duration::from_secs(4))
         .redirect(reqwest::redirect::Policy::none())
         .build()
@@ -175,13 +176,21 @@ pub(crate) fn verify_local_identity(dir: &std::path::Path, actual: &str) -> Resu
     }
     Ok(())
 }
-pub(crate) fn open_business(
+pub(crate) async fn open_business(
     app: &tauri::AppHandle,
     url: url::Url,
     visible: bool,
 ) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("inventory") {
         window.destroy().map_err(|e| e.to_string())?;
+        // The label is released only when the event loop delivers Destroyed;
+        // building before that fails and leaves no business window at all.
+        for _ in 0..40 {
+            if app.get_webview_window("inventory").is_none() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
     }
     let allowed = url.clone();
     app.add_capability(
@@ -196,6 +205,9 @@ pub(crate) fn open_business(
         .to_string(),
     )
     .map_err(|e| e.to_string())?;
+    // Record the address before building so a failed build cannot leave the
+    // tray and the saved connection pointing at different hosts.
+    *app.state::<Runtime>().url.lock().unwrap() = Some(url.clone());
     WebviewWindowBuilder::new(app, "inventory", WebviewUrl::External(url.clone()))
         .title("库存管理")
         .inner_size(1280., 850.)
@@ -205,7 +217,6 @@ pub(crate) fn open_business(
         .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny)
         .build()
         .map_err(|e| e.to_string())?;
-    *app.state::<Runtime>().url.lock().unwrap() = Some(url);
     if let Some(window) = app.get_webview_window("launcher") {
         let _ = window.hide();
     }
@@ -228,7 +239,7 @@ async fn connect_host(
         server_url: url.to_string(),
     }
     .save(&config_path(&app)?)?;
-    open_business(&app, url, true)
+    open_business(&app, url, true).await
 }
 pub(crate) fn server_binary() -> Result<PathBuf, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
@@ -265,9 +276,9 @@ pub(crate) async fn ensure_local(app: &tauri::AppHandle) -> Result<url::Url, Str
             .open(dir.join("server.log"))
             .map_err(|e| e.to_string())?;
         let mut command = Command::new(server_binary()?);
-        let token = updates::new_control_token(&dir)?;
+        let token = updates::new_control_token();
         command
-            .env("ERP_DESKTOP_CONTROL_TOKEN", token)
+            .env("ERP_DESKTOP_CONTROL_TOKEN", &token)
             .arg("--data-dir")
             .arg(&dir)
             .arg("--bind")
@@ -312,6 +323,13 @@ pub(crate) async fn ensure_local(app: &tauri::AppHandle) -> Result<url::Url, Str
                 "本机服务未能启动，请检查 {}。",
                 dir.join("server.log").display()
             ));
+        }
+        // Only now is the old secret safe to replace: a live service we failed
+        // to probe keeps answering with the token it already loaded.
+        if let Err(error) = updates::write_control_token(&dir, &token) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(error);
         }
         *app.state::<Runtime>().child.lock().unwrap() = Some(child);
     }
@@ -376,7 +394,7 @@ async fn start_local(
         server_url: url.to_string(),
     }
     .save(&config_path(&app)?)?;
-    open_business(&app, url, true)
+    open_business(&app, url, true).await
 }
 
 #[tauri::command]
@@ -394,7 +412,8 @@ async fn resume_last(window: tauri::WebviewWindow, app: tauri::AppHandle) -> Res
         }
         None => return Ok(false),
     };
-    open_business(&app, url, !std::env::args().any(|arg| arg == "--tray"))?;
+    let visible = !std::env::args().any(|arg| arg == "--tray");
+    open_business(&app, url, visible).await?;
     Ok(true)
 }
 
@@ -541,9 +560,11 @@ async fn open_web_address(
 }
 
 #[tauri::command]
-fn open_browser(window: tauri::WebviewWindow, app: tauri::AppHandle) -> Result<(), String> {
+async fn open_browser(window: tauri::WebviewWindow, app: tauri::AppHandle) -> Result<(), String> {
     trusted(&window)?;
-    browser(&app)
+    tauri::async_runtime::spawn_blocking(move || browser(&app))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 pub(crate) async fn wait_for_local_exit(app: &tauri::AppHandle) -> Result<(), String> {

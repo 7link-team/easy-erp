@@ -14,7 +14,7 @@ use tauri_plugin_updater::Update;
 #[derive(Default)]
 pub struct Updates {
     pub(crate) operation: tokio::sync::Mutex<()>,
-    pending: Mutex<Option<(Update, Option<tempfile::NamedTempFile>)>>,
+    pending: Mutex<Option<(Update, Option<Vec<u8>>)>>,
 }
 
 fn authorize(window: &tauri::WebviewWindow, app: &tauri::AppHandle) -> Result<(), String> {
@@ -173,18 +173,10 @@ pub async fn download_update(
         |status| emit_route(&window, "download", status),
     )
     .await?;
-    let cache = app.path().app_cache_dir().map_err(|e| e.to_string())?;
-    let package = tauri::async_runtime::spawn_blocking(move || -> Result<_, String> {
-        use std::io::Write;
-        std::fs::create_dir_all(&cache).map_err(|e| e.to_string())?;
-        let mut package = tempfile::NamedTempFile::new_in(cache).map_err(|e| e.to_string())?;
-        package.write_all(&bytes).map_err(|e| e.to_string())?;
-        package.as_file().sync_all().map_err(|e| e.to_string())?;
-        Ok(package)
-    })
-    .await
-    .map_err(|e| e.to_string())??;
-    *state.pending.lock().unwrap() = Some((update, Some(package)));
+    // Keep the bytes the updater verified in memory. Round-tripping them
+    // through a cache file lets any same-user process swap the installer
+    // between download and install, and install() verifies nothing.
+    *state.pending.lock().unwrap() = Some((update, Some(bytes)));
     Ok(())
 }
 
@@ -199,10 +191,15 @@ fn emit_route(
     ));
 }
 
-pub fn new_control_token(dir: &Path) -> Result<String, String> {
+pub fn new_control_token() -> String {
     let mut bytes = [0u8; 32];
     rand::rngs::OsRng.fill_bytes(&mut bytes);
-    let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+// Writing truncates the secret a running service still holds in memory, so the
+// caller must only do it once a newly spawned service answers.
+pub fn write_control_token(dir: &Path, token: &str) -> Result<(), String> {
     let path = dir.join("desktop-control-token");
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create(true).truncate(true);
@@ -215,8 +212,7 @@ pub fn new_control_token(dir: &Path) -> Result<String, String> {
     let mut file = options.open(path).map_err(|e| e.to_string())?;
     file.write_all(token.as_bytes())
         .map_err(|e| e.to_string())?;
-    file.sync_all().map_err(|e| e.to_string())?;
-    Ok(token)
+    file.sync_all().map_err(|e| e.to_string())
 }
 
 async fn stop_local(app: &tauri::AppHandle, for_update: bool) -> Result<bool, String> {
@@ -313,21 +309,10 @@ pub async fn install_update(
     }
     let runtime = app.state::<desktop::Runtime>();
     let _connection = runtime.connection_lock.lock().await;
-    let package = state
-        .pending
-        .lock()
-        .unwrap()
-        .as_ref()
-        .and_then(|(_, package)| package.as_ref())
-        .unwrap()
-        .path()
-        .to_owned();
-    let bytes = tokio::fs::read(package)
-        .await
-        .map_err(|_| "读取更新包失败，请重新下载。")?;
     let stopped = stop_local(&app, true).await?;
     desktop::wait_for_local_exit(&app).await?;
-    let (update, _package) = state.pending.lock().unwrap().take().unwrap();
+    let (update, bytes) = state.pending.lock().unwrap().take().unwrap();
+    let bytes = bytes.ok_or("请先下载并验证新版本。")?;
     let result = tauri::async_runtime::spawn_blocking(move || update.install(bytes))
         .await
         .map_err(|e| e.to_string())
