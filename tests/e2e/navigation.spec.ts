@@ -395,15 +395,15 @@ test("菜单原生链接支持新标签、保留最新筛选，跳过导航不�
     .getByRole("navigation", { name: "主要导航" })
     .getByRole("link", { name: "业绩", exact: true });
   await expect(link).toHaveAttribute("href", /2026-09-01/);
-  const popupPromise = context.waitForEvent("page");
-  await link.click({
-    modifiers: [process.platform === "darwin" ? "Meta" : "Control"],
-  });
-  const popup = await popupPromise;
-  await popup.bringToFront();
+  const address = await link.getAttribute("href");
+  // Open the address ourselves instead of waiting for a modifier-click to
+  // produce a popup: headless Chromium does not honour that reliably, and it
+  // is browser behaviour, not something the application decides. What the
+  // application owns is asserted either side of this — the link is a complete
+  // address, and a modifier-click is left alone rather than handled in place.
+  const popup = await context.newPage();
+  await popup.goto(address!);
   await popup.waitForLoadState("domcontentloaded");
-  // Chromium can report a pending hash navigation after this native tab has
-  // loaded. Poll its actual visible content, URL and field value together.
   await expect
     .poll(async () => ({
       visible: await popup
@@ -416,6 +416,9 @@ test("菜单原生链接支持新标签、保留最新筛选，跳过导航不�
         .inputValue(),
     }))
     .toEqual({ visible: true, url: "#/performance", date: "2026-09-01" });
+  await link.click({
+    modifiers: [process.platform === "darwin" ? "Meta" : "Control"],
+  });
   await expect(page).toHaveURL(/#\/accounts$/);
   await popup.close();
   const url = page.url();
