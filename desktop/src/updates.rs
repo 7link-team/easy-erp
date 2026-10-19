@@ -83,6 +83,10 @@ pub async fn set_update_channel(
     Ok(())
 }
 
+/// Shortest gap between automatic checks. The window asks hourly; this only
+/// stops a caller that asks far more often than that.
+const AUTOMATIC_CHECK_INTERVAL: u64 = 1800;
+
 #[tauri::command]
 pub async fn check_update(
     window: tauri::WebviewWindow,
@@ -115,7 +119,13 @@ pub async fn check_update(
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
         .unwrap_or(0);
-    if automatic && now.saturating_sub(last) < 86400 {
+    // The business window checks once at startup and then hourly, so a daily
+    // floor silenced it for twenty-three hours out of every twenty-four: a
+    // release published after the morning check stayed invisible until the next
+    // day, while a manual check found it at once. Keep a floor below that
+    // cadence so a runaway caller is still bounded, and let the intended
+    // startup and hourly checks through.
+    if automatic && now.saturating_sub(last) < AUTOMATIC_CHECK_INTERVAL {
         let pending = state.pending.lock().unwrap();
         return Ok(match pending.as_ref() {
             Some((update, package)) => {
