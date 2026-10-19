@@ -6,7 +6,11 @@ import { join } from "node:path";
 const app = process.argv[2];
 if (!app?.endsWith(".app")) throw new Error("Pass the built simulator .app path.");
 const simctl = (...args) => execFileSync("xcrun", ["simctl", ...args], {
-  encoding: "utf8", timeout: 240_000, killSignal: "SIGKILL",
+  // A cold simulator on a shared runner spends minutes in data migration
+  // before it reports booted: this budget was exceeded twice on consecutive
+  // releases, each time inside `bootstatus`, with the log still showing
+  // 「Waiting on Data Migration」. The step cap below bounds the job.
+  encoding: "utf8", timeout: 600_000, killSignal: "SIGKILL",
   env: { ...process.env, SIMCTL_CHILD_RUST_BACKTRACE: "1" },
 });
 const devices = JSON.parse(simctl("list", "devices", "available", "--json"));

@@ -281,7 +281,7 @@ jobs:
           cd desktop/gen/apple && xcodegen generate
       - run: npm run tauri -- ios build --ci --debug --target x86_64 --no-sign --archive-only
       - name: Package simulator application
-        timeout-minutes: 15
+        timeout-minutes: 25
         run: |
           APP=$(find desktop/gen/apple/build -type d -name '*.app' -print -quit)
           test -n "$APP"
