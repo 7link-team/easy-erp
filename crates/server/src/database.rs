@@ -320,3 +320,28 @@ pub async fn configure_cli(dir: &Path) -> anyhow::Result<()> {
     )?;
     Ok(())
 }
+
+// Only whitelist public diagnostic fields; never serialize Settings or URLs.
+pub fn diagnostics(cfg: &crate::Config) -> serde_json::Value {
+    if cfg.database_url.is_some() {
+        return json!({"kind":"MySQL", "source":"ERP_DATABASE_URL / --database-url", "location":"外部连接（连接串已隐藏）"});
+    }
+    let path = cfg.data_dir.join("database.json");
+    match std::fs::read(&path)
+        .ok()
+        .and_then(|v| serde_json::from_slice::<Settings>(&v).ok())
+    {
+        Some(Settings::Mysql {
+            host,
+            port,
+            database,
+            tls,
+            ..
+        }) => {
+            json!({"kind":"MySQL", "source":"database.json", "location":format!("{host}:{port}/{database}"), "tls":tls})
+        }
+        _ => {
+            json!({"kind":"SQLite", "source":if path.exists() { "database.json" } else { "数据目录默认值" }, "location":std::path::absolute(cfg.data_dir.join("inventory.sqlite")).ok()})
+        }
+    }
+}

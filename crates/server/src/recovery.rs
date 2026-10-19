@@ -154,6 +154,7 @@ pub async fn list(data_dir: &Path) -> Result<Value> {
         "has_data":regular_or_absent(&data_dir.join("inventory.sqlite"))?,
         "items":backup::files_in(&data_dir, true).await.map_err(|e| anyhow::anyhow!(e.1))?,
         "pending":data_dir.join(PENDING).exists(),
+        "storage_locations": storage.kinds().iter().map(|kind| json!({"kind":kind, "backups":storage.label(kind, "backups"), "attachments":storage.label(kind, "attachments")})).collect::<Vec<_>>(),
     }))
 }
 

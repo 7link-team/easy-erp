@@ -4,6 +4,7 @@ use tokio::sync::{Mutex, RwLock};
 
 pub struct State {
     pub db: DatabaseConnection,
+    pub database_info: serde_json::Value,
     pub files: crate::storage::FileStorage,
     pub server_mode: bool,
     pub setup_token: Option<String>,

@@ -241,6 +241,7 @@ async fn main() -> anyhow::Result<()> {
     let files = storage::FileStorage::from_env(&cfg.data_dir)?;
     migration::Migrator::up(&db, None).await?;
     let s = Arc::new(state::State {
+        database_info: database::diagnostics(&cfg),
         db,
         files,
         setup_token,
@@ -293,6 +294,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .route("/api/logout", post(auth::logout))
         .route("/api/me", get(auth::me))
+        .route("/api/system-info", get(auth::system_info))
         .route("/api/users", get(auth::users).post(auth::create_user))
         .route("/api/users/{id}", put(auth::update_user))
         .route("/api/roles", get(roles::list).post(roles::save))

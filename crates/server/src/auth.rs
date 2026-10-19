@@ -214,6 +214,26 @@ pub async fn current(state: &AppState, headers: &HeaderMap) -> Result<User> {
     let row=one(&state.db,"SELECT users.* FROM sessions JOIN users ON sessions.user_id=users.id WHERE sessions.id=? AND sessions.expires_at>? AND users.active=1",vec![digest(session).into(),now().into()]).await?.ok_or_else(ApiError::unauthorized)?;
     user(&state.db, &row).await
 }
+pub async fn system_info(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>> {
+    current(&s, &headers).await?.admin()?;
+    let healthy = s.db.ping().await.is_ok();
+    Ok(Json(json!({
+        "version": env!("CARGO_PKG_VERSION"), "instance_id": s.instance_id,
+        "bind": s.bind.to_string(), "database_connected": healthy,
+        "database": s.database_info, "data_dir": std::path::absolute(&s.data_dir)?,
+        "storage": s.files.primary, "local_storage": s.files.local_root,
+        "backup_location": s.files.label(s.files.primary, "backups"),
+        "attachment_location": s.files.label(s.files.primary, "attachments"),
+        "backup_policy": s.files.label(s.files.primary, "backups/policy.json"),
+        "secure_cookie": s.secure, "trusted_proxy": s.trusted_proxy,
+        "server_mode": s.server_mode, "updating": s.updating.load(std::sync::atomic::Ordering::Acquire),
+        "storage_source": if std::env::var("ERP_STORAGE_LOCAL_DIR").is_ok_and(|s| !s.is_empty()) { "ERP_STORAGE_LOCAL_DIR" } else { "数据目录默认值" }
+    })))
+}
+
 pub async fn status(State(s): State<AppState>) -> Result<Json<serde_json::Value>> {
     let initialized = one(&s.db, "SELECT id FROM users LIMIT 1", vec![])
         .await?
