@@ -16,10 +16,16 @@ pub(crate) fn select(preferred: &Path, legacy: &Path) -> Result<PathBuf, String>
 }
 
 /// macOS keeps business data outside the app-associated support directory.
-/// Rename the complete directory (including WAL, backups and identity) only
-/// while the server is offline. Never copy individual database files or merge.
+/// Rename the complete directory (including WAL, backups, attachments and
+/// identity) only while the server is offline. Never copy individual database
+/// files or merge.
+///
+/// `sources` lists the directories earlier versions used, oldest first. All of
+/// them are examined before anything moves: migrating them one pair at a time
+/// could move the first and then refuse the second, leaving one inventory split
+/// across two directories.
 #[cfg(target_os = "macos")]
-pub(crate) fn select_macos(preferred: &Path, legacy: &Path) -> Result<PathBuf, String> {
+pub(crate) fn select_macos(preferred: &Path, sources: &[PathBuf]) -> Result<PathBuf, String> {
     use fs2::FileExt;
     use std::fs::{self, OpenOptions};
     fn directory(path: &Path) -> Result<bool, String> {
@@ -33,26 +39,46 @@ pub(crate) fn select_macos(preferred: &Path, legacy: &Path) -> Result<PathBuf, S
             Err(error) => Err(format!("无法检查数据目录 {}：{error}", path.display())),
         }
     }
-    let new_exists = directory(preferred)?;
-    if !directory(legacy)? {
-        return Ok(preferred.to_path_buf());
+    fn has_files(path: &Path) -> Result<bool, String> {
+        Ok(fs::read_dir(path)
+            .map_err(|e| e.to_string())?
+            .next()
+            .transpose()
+            .map_err(|e| e.to_string())?
+            .is_some())
     }
-    let old_has_files = fs::read_dir(legacy)
-        .map_err(|e| e.to_string())?
-        .next()
-        .transpose()
-        .map_err(|e| e.to_string())?
-        .is_some();
-    if new_exists {
-        if old_has_files {
+    fn listed(paths: &[&Path]) -> String {
+        paths
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>()
+            .join("、")
+    }
+    let new_exists = directory(preferred)?;
+    let mut occupied: Vec<&Path> = Vec::new();
+    for source in sources {
+        if directory(source)? && has_files(source)? {
+            occupied.push(source.as_path());
+        }
+    }
+    let legacy: &Path = match occupied.as_slice() {
+        // Either a fresh install, or every earlier directory is already moved.
+        [] => return Ok(preferred.to_path_buf()),
+        _ if new_exists => {
             return Err(format!(
                 "新旧数据目录同时存在，请先核对，应用不会合并或覆盖。新目录：{}；旧目录：{}。",
                 preferred.display(),
-                legacy.display()
+                listed(&occupied)
             ));
         }
-        return Ok(preferred.to_path_buf());
-    }
+        [single] => *single,
+        many => {
+            return Err(format!(
+                "发现多个历史数据目录，请先确认要保留哪一套；应用不会合并或覆盖。涉及目录：{}。",
+                listed(many)
+            ));
+        }
+    };
     if let Some(storage) = std::env::var_os("ERP_STORAGE_LOCAL_DIR").filter(|v| !v.is_empty()) {
         let storage = Path::new(&storage)
             .canonicalize()
@@ -132,7 +158,7 @@ mod tests {
     #[test]
     fn fresh_and_migrated_installs_use_the_visible_user_directory() {
         let root = tempfile::tempdir().unwrap();
-        let preferred = root.path().join("EasyErp");
+        let preferred = root.path().join("EasyERP");
         let legacy = root.path().join("legacy");
         assert_eq!(select(&preferred, &legacy).unwrap(), preferred);
         std::fs::create_dir(&preferred).unwrap();
@@ -143,7 +169,7 @@ mod tests {
     #[test]
     fn interrupted_migration_uses_old_inventory_but_conflicts_are_not_hidden() {
         let root = tempfile::tempdir().unwrap();
-        let preferred = root.path().join("EasyErp");
+        let preferred = root.path().join("EasyERP");
         let legacy = root.path().join("legacy");
         std::fs::create_dir(&legacy).unwrap();
         std::fs::write(legacy.join("inventory.sqlite"), "old").unwrap();
@@ -167,19 +193,25 @@ mod macos_tests {
     #[test]
     fn fresh_macos_uses_home_directory_without_creating_a_database() {
         let root = tempfile::tempdir().unwrap();
-        let preferred = root.path().join(".EasyERP");
+        let preferred = root.path().join("EasyERP");
         let legacy = root.path().join("Application Support/server");
-        assert_eq!(select_macos(&preferred, &legacy).unwrap(), preferred);
+        assert_eq!(
+            select_macos(&preferred, std::slice::from_ref(&legacy)).unwrap(),
+            preferred
+        );
         assert!(!preferred.exists());
         fs::create_dir(&preferred).unwrap();
         fs::write(preferred.join("inventory.sqlite"), "new").unwrap();
-        assert_eq!(select_macos(&preferred, &legacy).unwrap(), preferred);
+        assert_eq!(
+            select_macos(&preferred, std::slice::from_ref(&legacy)).unwrap(),
+            preferred
+        );
     }
 
     #[test]
     fn migration_keeps_database_wal_identity_backups_and_configuration_together() {
         let root = tempfile::tempdir().unwrap();
-        let preferred = root.path().join(".EasyERP");
+        let preferred = root.path().join("EasyERP");
         let legacy = root.path().join("Application Support/server");
         fs::create_dir_all(legacy.join("backups/2026/10/19")).unwrap();
         fs::create_dir_all(legacy.join("attachments")).unwrap();
@@ -197,7 +229,10 @@ mod macos_tests {
         for name in names {
             fs::write(legacy.join(name), format!("original {name}")).unwrap();
         }
-        assert_eq!(select_macos(&preferred, &legacy).unwrap(), preferred);
+        assert_eq!(
+            select_macos(&preferred, std::slice::from_ref(&legacy)).unwrap(),
+            preferred
+        );
         assert!(!legacy.exists());
         for name in names {
             assert_eq!(
@@ -205,33 +240,39 @@ mod macos_tests {
                 format!("original {name}")
             );
         }
-        assert_eq!(select_macos(&preferred, &legacy).unwrap(), preferred);
+        assert_eq!(
+            select_macos(&preferred, std::slice::from_ref(&legacy)).unwrap(),
+            preferred
+        );
     }
 
     #[test]
     fn backups_without_database_are_migrated_and_conflicts_never_merge() {
         let root = tempfile::tempdir().unwrap();
-        let preferred = root.path().join(".EasyERP");
+        let preferred = root.path().join("EasyERP");
         let legacy = root.path().join("legacy");
         fs::create_dir_all(legacy.join("backups")).unwrap();
         fs::write(legacy.join("backups/only.zip"), "backup").unwrap();
         fs::create_dir(&preferred).unwrap();
-        assert!(select_macos(&preferred, &legacy).is_err());
+        assert!(select_macos(&preferred, std::slice::from_ref(&legacy)).is_err());
         assert_eq!(
             fs::read_to_string(legacy.join("backups/only.zip")).unwrap(),
             "backup"
         );
         assert_eq!(fs::read_dir(&preferred).unwrap().count(), 0);
         fs::remove_dir(&preferred).unwrap();
-        select_macos(&preferred, &legacy).unwrap();
+        select_macos(&preferred, std::slice::from_ref(&legacy)).unwrap();
         assert_eq!(
             fs::read_to_string(preferred.join("backups/only.zip")).unwrap(),
             "backup"
         );
         fs::create_dir(&legacy).unwrap();
-        assert_eq!(select_macos(&preferred, &legacy).unwrap(), preferred);
+        assert_eq!(
+            select_macos(&preferred, std::slice::from_ref(&legacy)).unwrap(),
+            preferred
+        );
         fs::write(legacy.join("inventory.sqlite"), "other").unwrap();
-        assert!(select_macos(&preferred, &legacy).is_err());
+        assert!(select_macos(&preferred, std::slice::from_ref(&legacy)).is_err());
         assert_eq!(
             fs::read_to_string(legacy.join("inventory.sqlite")).unwrap(),
             "other"
@@ -241,7 +282,7 @@ mod macos_tests {
     #[test]
     fn running_server_prevents_migration_until_its_lock_is_released() {
         let root = tempfile::tempdir().unwrap();
-        let preferred = root.path().join(".EasyERP");
+        let preferred = root.path().join("EasyERP");
         let legacy = root.path().join("legacy");
         fs::create_dir(&legacy).unwrap();
         fs::write(legacy.join("inventory.sqlite"), "data").unwrap();
@@ -254,7 +295,7 @@ mod macos_tests {
             .unwrap();
         lock.lock_exclusive().unwrap();
         assert!(
-            select_macos(&preferred, &legacy)
+            select_macos(&preferred, std::slice::from_ref(&legacy))
                 .unwrap_err()
                 .contains("仍有服务运行")
         );
@@ -264,30 +305,91 @@ mod macos_tests {
             "data"
         );
         drop(lock);
-        select_macos(&preferred, &legacy).unwrap();
+        select_macos(&preferred, std::slice::from_ref(&legacy)).unwrap();
     }
 
     #[test]
     fn symlinks_and_a_destination_appearing_before_rename_are_rejected() {
         use std::os::unix::fs::symlink;
         let root = tempfile::tempdir().unwrap();
-        let preferred = root.path().join(".EasyERP");
+        let preferred = root.path().join("EasyERP");
         let legacy = root.path().join("legacy");
         let outside = root.path().join("outside");
         fs::create_dir(&outside).unwrap();
         symlink(&outside, &legacy).unwrap();
-        assert!(select_macos(&preferred, &legacy).is_err());
+        assert!(select_macos(&preferred, std::slice::from_ref(&legacy)).is_err());
         fs::remove_file(&legacy).unwrap();
         fs::create_dir(&legacy).unwrap();
         symlink(&outside, &preferred).unwrap();
-        assert!(select_macos(&preferred, &legacy).is_err());
+        assert!(select_macos(&preferred, std::slice::from_ref(&legacy)).is_err());
         fs::remove_file(&preferred).unwrap();
         symlink(outside.join("lock"), legacy.join("server.lock")).unwrap();
-        assert!(select_macos(&preferred, &legacy).is_err());
+        assert!(select_macos(&preferred, std::slice::from_ref(&legacy)).is_err());
         fs::remove_file(legacy.join("server.lock")).unwrap();
         fs::create_dir(&preferred).unwrap();
         assert!(rename_macos_exclusive(&legacy, &preferred).is_err());
         assert!(legacy.is_dir());
         assert!(preferred.is_dir());
+    }
+
+    #[test]
+    fn the_hidden_directory_from_0_3_0_moves_into_the_visible_one() {
+        let root = tempfile::tempdir().unwrap();
+        let visible = root.path().join("EasyERP");
+        let hidden = root.path().join(".EasyERP");
+        let support = root.path().join("Application Support/server");
+        fs::create_dir_all(hidden.join("attachments")).unwrap();
+        fs::write(hidden.join("inventory.sqlite"), "business").unwrap();
+        fs::write(hidden.join("attachments/photo.png"), "photo").unwrap();
+        let sources = [support.clone(), hidden.clone()];
+        assert_eq!(select_macos(&visible, &sources).unwrap(), visible);
+        assert!(!hidden.exists());
+        assert_eq!(
+            fs::read_to_string(visible.join("inventory.sqlite")).unwrap(),
+            "business"
+        );
+        assert_eq!(
+            fs::read_to_string(visible.join("attachments/photo.png")).unwrap(),
+            "photo"
+        );
+        // Opening the application again must not move or reconsider anything.
+        assert_eq!(select_macos(&visible, &sources).unwrap(), visible);
+        assert_eq!(
+            fs::read_to_string(visible.join("inventory.sqlite")).unwrap(),
+            "business"
+        );
+    }
+
+    #[test]
+    fn two_historical_directories_are_never_merged_and_an_empty_one_never_blocks() {
+        let root = tempfile::tempdir().unwrap();
+        let visible = root.path().join("EasyERP");
+        let hidden = root.path().join(".EasyERP");
+        let support = root.path().join("Application Support/server");
+        for (directory, body) in [(&hidden, "hidden"), (&support, "support")] {
+            fs::create_dir_all(directory).unwrap();
+            fs::write(directory.join("inventory.sqlite"), body).unwrap();
+        }
+        let sources = [support.clone(), hidden.clone()];
+        let error = select_macos(&visible, &sources).unwrap_err();
+        assert!(error.contains("多个历史数据目录"), "{error}");
+        // Refusing must leave both inventories exactly where they were.
+        assert!(!visible.exists());
+        assert_eq!(
+            fs::read_to_string(hidden.join("inventory.sqlite")).unwrap(),
+            "hidden"
+        );
+        assert_eq!(
+            fs::read_to_string(support.join("inventory.sqlite")).unwrap(),
+            "support"
+        );
+        // An empty leftover directory is not an inventory and must not block.
+        fs::remove_file(hidden.join("inventory.sqlite")).unwrap();
+        assert_eq!(select_macos(&visible, &sources).unwrap(), visible);
+        assert_eq!(
+            fs::read_to_string(visible.join("inventory.sqlite")).unwrap(),
+            "support"
+        );
+        assert!(hidden.exists());
     }
 }

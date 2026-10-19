@@ -6,7 +6,7 @@ $userDir = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Pro
 $legacyDir = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) '库存管理'
 $uninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\库存管理'
 $legacyData = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'com.aspeed.easy-erp/server'
-$preferredData = Join-Path ([Environment]::GetFolderPath('UserProfile')) 'EasyErp'
+$preferredData = Join-Path ([Environment]::GetFolderPath('UserProfile')) 'EasyERP'
 $data = $preferredData
 $config = Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'com.aspeed.easy-erp'
 if ((Test-Path $data) -or (Test-Path $legacyData)) { throw 'Installer test requires clean runner data directories.' }
@@ -113,7 +113,7 @@ $server = StartServer (Join-Path $userDir 'easy-erp-server.exe')
 if ((Ready).instance_id -ne $identity) { throw 'Inventory identity changed.' }
 AssertStock
 if (@(Get-ChildItem -LiteralPath "$data/backups" -Recurse -File -Filter "*.zip").Count -lt 2) { throw 'Live/offline upgrade backups missing.' }
-Write-Output 'PASS: manual upgrade migrates inventory to UserProfile/EasyErp and preserves identity, stock, login and ZIP backups.'
+Write-Output 'PASS: manual upgrade migrates inventory to UserProfile/EasyERP and preserves identity, stock, login and ZIP backups.'
 
 # Explicitly switching scope migrates the program, not the inventory directory.
 Install $installer '/S /AllUsers'

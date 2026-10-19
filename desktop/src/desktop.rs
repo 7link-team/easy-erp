@@ -26,6 +26,11 @@ pub(crate) fn config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir.join("connection.json"))
 }
+/// Visible, platform-independent name for the business data directory, so the
+/// operator finds the same folder on either system.
+#[cfg(any(windows, target_os = "macos"))]
+pub(crate) const DATA_DIRECTORY: &str = "EasyERP";
+
 pub(crate) fn data_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let legacy = app
         .path()
@@ -38,17 +43,20 @@ pub(crate) fn data_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
             .path()
             .home_dir()
             .map_err(|e| e.to_string())?
-            .join("EasyErp");
+            .join(DATA_DIRECTORY);
         crate::data_location::select(&preferred, &legacy)
     }
     #[cfg(target_os = "macos")]
     {
-        let preferred = app
-            .path()
-            .home_dir()
-            .map_err(|e| e.to_string())?
-            .join(".EasyERP");
-        crate::data_location::select_macos(&preferred, &legacy)
+        let home = app.path().home_dir().map_err(|e| e.to_string())?;
+        // Business data has lived in two earlier places: beside the application
+        // support files, and then in a dot directory that Finder hides by
+        // default. Both move into the visible directory, and the operator is
+        // told to pick rather than having two inventories merged.
+        crate::data_location::select_macos(
+            &home.join(DATA_DIRECTORY),
+            &[legacy, home.join(".EasyERP")],
+        )
     }
     #[cfg(not(any(windows, target_os = "macos")))]
     Ok(legacy)
@@ -630,32 +638,16 @@ fn file_locations(
     }
     let dir = data_dir(&app)?;
     let config = config_path(&app)?;
+    // Two folders the operator can open, not a row per file: the database, its
+    // log, the backups and the attachments all sit in the data directory, and
+    // the connection and update settings in the configuration directory. The
+    // settings cannot move into the data directory, because a machine that only
+    // connects to another inventory computer keeps no business data at all and
+    // still has to know which host to reach.
     let mut items = vec![
         serde_json::json!({"label": "本机数据目录", "path": dir}),
-        serde_json::json!({"label": "连接配置", "path": config}),
         serde_json::json!({"label": "配置目录", "path": config.parent()}),
     ];
-    for (label, name) in [
-        ("数据库配置", "database.json"),
-        ("本机数据库", "inventory.sqlite"),
-        ("服务日志", "server.log"),
-        ("本机备份目录", "backups"),
-    ] {
-        let path = dir.join(name);
-        if path.exists() {
-            items.push(serde_json::json!({"label": label, "path": path}));
-        }
-    }
-    for (label, name) in [
-        ("更新渠道配置", "update-channel.json"),
-        ("稳定版更新检查记录", "update-check-stable.json"),
-        ("测试版更新检查记录", "update-check-preview.json"),
-    ] {
-        let path = config.parent().unwrap().join(name);
-        if path.exists() {
-            items.push(serde_json::json!({"label":label, "path":path}));
-        }
-    }
     for item in &mut items {
         if let Some(path) = item["path"].as_str().map(PathBuf::from) {
             if let Ok(metadata) = path.metadata() {

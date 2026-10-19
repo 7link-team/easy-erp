@@ -92,8 +92,9 @@ S3 内使用同样的 `attachments/` 和 `backups/年/月/日/` 结构，位于�
 
 ## 桌面数据保存位置
 
-- **macOS**：业务数据默认保存到 `~/.EasyERP`，备份在 `~/.EasyERP/backups`，附件在 `~/.EasyERP/attachments`。这是用户主目录下的隐藏文件夹，可在 Finder 按 `Command + Shift + G` 输入 `~/.EasyERP` 打开，或使用应用里的“在文件管理器中查看”。
-- **Windows**：继续使用已发布的 `~/EasyErp` 目录，安装和卸载策略不变。
+- **业务数据目录**：macOS 与 Windows 都是用户主目录下的 `EasyERP`，可见文件夹，直接在 Finder 或资源管理器里打开。数据库是 `inventory.sqlite`，备份在 `backups`，凭证图片在 `attachments`，服务日志是 `server.log`。
+- **升级会自动迁移**：macOS 从 `~/.EasyERP`（0.3.0 的隐藏目录）或更早的应用支持目录整体移动过来；Windows 由安装器从 `%LOCALAPPDATA%\com.aspeed.easy-erp\server` 原子移动。迁移只在旧服务停止时进行，整目录移动，不复制单个文件、不合并、不覆盖；同时发现两套数据会明确报错，由你决定保留哪一套。
+- **连接与更新设置不在这个目录**：只连接远程库存电脑的机器没有业务数据目录，却仍要知道连哪台主机，所以 `connection.json` 和更新渠道设置留在系统配置目录。应用里的“文件位置”直接给出这两个目录。
 
 macOS 旧版的 `~/Library/Application Support/com.aspeed.easy-erp/server` 会在本机服务未运行、目标目录不存在时整体迁移；数据库、WAL、账号配置、附件和已有备份一起保留，不合并两套目录。旧服务正在运行时先选择“全部退出（停止本机共享）”；目录冲突、符号链接或迁移失败时会提示并停止，不创建空库替代。仅剩备份、没有数据库的旧目录也会保留并迁移。明确配置的外置文件存储/S3 位置不变；如果 `ERP_STORAGE_LOCAL_DIR` 指向旧目录内部，需先迁移并更新该配置。
 
