@@ -16,7 +16,13 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: 0,
-  timeout: 45_000,
+  // The suite drives a debounced, networked list UI through a debug-profile
+  // server. On an unloaded machine a test takes 11-15s; under load it doubles,
+  // so the old 45s cap and Playwright's 5s default expect budget left no
+  // headroom on slow CI runners and reported timeouts as wrong row counts.
+  // Waiting longer costs nothing while tests pass and weakens no assertion.
+  timeout: 90_000,
+  expect: { timeout: 20_000 },
   outputDir: join(artifacts, "results"),
   reporter: [
     ["list"],
@@ -37,6 +43,6 @@ export default defineConfig({
     reuseExistingServer: false,
     stdout: "pipe",
     stderr: "pipe",
-    timeout: 30_000,
+    timeout: 120_000,
   },
 });
