@@ -1,5 +1,5 @@
 import TableImport from "../TableImport";
-import { Disclosure } from "../ui";
+import { Disclosure, useConfirm } from "../ui";
 import { Form, Input, Button } from "../ui";
 import { useEffect, useRef, useState } from "react";
 import { api, send, dateTime } from "../api";
@@ -41,6 +41,25 @@ const backupSources = new Map([
 ]);
 const backupPageSize = 10;
 
+interface SystemInfo {
+  version: string;
+  instance_id: string;
+  bind: string;
+  database_connected: boolean;
+  database: { kind: string; source: string; location: string; tls?: boolean };
+  data_dir: string;
+  storage: string;
+  local_storage: string;
+  backup_location: string;
+  attachment_location: string;
+  backup_policy: string;
+  secure_cookie: boolean;
+  trusted_proxy: boolean;
+  server_mode: boolean;
+  updating: boolean;
+  storage_source: string;
+}
+
 export default function Settings({
   revision,
   refresh,
@@ -49,7 +68,63 @@ export default function Settings({
   refresh: () => void;
 }) {
   const action = useAction();
+  const confirmDanger = useConfirm();
+  const system = useResource<SystemInfo>("/system-info", revision);
   const { info: nativeInfo } = useAppUpdates();
+  const [locations, setLocations] = useState<{
+    local: boolean;
+    items: {
+      label: string;
+      path: string;
+      exists?: boolean;
+      size?: number;
+      modified?: number;
+    }[];
+    details?: { label: string; value: string }[];
+  }>();
+  const [locationsError, setLocationsError] = useState("");
+  useEffect(() => {
+    if (!nativeInfo || nativeInfo.mobile) return;
+    let cancelled = false;
+    nativeBrowser()
+      ?.invoke("file_locations", {})
+      .then((result) => {
+        if (!cancelled) setLocations(result as typeof locations);
+      })
+      .catch((error) => {
+        if (!cancelled) setLocationsError(String(error));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [nativeInfo]);
+  function filePath(path: string) {
+    return (
+      <div className="file-location">
+        <code className="file-location-path">{path}</code>
+        {locations?.local && !path.startsWith("s3://") ? (
+          <Button
+            className="button small"
+            disabled={action.busy}
+            aria-label={`在文件管理器中查看 ${path}`}
+            onClick={() =>
+              action.run(async () => {
+                await nativeBrowser()!.invoke("reveal_file", { path });
+              })
+            }
+          >
+            打开位置
+          </Button>
+        ) : (
+          <small className="muted">
+            {path.startsWith("s3://")
+              ? "对象存储路径"
+              : "请在库存主机的桌面版中查看"}
+          </small>
+        )}
+      </div>
+    );
+  }
   const [message, setMessage] = useState("");
   const [restoring, setRestoring] = useState<Backup>();
   const [confirmation, setConfirmation] = useState("");
@@ -230,7 +305,7 @@ export default function Settings({
                         className="backup-path"
                         data-label="存放位置（库存主机）"
                       >
-                        {b.path}
+                        {filePath(b.path)}
                       </td>
                       <td className="ledger-actions">
                         <div className="row-actions">
@@ -287,8 +362,94 @@ export default function Settings({
           </nav>
         )}
       </section>
+      <section className="panel section-divider" aria-label="系统信息">
+        <h2>系统信息 · 当前库存主机</h2>
+        <p className="hint">
+          以下为当前连接主机的实际运行信息；连接远程库存时，这些位置属于远程主机。密码、密钥和完整连接串不会显示。
+        </p>
+        {system.error && <Notice>{system.error}</Notice>}
+        {system.loading && <Loading />}
+        {system.data && (
+          <>
+            <dl className="system-information">
+              {Object.entries({
+                访问地址: location.origin,
+                连接方式: nativeInfo?.mobile
+                  ? "移动端连接"
+                  : locations
+                    ? locations.local
+                      ? "桌面本机模式"
+                      : "桌面远程模式"
+                    : "浏览器访问",
+                服务版本: system.data.version,
+                实例标识: system.data.instance_id,
+                监听地址: system.data.bind,
+                数据库: `${system.data.database.kind} · ${system.data.database_connected ? "连接正常" : "连接异常"}`,
+                数据库位置: system.data.database.location,
+                数据库配置来源: system.data.database.source,
+                文件存储:
+                  system.data.storage === "s3" ? "S3 对象存储" : "本地文件",
+                本地存储目录来源: system.data.storage_source,
+                服务状态: system.data.updating
+                  ? "正在维护或更新"
+                  : "运行中（本次读取成功）",
+                部署方式: system.data.server_mode ? "独立服务器" : "桌面服务",
+                "安全 Cookie": system.data.secure_cookie ? "开启" : "关闭",
+                信任反向代理: system.data.trusted_proxy ? "开启" : "关闭",
+                备份总量: `${backupCount} 份 · ${((data?.items.reduce((sum, item) => sum + item.size, 0) ?? 0) / 1024 / 1024).toFixed(2)} MB`,
+                自动备份保留: `${data?.schedule.keep_days ?? "—"} 天`,
+                更新渠道:
+                  nativeInfo?.channel === "preview"
+                    ? "测试版"
+                    : nativeInfo?.channel === "stable"
+                      ? "稳定版"
+                      : "不适用",
+              }).map(([label, value]) => (
+                <div key={label}>
+                  <dt>{label}</dt>
+                  <dd>{value}</dd>
+                </div>
+              ))}
+            </dl>
+            {Object.entries({
+              主机数据目录: system.data.data_dir,
+              本地文件存储目录: system.data.local_storage,
+              备份位置: system.data.backup_location,
+              附件位置: system.data.attachment_location,
+              备份策略文件: system.data.backup_policy,
+            }).map(([label, path]) => (
+              <div className="local-file-row" key={label}>
+                <strong>{label}</strong>
+                {filePath(path)}
+              </div>
+            ))}
+          </>
+        )}
+      </section>
       <section className="panel section-divider">
         <h2>本机数据维护</h2>
+        {locationsError && <Notice>{locationsError}</Notice>}
+        {locations?.details?.map((item) => (
+          <p key={item.label}>
+            <strong>{item.label}：</strong>
+            {item.value}
+          </p>
+        ))}
+        {locations?.items.map((item) => (
+          <div key={item.path} className="local-file-row">
+            <strong>{item.label}</strong>
+            {filePath(item.path)}
+            {item.exists !== undefined && (
+              <small>
+                {item.exists ? "已存在" : "尚未创建"}
+                {item.size !== null && item.size !== undefined
+                  ? ` · ${item.size.toLocaleString()} 字节`
+                  : ""}
+                {item.modified ? ` · 修改于 ${dateTime(item.modified)}` : ""}
+              </small>
+            )}
+          </div>
+        ))}
         <p>
           清空数据（不含备份数据）、从外部备份恢复、清空备份，请在桌面版的“本机数据维护”中操作。
           仅维护这台电脑的本机数据，不会清空当前连接的远程库存电脑。
@@ -337,7 +498,19 @@ export default function Settings({
         </div>
       </section>
       {restoring && (
-        <Modal title="恢复全部数据" onClose={() => setRestoring(undefined)}>
+        <Modal
+          title="恢复全部数据"
+          onClose={() => {
+            if (!action.busy) {
+              setRestoring(undefined);
+              setConfirmation("");
+            }
+          }}
+        >
+          <p className="danger-warning">
+            危险操作：覆盖当前库存主机 {location.host}{" "}
+            的全部业务、账号和设置。备份来源：{restoring.path}
+          </p>
           <Notice>
             {restoring.snapshot_at === null
               ? `此备份生成时间未知，文件修改时间为 ${dateTime(restoring.created_at)}。`
@@ -348,6 +521,21 @@ export default function Settings({
             onSubmit={(e) =>
               form(e, () =>
                 action.run(async () => {
+                  if (confirmation !== "恢复全部数据") {
+                    action.setError("请输入“恢复全部数据”确认操作。");
+                    return;
+                  }
+                  if (
+                    !(await confirmDanger({
+                      title: "再次确认覆盖全部数据？",
+                      description: `目标库存主机：${location.host}；备份：${restoring.name}。备份之后新增的数据将被覆盖，所有账号需要重新登录。确认后立即执行，无法撤销。`,
+                      confirmLabel: "确认覆盖，立即恢复",
+                      danger: true,
+                    }))
+                  ) {
+                    setConfirmation("");
+                    return;
+                  }
                   await send("/backups/restore", {
                     name: restoring.name,
                     confirmation,
@@ -377,11 +565,21 @@ export default function Settings({
               <Button
                 type="button"
                 className="button"
-                onClick={() => setRestoring(undefined)}
+                disabled={action.busy}
+                onClick={() => {
+                  setRestoring(undefined);
+                  setConfirmation("");
+                }}
               >
                 取消
               </Button>
-              <Submit busy={action.busy}>恢复全部数据并退出登录</Submit>
+              <Button
+                type="submit"
+                className="button danger"
+                disabled={action.busy || confirmation !== "恢复全部数据"}
+              >
+                恢复全部数据并退出登录
+              </Button>
             </div>
           </Form>
         </Modal>

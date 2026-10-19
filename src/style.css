@@ -785,3 +785,35 @@ td small {
     scroll-behavior: auto !important;
   }
 }
+
+.file-location {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px 20px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  user-select: text;
+}
+.file-location-path {
+  font: 13px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+.file-location .button { white-space: nowrap; }
+.local-file-row {
+  padding-block: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.local-file-row > strong { display: block; margin-bottom: 6px; font-size: 14px; }
+.local-file-row > small { display: block; margin-top: 6px; color: var(--muted); font-size: 12px; }
+@media (max-width: 520px) {
+  .file-location { grid-template-columns: minmax(0, 1fr); }
+  .file-location .button { justify-self: start; }
+}
+
+.danger-warning { padding: 16px; border: 2px solid var(--danger, #a33424); color: var(--danger, #a33424); border-radius: 8px; overflow-wrap: anywhere; font-weight: 600; }
+.system-information { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 16px; }
+.system-information dt { font-weight: 600; }
+.system-information dd { margin: 6px 0 0; overflow-wrap: anywhere; }
