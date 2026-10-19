@@ -44,9 +44,8 @@ Content-Disposition 给的权威文件名，支持中文），只补 wry 缺的�
 （wry `push(&suggested_filename)` 无任何清洗，这是信任边界。）
 
 ## Known Issues / Risks
-- **第 8 个入口未修**：`src/pages/Sales.tsx:1744` 销售附件预览带 `target="_blank"`，
-  被 `on_new_window → Deny` 在 download 之前掐掉，打包后点击无反应。属**独立缺陷**，
-  修法涉及产品决策（新窗 / 外部浏览器 / 内嵌查看器），按 §2 C 只报告不实施。
+- ~~第 8 个入口~~ **已修**：销售附件预览改为页面内浮层（用户选择应用内，不走外部浏览器）。
+  见 decisions.md「销售附件改为应用内预览」。`on_new_window` 加固未动。
 - `delete-items.spec.ts:44`（审计 page-1 断言）**未复现、无根因，且抬超时救不了它**
   （断言的是 API 返回，不是 UI）。已逐条排除，勿重查：
   ①排序并列 —— `now()` 是毫秒精度，`ORDER BY created_at DESC,id` 且有配套索引；
@@ -80,7 +79,7 @@ Server container 两条流水线，对同一 SHA 打 v0.3.0 标签，由 publish
 ## 0.4 待办（用户已确认排期）
 ③ 一菜单一页面拆分：invoice/sales/finance/accounts/performance/returns/customers/catalog
    目前全部经 salesView 开关渲染同一个 Sales 组件。
-④ 客户新需求 `docs/客户需求/20261019.md`（该文件仍未纳入版本管理）：库存总价值汇总
+④ 客户新需求 `docs/客户需求/20261019.md`（已脱敏并纳管）：库存总价值汇总
    （注意 Inventory.tsx:408 已有总价值）、按期间的库存/销售汇总与合计、入库加「小组」
    字段（需迁移）、关键词+日期区间+方向筛选、导出为图片、云备份（v0.2.4 的 S3 已实现）。
 ⑤ 可选：e2e 并行化（需每 worker 独立服务端与库，否则重现脏库事故）。
