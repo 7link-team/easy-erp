@@ -386,3 +386,42 @@ Status: 已实现。`select_macos` 改为先看完所有历史目录再决定迁
 desktop 28 项测试通过，含新增两例：0.3.0 隐藏目录迁入可见目录（含 attachments 一起移动、二次调用幂等）；
 两个历史目录同时有数据时报错且两边文件一字未动、空的历史目录不阻塞迁移。
 Windows 安装器迁移为实机脚本覆盖（scripts/test-windows-installer.ps1），本机未执行。
+
+## 2026-10-20 期间汇总与入库小组
+Decision: 新增 GET /api/documents/summary（逐款数量+金额、合计、按小组、必须选方向）与
+GET /api/sales/summary（按客户销售额+合计），独立「汇总」菜单与页面；入库加可配置的「小组」。
+Reason: 客户需求 docs/客户需求/20261019.md —— 按时间段看入库/销售汇总、金额要有合计、
+入库要能分小组、关键词要能搜规格、能导出成图片发出去。
+Alternatives Considered:
+- 数量与单价也合计 —— 否决，客户原话「品不一样，累加了就没意思」，只合计金额。
+- 金额自己算一套 —— 否决，复用 stock_value + optional_price，与库存页同口径；
+  两屏对未定价物料和四舍五入给出矛盾数字是最难查的那类问题。
+- 小组名硬编码 / 自由文本 —— 均否决。硬编码违反「部署身份属配置」；自由文本的错别字
+  会把一个组的产量拆成两行。改为复用 material_options 的可配置清单（字段 team）。
+- 导出图片引 html2canvas —— 否决，不为一个按钮加 200KB 依赖；客户本来就说「截图发出去」，
+  所以用原生 canvas 画一张干净表格，并在弹窗里展示（同时避开打包应用里 blob 下载无反应的风险）。
+- team 用 TEXT —— 否决，MySQL 不允许 TEXT 带 DEFAULT，也不能无前缀长度建索引；用 VARCHAR。
+Tradeoffs:
+- 汇总必须选方向：行数量是无符号幅值，不选方向会把入库与出库相加成无意义的数。
+- kind=in 含 opening（首次登记库存），覆盖建账日的期间会把开账导入算作产量。**有意不改**：
+  若只在汇总里排除 opening，汇总与记录列表对 kind=in 的口径就分叉了。用日期区间可避开。
+- 汇总额外要求 items.read：金额由成本价推出，该字段别处只在物料列表可读。
+Scope: 服务端新增两个只读端点 + documents.team 列；前端新增汇总页与入库小组选择。
+备份格式、S3/外置存储、既有列表与导出不变。
+Status: 已实现。服务端 18 单测 + 11 集成；summary.spec.ts 三条（期间/小组/作废/导出图片、
+销售按客户、从基础资料建小组）chromium 与 webkit 通过；手工实测合计 ¥60.00、
+作废后 150→60、销售 ¥55.00→放宽期间 ¥1054.00。
+
+## 2026-10-20 财务三菜单维持「一页三分区」
+Decision: 不把收款/账户/业绩拆成三个独立页面，维持 <Sales key> 对 financePage 的常量 key。
+Reason: 用户要求「一菜单一页面」，我据此改过 key，随后在 navigation.spec.ts:91
+（「财务三个菜单定位同页分区、保留筛选」）读到相反的设计意图：它断言切菜单后同一个
+.finance-panel DOM 节点存活，并断言不存在「财务栏目」tab 栏 —— 即菜单本身就是分区锚点，
+面板一次渲染三个分区。按 page 做 key 不改变内容、地址与筛选（全部 useQueryValue 走 URL，
+pageAddress 也不剥 finance_*），只多出每次切菜单重挂与重拉 LEDGER_CTE 重聚合 —— 纯变差。
+Alternatives Considered: 按 page 做 key（已实现后撤回）；把 FinancePanel 等约 1100 行拆成
+独立页面文件（纯重构、用户不可见、CustomerLedger/TextField 两边共用且函数间夹着类型定义，
+不宜与新功能和数据目录迁移同版发布）。
+Tradeoffs: 「一菜单一页面」在财务这三项上未按字面实现；真要拆就要放弃一页看全三分区的总览。
+Scope: 仅 src/App.tsx 的 Sales key。
+Status: 已撤回改动，维持原状，待用户在知情后决定。若要拆，navigation.spec.ts:91 的预期需一并改写。

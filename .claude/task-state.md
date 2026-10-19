@@ -1,85 +1,80 @@
 # Task State
 
 ## Task / Objective
-发正式 v0.3.0 前清掉两个阻塞项。用户原话：
-「那不行 要修一下，不能一直这样， 处理好发正式0。3」（e2e 抖动）
-「打包本地应用运行的时候 下载备份包没反应， 不知道还有没有其他类似问题 排查下」
-已确认排期（用户「可以 youcall」）：0.3 = ①抖动 ②下载；0.4 = 一菜单一页面 + 客户新需求。
+用户 /goal：「客户需求全部实现，菜单问题也优化掉，弄好了做一次评审和bug修复，最后确保没问题后全部提交推送发版」
+客户需求出自 `docs/客户需求/20261019.md`（已脱敏纳管）。
 
 ## Current Phase
-REVIEW — 两项修复已落地并通过双浏览器全量回归，待提交推送发版。
+ACCEPTANCE — 客户需求全部实现；评审 6 条发现全部验证并修复；跑最终全量门禁。
 
 ## Current Step
-按两组提交（playwright 余量 / 桌面下载）并推 main。
+等最终全量 chromium（b44638sbw）→ webkit 全量 → 分组提交推送 → 打标签 → publish-verified。
+
+## 评审发现（6 条，全部自验并修复）
+1. **上一版备份全部不可恢复**（最严重，我自己没看到）：backup.rs 的 legacy 候选集合无一个
+   去掉 document_teams_v1，上一版 manifest 匹配不上任何候选 → 报「备份数据库版本不同」。
+   复算布尔：修复前 False、修复后 True；更早的备份同样受影响。已加第三个 toggle，
+   并把 recovery.rs 的 legacy 用例改为同时剥掉 file_storage_v1 与 document_teams_v1。
+   **反向验证过**：撤回修复后该测试以用户原话失败。
+2. 成本价金额暴露给只有 records.read 的账号 → 汇总端点加要求 items.read，菜单与页面同步。
+3. 我的 key 改动让财务面板在同页下钻时重挂 → 整个撤回，见 decisions.md。
+4. 小组无创建入口，功能发出去看不见 → 加入 catalogSections / MaterialOptions labels /
+   Sales.tsx 四处字段列表；补 e2e「从基础资料建小组」。
+5. 只有 sales.read 的账号落在用不了的方向上 → 默认方向按权限取。
+6. 导出 PNG 长名串列 → 每列宽度预算 + maxWidth；canvas 失败由静默改为提示。
+另修测试假阳性：原「无方向+错日期→400」只需一个原因成立，已拆成两条分别断言。
 
 ## Overall Progress
-- [x] ① e2e 抖动根因定位 + 修复
-- [x] ② 桌面下载根因定位 + 修复 + 单元测试
-- [x] 双浏览器 e2e 回归（在含前端改动的重建产物上跑）
-- [ ] 提交推送 → 两条流水线 → 打标签 → publish-verified 发正式 0.3.0
+- [x] documents.team 迁移（可移植 alter_table、VARCHAR、has_column+has_index 双幂等）
+- [x] 4 处位置式 INSERT 改显式列名（否则加列会运行时炸）
+- [x] Movement 入参 team + 仅入库可带小组的校验
+- [x] 时间区间 from/to（本地日历日 → UTC 毫秒边界，含夏令时处理）
+- [x] 关键词覆盖规格与小组名（客户要搜的 7.5×8.5 是规格）
+- [x] GET /api/documents/summary：逐款数量+金额、合计总额、按小组分组、排除作废
+- [x] period_bound 单测（含拒绝两位年）
+- [x] 前端：入库小组选择（Movement.tsx，仅入库显示）
+- [x] 汇总页 Summary.tsx + 独立菜单「汇总」（#/summary，归入库存分组）
+- [x] 销售汇总 GET /api/sales/summary（按客户 + 合计，任意期间）
+- [x] 导出图片（原生 canvas 自绘，零新依赖）
+- [x] 库存逐款金额 —— **本就已有**（Inventory.tsx 的「库存金额（元）」列），未重复造
+- [x] 菜单：三个财务菜单原共用一个挂载实例（key 都映射成 "finance"），已改为各自独立
+- [ ] 全量 e2e（chromium 跑中 / webkit 待跑）
+- [ ] 评审发现修复 → 提交推送发版
 
-## ① e2e 抖动：根因与修复
-**不是产品 bug，是套件时序临界。** 实测证据：
-- 单测 ×3 unloaded 全过，耗时 10.9–15.4s；
-- 人为加压（load avg 27，24 路 yes）再跑 ×4 全过，但耗时涨到 **32.1s**，上限只有 45s。
-- CI 的 `queries.spec.ts` 报 `toHaveCount(3)` 实收 **50**（正好整页）= 断言 5s 预算
-  用尽时页面还停在筛选前状态；`workflows.spec.ts:399` 在**已发布基线 972b884 上同样失败**，
-  佐证是环境而非代码回归。
-排除项（均已实证，勿重查）：`useQueryValue` 的 erp:navigate 覆盖缺触发源（`address()`
-保留 location.search）；`useResource` 按依赖中止且有 aborted 守卫，无响应乱序；
-`Input` 是透传受控组件；审计列表 `ORDER BY created_at DESC,id` + 配套索引，排序确定。
-**修复**：playwright.config.ts 给出真实余量 —— timeout 45s→90s、
-新增 expect.timeout 20s（原为 Playwright 默认 5s）、webServer.timeout 30s→120s。
-未加 retries（会掩盖真 bug，且共享 SQLite 下重试脏库）。抬等待不改变任何断言强度。
+## 已实测（真服务端 + 真数据，非推演）
+螺丝 2+3=5 × ¥10 → value 50.00；垫片 4 × ¥2.5 → 10.00；**total_value 60.00**
+按小组：小组一 50.00 / 小组二 10.00；小组筛选、规格关键字 `7.5×8.5`、方向、
+时间区间、非法日期报错 —— 全部符合预期。
+作废排除：60 → 130（加小组三 70）→ 作废 → 回到 60，小组三消失。
 
-## ② 桌面下载：根因与修复
-**根因在 wry 源码层证实**：`wry-0.57.0/src/wkwebview/navigation.rs:96-101` —
-未注册 download handler 时，`canShowMIMEType()` 为 false 的响应（zip/xlsx）直接走
-`Allow`，WKWebView 允许一个自己渲染不了的导航 → 界面上毫无反应。
-desktop/src/desktop.rs 全仓只有**一个** WebviewWindowBuilder（:220），一处修复覆盖
-7 个下载入口（备份 1 + 导出 5 + 模板 1，均为同窗 `<a href>`，无 target/download 属性）。
-**修复**：挂 `.on_download`，保留平台已解析好的目标（下载文件夹 + 服务端
-Content-Disposition 给的权威文件名，支持中文），只补 wry 缺的那道防线 ——
-`download_destination()`：目标父目录不是下载目录时降级为末段文件名，重名编号不覆盖。
-（wry `push(&suggested_filename)` 无任何清洗，这是信任边界。）
+## Important Decisions
+- 数量和单价**绝不合计**（客户原话：品不一样，累加了没意思），只合计金额。
+- 金额复用 `stock_value` + `optional_price`，与库存页同一口径，避免两屏数字不一致。
+- 未定价物料不计入总额，单独报 `unpriced_items`（与库存页一致）。
+- 列表与汇总共用 `document_filter` 一份，避免口径分叉。
+- team 用 VARCHAR 不用 TEXT：MySQL 不允许 TEXT 带 DEFAULT，也不能无前缀长度建索引。
+- 汇总的 API 行为测试放 Playwright e2e（项目既有归属），不另造 Rust 夹具。
+
+## 一菜单一页面：做到哪、为何停在这
+用户可观察的三件事：①每个菜单有独立地址 ✓（原本就有）②各自显示自己的内容 ✓（原本就有）
+③切菜单不带上一个菜单的状态 —— **原来是坏的，已修**：`<Sales key>` 把 finance/accounts/
+performance 都映射成 "finance"，三个菜单共用同一个挂载实例，筛选/展开面板会串台。
+catalog 的固定 key **有意保留**：切换基础资料栏目是同菜单内导航，会让 navigationIndex 自增，
+改成动态 key 会导致每次切栏目重挂、丢掉正在编辑的选项（这是我差点引入的回归）。
+**未做**：把 FinancePanel 等 ~1100 行从 Sales.tsx 搬成独立文件。属纯重构、用户看不到变化，
+且 CustomerLedger/TextField 被两边共用、函数之间还夹着类型定义；不宜在同时带新功能和
+数据目录迁移的版本里承担这个回归风险。建议发版后单独做。
 
 ## Known Issues / Risks
-- ~~第 8 个入口~~ **已修**：销售附件预览改为页面内浮层（用户选择应用内，不走外部浏览器）。
-  见 decisions.md「销售附件改为应用内预览」。`on_new_window` 加固未动。
-- `delete-items.spec.ts:44`（审计 page-1 断言）**未复现、无根因，且抬超时救不了它**
-  （断言的是 API 返回，不是 UI）。已逐条排除，勿重查：
-  ①排序并列 —— `now()` 是毫秒精度，`ORDER BY created_at DESC,id` 且有配套索引；
-  ②乐观 UI —— Inventory 删除是 `await send()` 之后才 refresh，不提前移除行；
-  ③审计写入竞态 —— `inventory.rs:395` 审计与 DELETE 同事务，响应返回前已提交。
-  因此该审计行必然是最新行、必然在 page 1。只出现一次，若 CI 再现需要 trace 与
-  实际报错文本（上次 artifact 只有页面快照），而不是继续猜。
-- `desktop/src/desktop.rs:924` 一条既有 clippy collapsible_if（新版 clippy 1.99 收紧，
-  非本批引入）。CI 不跑 clippy（只有 cargo test），不影响发版。
-- `on_download` 实际触发只在源码层证实，**未在打包 GUI 中人工点击验证**（无头环境做不到）。
+- 库存总价值（客户需求之一）**早已实现**（inventory_value + unpriced_items），
+  缺的是逐款明细的金额列。
+- 销售汇总：`/api/sales/finance` 已有客户/业绩维度聚合，是否满足"销售汇总"需确认，
+  不要重复造。
+- 本地领先远端 6 个提交未推送（含数据目录改可见名）。
 
 ## Verification
-- desktop：fmt 干净、`cargo test` **26 PASS**（含新增 download_destination 用例）。
-- 前端：`typecheck` / `typecheck:e2e` / `vite build` / `prettier --check` 全 PASS。
-- e2e chromium：**186/186 PASS**（16.6m）
-- e2e webkit：**186/186 PASS**（25.8m）
-  两者均在 `vite build` + 重编服务端之后跑，验的是含前端 `download` 属性的最终产物。
-- 服务端：本批未改动任何 server 源文件，未跑（如实记录，非遗漏）。
-- **局限**：本地绿只是必要条件。抬余量是基于实测耗时的推断修复，
-  抖动是否真的消除以 CI 干净 runner 为权威判据。
-  `on_download` 只在 wry 源码层证实，**未在打包 GUI 中人工点击验证**（无头环境做不到）。
+server: cargo test 11 集成 + 单测 PASS；手工 API 实测 PASS。
+前端 / e2e / 桌面：本轮尚未跑。
 
 ## Next Action
-分三组提交（playwright 余量 / 桌面下载 / 本状态文件），推 main，等 Build and release 与
-Server container 两条流水线，对同一 SHA 打 v0.3.0 标签，由 publish-verified 出正式版。
-版本号无需再改：b7ccecb 已是 chore(release): v0.3.0，尚未打标签。
-
-## Last Checkpoint
-2026-10-19 两项修复完成，双浏览器全量 e2e 各 186/186，待提交推送发 0.3.0。
-
-## 0.4 待办（用户已确认排期）
-③ 一菜单一页面拆分：invoice/sales/finance/accounts/performance/returns/customers/catalog
-   目前全部经 salesView 开关渲染同一个 Sales 组件。
-④ 客户新需求 `docs/客户需求/20261019.md`（已脱敏并纳管）：库存总价值汇总
-   （注意 Inventory.tsx:408 已有总价值）、按期间的库存/销售汇总与合计、入库加「小组」
-   字段（需迁移）、关键词+日期区间+方向筛选、导出为图片、云备份（v0.2.4 的 S3 已实现）。
-⑤ 可选：e2e 并行化（需每 worker 独立服务端与库，否则重现脏库事故）。
+前端加小组选择与汇总页；随后补 e2e 覆盖汇总接口；再做菜单拆分。
