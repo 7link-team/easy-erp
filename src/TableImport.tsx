@@ -87,12 +87,14 @@ export default function TableImport({
           <a
             className="button small"
             href={`/api/templates/${mode}?format=xlsx`}
+            download
           >
             下载 Excel 模板
           </a>
           <a
             className="button small"
             href={`/api/templates/${mode}?format=csv`}
+            download
           >
             下载 CSV 模板
           </a>

@@ -224,6 +224,21 @@ pub(crate) async fn open_business(
         .visible(visible)
         .on_navigation(move |destination| destination.origin() == allowed.origin())
         .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny)
+        .on_download(|webview, event| match event {
+            tauri::webview::DownloadEvent::Requested { url, destination } => {
+                match webview.app_handle().path().download_dir() {
+                    Ok(folder) => {
+                        *destination = download_destination(&folder, destination);
+                        true
+                    }
+                    Err(_) => {
+                        eprintln!("找不到下载文件夹，已取消下载：{url}");
+                        false
+                    }
+                }
+            }
+            _ => true,
+        })
         .build()
         .map_err(|e| e.to_string())?;
     if let Some(window) = app.get_webview_window("launcher") {
@@ -232,6 +247,45 @@ pub(crate) async fn open_business(
     eprintln!("库存业务窗口已打开");
     Ok(())
 }
+
+/// Business pages download through plain links. A packaged WKWebView or
+/// WebView2 discards those unless a download handler is registered — the
+/// navigation is allowed, nothing can render it, and 下载完整备份 looks like it
+/// did nothing. The links carry `download` so the webview decides at the
+/// navigation action rather than by guessing from the MIME type, which a CSV
+/// export would otherwise render in place of the application.
+/// The platform already resolves the user's download folder and
+/// the file name the server suggested, so keep that choice and only add the
+/// guard it lacks: a name that carries directories of its own is reduced to
+/// its last component, and a rebuilt name is numbered rather than overwriting
+/// an earlier download.
+fn download_destination(folder: &std::path::Path, suggested: &std::path::Path) -> PathBuf {
+    if suggested.parent() == Some(folder) {
+        return suggested.to_path_buf();
+    }
+    let name = suggested
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "download".into());
+    let bare = std::path::Path::new(&name);
+    let stem = bare
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "download".into());
+    let extension = bare
+        .extension()
+        .map(|extension| format!(".{}", extension.to_string_lossy()))
+        .unwrap_or_default();
+    let mut candidate = folder.join(&name);
+    for attempt in 2..1000 {
+        if !candidate.exists() {
+            break;
+        }
+        candidate = folder.join(format!("{stem} ({attempt}){extension}"));
+    }
+    candidate
+}
+
 #[tauri::command]
 async fn connect_host(
     window: tauri::WebviewWindow,
@@ -1076,5 +1130,53 @@ mod file_location_tests {
         let link = root.path().join("external");
         std::os::unix::fs::symlink(outside.path(), &link).unwrap();
         assert!(reveal_target(&link, Some(root.path()), None).is_err());
+    }
+}
+
+#[cfg(test)]
+mod download_tests {
+    use super::download_destination;
+    use std::path::Path;
+
+    #[test]
+    fn downloads_keep_the_platform_name_but_never_leave_the_download_folder() {
+        let temporary = tempfile::tempdir().unwrap();
+        let folder = temporary.path();
+        // The folder and name the platform resolved are kept untouched.
+        let suggested = folder.join("backup-20261019-180000-ab12cd34.zip");
+        assert_eq!(download_destination(folder, &suggested), suggested);
+        // Names the server sends are preserved verbatim, including non-ASCII.
+        assert_eq!(
+            download_destination(folder, Path::new("/tmp/库存-20261019.csv")),
+            folder.join("库存-20261019.csv")
+        );
+        // A name carrying directories of its own cannot write outside.
+        assert_eq!(
+            download_destination(folder, &folder.join("../../etc/passwd")),
+            folder.join("passwd")
+        );
+        assert_eq!(
+            download_destination(folder, Path::new("/tmp/elsewhere/items.csv")),
+            folder.join("items.csv")
+        );
+        assert_eq!(
+            download_destination(folder, Path::new("/")),
+            folder.join("download")
+        );
+        // A rebuilt name is numbered instead of replacing an earlier file.
+        std::fs::write(folder.join("items.csv"), "one").unwrap();
+        assert_eq!(
+            download_destination(folder, Path::new("/tmp/items.csv")),
+            folder.join("items (2).csv")
+        );
+        std::fs::write(folder.join("items (2).csv"), "two").unwrap();
+        assert_eq!(
+            download_destination(folder, Path::new("/tmp/items.csv")),
+            folder.join("items (3).csv")
+        );
+        assert_eq!(
+            std::fs::read_to_string(folder.join("items.csv")).unwrap(),
+            "one"
+        );
     }
 }

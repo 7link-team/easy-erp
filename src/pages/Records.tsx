@@ -101,6 +101,7 @@ export default function Records({
             <a
               className="button"
               href={`/api/export/${tab}?format=csv&q=${encodeURIComponent(query)}&kind=${encodeURIComponent(tab === "documents" ? kind : auditKind)}${tab === "documents" && itemId ? `&item_id=${encodeURIComponent(itemId)}` : ""}`}
+              download
             >
               导出 CSV
             </a>

@@ -304,6 +304,7 @@ export default function Inventory({
               <a
                 className="button"
                 href={`/api/export/items?format=csv&q=${encodeURIComponent(debounced)}&kind=${encodeURIComponent(kind)}&status=${encodeURIComponent(status)}&sort=${encodeURIComponent(sort)}${focusedItem ? `&ids=${encodeURIComponent(focusedItem)}` : ""}`}
+                download
               >
                 导出 CSV
               </a>

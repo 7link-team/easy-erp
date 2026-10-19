@@ -3502,6 +3502,7 @@ export default function Sales({
                   key={format}
                   className="button"
                   href={`/api/export/${visibleConfigKind}?format=${format}${view === "customers" ? `&q=${encodeURIComponent(customerSearch)}&customer_id=${encodeURIComponent(focusedCustomer)}` : ""}`}
+                  download
                 >
                   导出 {format === "csv" ? "CSV" : "Excel"}
                 </a>
@@ -3526,6 +3527,7 @@ export default function Sales({
                   <a
                     className="button"
                     href={`/api/export/sales?format=csv&q=${encodeURIComponent(query)}&status=${encodeURIComponent(listStatus)}&from=${encodeURIComponent(listFrom)}&to=${encodeURIComponent(listTo)}`}
+                    download
                   >
                     导出 CSV
                   </a>

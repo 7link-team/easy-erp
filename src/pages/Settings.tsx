@@ -313,6 +313,7 @@ export default function Settings({
                             className="button small"
                             aria-label={`下载完整备份 ${b.name}`}
                             href={`/api/backups/${encodeURIComponent(b.name)}`}
+                            download
                           >
                             下载完整备份
                           </a>
