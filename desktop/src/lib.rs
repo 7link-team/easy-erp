@@ -1,5 +1,5 @@
 mod browser_address;
-#[cfg(all(desktop, any(windows, test)))]
+#[cfg(all(desktop, any(windows, target_os = "macos", test)))]
 mod data_location;
 #[cfg(desktop)]
 mod desktop;
