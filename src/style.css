@@ -817,3 +817,4 @@ td small {
 .system-information { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 16px; }
 .system-information dt { font-weight: 600; }
 .system-information dd { margin: 6px 0 0; overflow-wrap: anywhere; }
+.summary-picture { display: block; max-width: 100%; margin-inline: auto; border: 1px solid var(--border); }

@@ -83,6 +83,7 @@ const DatabaseSetup = lazy(() => import("./DatabaseSetup"));
 const Inventory = lazy(() => import("./pages/Inventory"));
 const Movement = lazy(() => import("./pages/Movement"));
 const Records = lazy(() => import("./pages/Records"));
+const SummaryPage = lazy(() => import("./pages/Summary"));
 const Stocktakes = lazy(() => import("./pages/Stocktakes"));
 const Users = lazy(() => import("./pages/Users"));
 const SettingsPage = lazy(() => import("./pages/Settings"));
@@ -632,6 +633,7 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
   /* 手机底栏只放 5 个最高频入口，其余走「更多」。清单只在这里定义一次。 */
   const secondary = [
     "sales",
+    "summary",
     "customers",
     "movement",
     "stocktakes",
@@ -666,6 +668,10 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
       : []),
     ...(can(user, "records.read")
       ? [{ id: "records", label: "记录", icon: ClipboardList }]
+      : []),
+    ...((can(user, "records.read") && can(user, "items.read")) ||
+    can(user, "sales.read")
+      ? [{ id: "summary", label: "汇总", icon: ChartNoAxesCombined }]
       : []),
     ...(can(user, "finance.read")
       ? [
@@ -734,7 +740,13 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
             {
               label: "库存",
               domain: "stock",
-              ids: ["inventory", "movement", "stocktakes", "records"],
+              ids: [
+                "inventory",
+                "movement",
+                "stocktakes",
+                "records",
+                "summary",
+              ],
             },
             {
               label: "财务",
@@ -1035,6 +1047,11 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
                 refresh={refresh}
               />
             )}
+            {page === "summary" &&
+              ((can(user, "records.read") && can(user, "items.read")) ||
+                can(user, "sales.read")) && (
+                <SummaryPage user={user} revision={revision} />
+              )}
             {page === "stocktakes" && can(user, "stocktake.read") && (
               <Stocktakes user={user} revision={revision} refresh={refresh} />
             )}

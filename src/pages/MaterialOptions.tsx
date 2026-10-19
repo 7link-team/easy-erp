@@ -32,7 +32,12 @@ const sourceLabels: Record<string, string> = {
   auto: "自动收录",
   import: "表格导入",
 };
-const labels = { spec: "常用规格", kind: "物料分类", unit: "计量单位" };
+const labels = {
+  spec: "常用规格",
+  kind: "物料分类",
+  unit: "计量单位",
+  team: "入库小组",
+};
 export default function MaterialOptions({
   user,
   field,

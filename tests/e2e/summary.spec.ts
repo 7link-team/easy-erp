@@ -1,0 +1,283 @@
+import { test, expect, type APIRequestContext } from "@playwright/test";
+import { randomUUID } from "node:crypto";
+import { chooseSelect } from "./controls";
+
+const headers = { "X-ERP-Request": "1" };
+const credentials = { username: "manager", password: "Factory-test-2026" };
+
+async function post(request: APIRequestContext, path: string, data: object) {
+  const response = await request.post(`/api${path}`, { headers, data });
+  expect(response.ok(), `${path}: ${await response.text()}`).toBeTruthy();
+  return response.json();
+}
+
+test.beforeEach(async ({ page }) => {
+  if (!(await (await page.request.get("/api/status")).json()).initialized)
+    await post(page.request, "/setup", { ...credentials, name: "管理员" });
+  await post(page.request, "/login", credentials);
+});
+
+test("期间汇总逐款列出数量金额并合计，按小组与方向分别统计，作废不计入，可导出图片", async ({
+  page,
+}) => {
+  const tag = randomUUID().slice(0, 8);
+  const spec = `7.5×${tag}`;
+  const groups = [`甲组-${tag}`, `乙组-${tag}`];
+  for (const name of groups)
+    await post(page.request, "/material-options", { field: "team", name });
+  const bolt = await post(page.request, "/items", {
+    name: `螺丝-${tag}`,
+    spec,
+    kind: "成品",
+    unit: "个",
+    precision: 0,
+    cost_price: "10",
+  });
+  const washer = await post(page.request, "/items", {
+    name: `垫片-${tag}`,
+    spec: `3.0×${tag}`,
+    kind: "成品",
+    unit: "个",
+    precision: 0,
+    cost_price: "2.5",
+  });
+  const unpriced = await post(page.request, "/items", {
+    name: `未定价-${tag}`,
+    spec: `9.9×${tag}`,
+    kind: "成品",
+    unit: "个",
+    precision: 0,
+  });
+  const receipt = (item: string, quantity: string, team: string) =>
+    post(page.request, "/movements", {
+      request_id: randomUUID(),
+      kind: "receipt",
+      team,
+      lines: [{ item_id: item, quantity }],
+    });
+  // 甲组 produced 5 bolts worth ¥50; 乙组 4 washers worth ¥10.
+  await receipt(bolt.id, "2", groups[0]);
+  await receipt(bolt.id, "3", groups[0]);
+  await receipt(washer.id, "4", groups[1]);
+  await receipt(unpriced.id, "7", groups[1]);
+
+  // A group only describes where incoming goods came from.
+  const outgoing = await page.request.post("/api/movements", {
+    headers,
+    data: {
+      request_id: randomUUID(),
+      kind: "issue",
+      team: groups[0],
+      lines: [{ item_id: bolt.id, quantity: "1" }],
+    },
+  });
+  expect(outgoing.status()).toBe(400);
+  expect(await outgoing.text()).toContain("只有入库记录可以选择小组");
+
+  const summary = async (query: string) =>
+    (await page.request.get(`/api/documents/summary?${query}`)).json();
+  const scoped = `q=${encodeURIComponent(tag)}`;
+  let totals = await summary(`kind=in&${scoped}`);
+  expect(totals.total_value).toBe("60.00");
+  expect(totals.unpriced_items).toBe(1);
+  expect(
+    totals.materials.map(
+      (m: { name: string; quantity: number; value: string | null }) => [
+        m.name,
+        m.quantity,
+        m.value,
+      ],
+    ),
+  ).toEqual([
+    [`螺丝-${tag}`, 5000, "50.00"],
+    [`垫片-${tag}`, 4000, "10.00"],
+    [`未定价-${tag}`, 7000, null],
+  ]);
+  expect(
+    totals.teams.map((t: { team: string; value: string }) => [t.team, t.value]),
+  ).toEqual([
+    [groups[0], "50.00"],
+    [groups[1], "10.00"],
+  ]);
+
+  // The keyword reaches the specification, which is how operators look a size up.
+  totals = await summary(`kind=in&q=${encodeURIComponent(spec)}`);
+  expect(totals.total_value).toBe("50.00");
+  expect(totals.materials).toHaveLength(1);
+
+  totals = await summary(
+    `kind=in&${scoped}&team=${encodeURIComponent(groups[1])}`,
+  );
+  expect(totals.total_value).toBe("10.00");
+
+  totals = await summary(`kind=out&${scoped}`);
+  expect(totals.total_value).toBe("0.00");
+  expect(totals.materials).toHaveLength(0);
+
+  // Local components, not toISOString: the period is a local calendar day, and
+  // in a zone ahead of UTC the UTC date is still yesterday.
+  const next = new Date();
+  next.setDate(next.getDate() + 1);
+  const tomorrow = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-${String(next.getDate()).padStart(2, "0")}`;
+  totals = await summary(`kind=in&${scoped}&from=${tomorrow}`);
+  expect(totals.materials).toHaveLength(0);
+  // A bad date and a missing direction are different refusals; keep them apart
+  // so one cannot hide the other.
+  expect(
+    (
+      await page.request.get("/api/documents/summary?kind=in&from=2026/10/01")
+    ).status(),
+  ).toBe(400);
+  const directionless = await page.request.get("/api/documents/summary");
+  expect(directionless.status()).toBe(400);
+  expect(await directionless.text()).toContain("请选择入库、出库或销售");
+
+  // Cancelling a record must remove both it and its reversal from the period.
+  const voided = await receipt(bolt.id, "9", groups[0]);
+  expect((await summary(`kind=in&${scoped}`)).total_value).toBe("150.00");
+  await post(page.request, `/documents/${voided.id}/void`, {
+    reason: "汇总验收作废",
+  });
+  expect((await summary(`kind=in&${scoped}`)).total_value).toBe("60.00");
+
+  // The session from the API login is shared with the page context.
+  await page.goto("/");
+  await page
+    .getByRole("navigation", { name: /^(主要导航|更多功能)$/ })
+    .getByRole("link", { name: "汇总", exact: true })
+    .click();
+  await page.getByLabel("搜索汇总").fill(tag);
+  const rows = page
+    .getByRole("table", { name: "汇总列表" })
+    .locator("tbody tr");
+  await expect(rows).toHaveCount(3);
+  await expect(page.getByText("¥60.00")).toBeVisible();
+  await expect(page.getByText("未设置成本价", { exact: false })).toBeVisible();
+
+  // One menu, one page: the summary keeps its own address.
+  expect(new URL(page.url()).hash).toBe("#/summary");
+
+  await page.getByRole("button", { name: "导出图片", exact: true }).click();
+  const picture = page.getByRole("dialog", { name: /汇总图片$/ });
+  await expect(picture.getByRole("img")).toHaveAttribute(
+    "src",
+    /^data:image\/png;base64,/,
+  );
+  await expect(
+    picture.getByRole("link", { name: "保存图片", exact: true }),
+  ).toHaveAttribute("download", /\.png$/);
+});
+
+test("销售汇总按客户给出金额与合计，期间之外的单据不计入", async ({ page }) => {
+  const tag = randomUUID().slice(0, 8);
+  const buyer = async (name: string) =>
+    post(page.request, "/sales/catalog", { kind: "customer", name });
+  const first = await buyer(`大客户-${tag}`);
+  const second = await buyer(`小客户-${tag}`);
+  const goods = await post(page.request, "/items", {
+    name: `销售物料-${tag}`,
+    spec: `S-${tag}`,
+    kind: "成品",
+    unit: "个",
+    precision: 0,
+    cost_price: "1",
+  });
+  await post(page.request, "/movements", {
+    request_id: randomUUID(),
+    kind: "receipt",
+    lines: [{ item_id: goods.id, quantity: "100" }],
+  });
+  const sell = (customer: string, price: string, date: string) =>
+    post(page.request, "/sales/commands", {
+      request_id: randomUUID(),
+      action: "confirm",
+      input: {
+        customer_id: customer,
+        type_id: "sale",
+        business_date: date,
+        lines: [{ item_id: goods.id, quantity: "1", price }],
+      },
+    });
+  await sell(first.id, "30", "2026-03-10");
+  await sell(first.id, "20", "2026-03-11");
+  await sell(second.id, "5", "2026-03-12");
+  // Outside the period below, so it must not reach the total.
+  await sell(second.id, "999", "2026-04-01");
+
+  const summary = async (query: string) =>
+    (await page.request.get(`/api/sales/summary?${query}`)).json();
+  const inside = await summary(
+    `q=${encodeURIComponent(tag)}&from=2026-03-01&to=2026-03-31`,
+  );
+  expect(inside.total_amount).toBe("55.00");
+  expect(inside.count).toBe(3);
+  expect(
+    inside.customers.map(
+      (c: { name: string; count: number; amount: string }) => [
+        c.name,
+        c.count,
+        c.amount,
+      ],
+    ),
+  ).toEqual([
+    [`大客户-${tag}`, 2, "50.00"],
+    [`小客户-${tag}`, 1, "5.00"],
+  ]);
+  // Widening the period picks the excluded document back up.
+  expect(
+    (
+      await summary(
+        `q=${encodeURIComponent(tag)}&from=2026-03-01&to=2026-04-30`,
+      )
+    ).total_amount,
+  ).toBe("1054.00");
+
+  // The application keeps its query before the hash route.
+  await page.goto(
+    "/?summary_kind=sales&summary_from=2026-03-01&summary_to=2026-03-31#/summary",
+  );
+  await page.getByLabel("搜索汇总").fill(tag);
+  const rows = page
+    .getByRole("table", { name: "汇总列表" })
+    .locator("tbody tr");
+  await expect(rows).toHaveCount(2);
+  await expect(page.getByText("¥55.00")).toBeVisible();
+  await expect(
+    page.getByRole("columnheader", { name: "销售额" }),
+  ).toBeVisible();
+});
+
+test("入库小组可在基础资料里维护，建好后入库表单与汇总筛选才出现", async ({
+  page,
+}) => {
+  const tag = randomUUID().slice(0, 8);
+  const group = `丙组-${tag}`;
+  await page.goto("/#/catalog");
+  // Without a section here the whole group feature is unreachable: both the
+  // stock-in selector and the summary filter only render once a group exists.
+  await page.getByRole("tab", { name: "入库小组", exact: true }).click();
+  await page.getByRole("button", { name: "新增入库小组", exact: true }).click();
+  const dialog = page.getByRole("dialog", {
+    name: "新增入库小组",
+    exact: true,
+  });
+  await dialog.getByLabel("选项名称", { exact: false }).fill(group);
+  await dialog.getByRole("button", { name: "保存选项", exact: true }).click();
+  await expect(
+    page.getByRole("table", { name: "入库小组列表" }).locator("tbody tr"),
+  ).toContainText([group]);
+
+  await page.goto("/#/summary");
+  const filter = page.getByRole("combobox", { name: "小组", exact: false });
+  await expect(filter).toBeVisible();
+  await chooseSelect(filter, group);
+  await expect(filter).toContainText(group);
+
+  // The stock-in form goes last: choosing a group marks it unsaved, and the
+  // navigation guard would then hold a hash navigation behind its own dialog.
+  await page.goto("/#/in");
+  const selector = page.getByRole("combobox", { name: "小组", exact: false });
+  await expect(selector).toBeVisible();
+  await chooseSelect(selector, group);
+  await expect(selector).toContainText(group);
+});

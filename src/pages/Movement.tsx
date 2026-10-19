@@ -10,7 +10,15 @@ import {
   quantity,
   movementLabels,
 } from "../api";
-import { Empty, Field, Notice, Submit, form, useAction } from "../components";
+import {
+  Empty,
+  Field,
+  Notice,
+  Submit,
+  form,
+  useAction,
+  useResource,
+} from "../components";
 import ItemPicker from "../ItemPicker";
 
 export default function Movement({
@@ -33,6 +41,7 @@ export default function Movement({
   );
   const [kind, setKind] = useState(direction === "in" ? "receipt" : "issue");
   const [person, setPerson] = useState("");
+  const [team, setTeam] = useState("");
   const [note, setNote] = useState("");
   const [result, setResult] = useState<{ number: string; lines: Line[] }>();
   const request = useRef<{ fingerprint: string; id: string } | undefined>(
@@ -93,12 +102,21 @@ export default function Movement({
     (pendingLine ||
       selected.some((line) => line.value !== "") ||
       person !== "" ||
+      team !== "" ||
       note !== "");
   useEffect(() => {
     onDirtyChange(hasChanges);
     return () => onDirtyChange(false);
   }, [hasChanges, onDirtyChange]);
   const incoming = direction === "in";
+  // Groups are a list each deployment maintains, never names baked into the
+  // build, and only an incoming record needs them.
+  const options = useResource<{
+    items: { field: string; name: string; active?: boolean }[];
+  }>(incoming ? "/material-options" : undefined);
+  const teams = (options.data?.items ?? [])
+    .filter((option) => option.field === "team" && option.active !== false)
+    .map((option) => option.name);
   const choices = incoming
     ? [
         "receipt",
@@ -169,6 +187,9 @@ export default function Movement({
               const payload = {
                 kind,
                 person,
+                // Only an incoming record carries a group; the server refuses
+                // one on an outgoing record.
+                team: incoming ? team : "",
                 note,
                 lines: selected.map((line) => ({
                   item_id: line.item.id,
@@ -332,6 +353,27 @@ export default function Movement({
                   </Select>
                 )}
               </Field>
+              {incoming && teams.length > 0 && (
+                <Field
+                  label="小组"
+                  help="入库归属的生产小组或外部来源，用于按小组统计产量。"
+                >
+                  {(p) => (
+                    <Select
+                      {...p}
+                      value={team}
+                      onChange={(e) => setTeam(e.target.value)}
+                    >
+                      <option value="">不分小组</option>
+                      {teams.map((name) => (
+                        <option key={name} value={name}>
+                          {name}
+                        </option>
+                      ))}
+                    </Select>
+                  )}
+                </Field>
+              )}
               <Field
                 label={kind === "issue" ? "领用人" : incoming ? "来源" : "去向"}
                 help="实际领走或送来物料的人。本次操作记录始终保留当前登录人的姓名。"

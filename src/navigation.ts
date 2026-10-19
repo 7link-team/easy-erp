@@ -10,6 +10,7 @@ export const catalogSections: Record<string, string> = {
   kind: "物料分类",
   unit: "计量单位",
   spec: "常用规格",
+  team: "入库小组",
   company: "公司信息",
   settings: "开单与打印设置",
 };
@@ -32,6 +33,7 @@ const pages = [
   "customers",
   "catalog",
   "records",
+  "summary",
   "movement",
   "stocktakes",
   "users",

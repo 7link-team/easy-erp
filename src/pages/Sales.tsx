@@ -3405,7 +3405,7 @@ export default function Sales({
       ? "customers"
       : visibleConfigKind === "account"
         ? "accounts"
-        : ["spec", "kind", "unit"].includes(visibleConfigKind)
+        : ["spec", "kind", "unit", "team"].includes(visibleConfigKind)
           ? "options"
           : "catalog";
   const configOrder = useDictionaryOrder(
@@ -3949,13 +3949,14 @@ export default function Sales({
                   "kind",
                   "unit",
                   "spec",
+                  "team",
                   "company",
                   "settings",
                 ]
                   .filter((k) =>
                     can(
                       user,
-                      `${["spec", "kind", "unit"].includes(k) ? "options" : k === "account" ? "accounts" : "catalog"}.read`,
+                      `${["spec", "kind", "unit", "team"].includes(k) ? "options" : k === "account" ? "accounts" : "catalog"}.read`,
                     ),
                   )
                   .map((k) => (
@@ -3966,7 +3967,7 @@ export default function Sales({
                         aria-hidden="true"
                         hidden={k === "settings"}
                       >
-                        {["spec", "kind", "unit"].includes(k)
+                        {["spec", "kind", "unit", "team"].includes(k)
                           ? options.loading || options.error
                             ? "—"
                             : (options.data?.items.filter((o) => o.field === k)
@@ -4000,7 +4001,9 @@ export default function Sales({
                     onDone={catalogCreated}
                   />
                 )
-              ) : ["spec", "kind", "unit"].includes(visibleConfigKind) ? (
+              ) : ["spec", "kind", "unit", "team"].includes(
+                  visibleConfigKind,
+                ) ? (
                 <MaterialOptions
                   key={visibleConfigKind}
                   user={user}
