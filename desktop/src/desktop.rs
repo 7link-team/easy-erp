@@ -41,7 +41,16 @@ pub(crate) fn data_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
             .join("EasyErp");
         crate::data_location::select(&preferred, &legacy)
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        let preferred = app
+            .path()
+            .home_dir()
+            .map_err(|e| e.to_string())?
+            .join(".EasyERP");
+        crate::data_location::select_macos(&preferred, &legacy)
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     Ok(legacy)
 }
 fn launcher_origin_allowed(url: &url::Url, dev_url: Option<&url::Url>) -> bool {
@@ -200,7 +209,7 @@ pub(crate) async fn open_business(
             "local": false,
             "remote": { "urls": [format!("{}/*", url.origin().ascii_serialization())] },
             "windows": ["inventory"],
-            "permissions": ["allow-open-web-address", "allow-open-data-maintenance", "allow-print-document", "allow-update-info", "allow-check-update", "allow-set-update-channel", "allow-download-update", "allow-install-update"]
+            "permissions": ["allow-file-locations", "allow-reveal-file", "allow-open-web-address", "allow-open-data-maintenance", "allow-print-document", "allow-update-info", "allow-check-update", "allow-set-update-channel", "allow-download-update", "allow-install-update"]
         })
         .to_string(),
     )
@@ -417,6 +426,33 @@ async fn resume_last(window: tauri::WebviewWindow, app: tauri::AppHandle) -> Res
     Ok(true)
 }
 
+// Closing maintenance must not reconnect: doing so would destroy the current
+// business window and lose its route or unsaved work.
+#[tauri::command]
+fn close_data_maintenance(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+) -> Result<bool, String> {
+    trusted(&window)?;
+    if app
+        .state::<Runtime>()
+        .recovery_busy
+        .load(std::sync::atomic::Ordering::SeqCst)
+    {
+        return Err("维护正在执行，请稍后关闭。".into());
+    }
+    if let Some(business) = app.get_webview_window("inventory") {
+        business.unminimize().map_err(|e| e.to_string())?;
+        business.show().map_err(|e| e.to_string())?;
+        business.set_focus().map_err(|e| e.to_string())?;
+        window.hide().map_err(|e| e.to_string())?;
+        return Ok(true);
+    }
+    // No business window after startup failure or offline maintenance: leave
+    // the existing connection controls available, without starting a service.
+    Ok(false)
+}
+
 #[tauri::command]
 fn show_launcher(window: tauri::WebviewWindow) -> Result<(), String> {
     trusted(&window)?;
@@ -501,6 +537,220 @@ async fn print_document(window: tauri::WebviewWindow, app: tauri::AppHandle) -> 
         return Err("当前窗口没有打印权限。".into());
     }
     window.print().map_err(|e| format!("无法打开系统打印：{e}"))
+}
+
+// Business content may only reveal this installation's local data, never a
+// remote server's path or an arbitrary path supplied by web content.
+fn local_path_access(
+    window: &tauri::WebviewWindow,
+    app: &tauri::AppHandle,
+) -> Result<bool, String> {
+    if trusted(window).is_ok() {
+        return Ok(true);
+    }
+    let source = app
+        .state::<Runtime>()
+        .url
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or("请先连接库存电脑。")?;
+    if window.label() != "inventory"
+        || window.url().map_err(|e| e.to_string())?.origin() != source.origin()
+    {
+        return Err("当前窗口没有查看本机文件的权限。".into());
+    }
+    Ok(
+        Preferences::load(&config_path(app)?)?.mode == Some(Mode::Local)
+            && source.as_str() == LOCAL_URL,
+    )
+}
+
+#[tauri::command]
+fn file_locations(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+) -> Result<serde_json::Value, String> {
+    if !local_path_access(&window, &app)? {
+        return Ok(serde_json::json!({"local": false, "items": []}));
+    }
+    let dir = data_dir(&app)?;
+    let config = config_path(&app)?;
+    let mut items = vec![
+        serde_json::json!({"label": "本机数据目录", "path": dir}),
+        serde_json::json!({"label": "连接配置", "path": config}),
+        serde_json::json!({"label": "配置目录", "path": config.parent()}),
+    ];
+    for (label, name) in [
+        ("数据库配置", "database.json"),
+        ("本机数据库", "inventory.sqlite"),
+        ("服务日志", "server.log"),
+        ("本机备份目录", "backups"),
+    ] {
+        let path = dir.join(name);
+        if path.exists() {
+            items.push(serde_json::json!({"label": label, "path": path}));
+        }
+    }
+    for (label, name) in [
+        ("更新渠道配置", "update-channel.json"),
+        ("稳定版更新检查记录", "update-check-stable.json"),
+        ("测试版更新检查记录", "update-check-preview.json"),
+    ] {
+        let path = config.parent().unwrap().join(name);
+        if path.exists() {
+            items.push(serde_json::json!({"label":label, "path":path}));
+        }
+    }
+    for item in &mut items {
+        if let Some(path) = item["path"].as_str().map(PathBuf::from) {
+            if let Ok(metadata) = path.metadata() {
+                item["exists"] = serde_json::json!(true);
+                item["size"] = if metadata.is_file() {
+                    serde_json::json!(metadata.len())
+                } else {
+                    serde_json::Value::Null
+                };
+                item["modified"] = serde_json::json!(
+                    metadata
+                        .modified()
+                        .ok()
+                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|t| t.as_millis() as u64)
+                );
+            } else {
+                item["exists"] = serde_json::json!(false);
+            }
+        }
+    }
+    let details = serde_json::json!([
+        {"label":"桌面版本", "value":app.package_info().version.to_string()},
+        {"label":"开机启动", "value":match app.autolaunch().is_enabled() { Ok(true) => "开启", Ok(false) => "关闭", Err(_) => "无法读取" }},
+        {"label":"更新渠道", "value":crate::update_channel::Channel::load(&config.parent().unwrap().join("update-channel.json")).map(|c| match c { crate::update_channel::Channel::Stable => "稳定版", crate::update_channel::Channel::Preview => "测试版" }).unwrap_or("无法读取")}
+    ]);
+    Ok(serde_json::json!({"local": true, "items": items, "details":details}))
+}
+
+fn reveal_target(
+    path: &std::path::Path,
+    root: Option<&std::path::Path>,
+    config: Option<&std::path::Path>,
+) -> Result<PathBuf, String> {
+    if !path.is_absolute() {
+        return Err("只能查看本机的绝对文件路径。".into());
+    }
+    let target = path
+        .canonicalize()
+        .map_err(|e| format!("路径不存在或无法访问：{e}"))?;
+    if let Some(root) = root {
+        let within = root
+            .canonicalize()
+            .is_ok_and(|root| target.starts_with(root));
+        let is_config = config.and_then(|p| p.parent()).is_some_and(|dir| {
+            dir.canonicalize().is_ok_and(|p| p == target)
+                || [
+                    "connection.json",
+                    "update-channel.json",
+                    "update-check-stable.json",
+                    "update-check-preview.json",
+                ]
+                .iter()
+                .any(|name| dir.join(name).canonicalize().is_ok_and(|p| p == target))
+        });
+        if !within && !is_config {
+            return Err("只能查看当前本机库存的数据文件。".into());
+        }
+    }
+    if !target.is_file() && !target.is_dir() {
+        return Err("该路径不是普通文件或目录。".into());
+    }
+    Ok(target)
+}
+
+#[tauri::command]
+async fn reveal_file(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    path: String,
+) -> Result<(), String> {
+    if !local_path_access(&window, &app)? {
+        return Err("这是远程库存电脑的路径，请到对应电脑查看。".into());
+    }
+    let launcher = trusted(&window).is_ok();
+    let root = data_dir(&app)?;
+    let config = config_path(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let target = reveal_target(
+            std::path::Path::new(&path),
+            (!launcher).then_some(root.as_path()),
+            Some(&config),
+        )
+        .or_else(|error| {
+            if !launcher
+                && let Some(storage) =
+                    std::env::var_os("ERP_STORAGE_LOCAL_DIR").filter(|v| !v.is_empty())
+            {
+                return reveal_target(
+                    std::path::Path::new(&path),
+                    Some(std::path::Path::new(&storage)),
+                    Some(&config),
+                );
+            }
+            Err(error)
+        })?;
+        #[cfg(target_os = "macos")]
+        let mut command = {
+            let mut c = Command::new("open");
+            if target.is_file() {
+                c.arg("-R");
+            }
+            c.arg(&target);
+            c
+        };
+        #[cfg(target_os = "windows")]
+        let mut command = {
+            use std::os::windows::process::CommandExt;
+            let mut c = Command::new("explorer.exe");
+            // Open the containing directory without ever executing the file.
+            c.arg(if target.is_dir() {
+                target.as_path()
+            } else {
+                target.parent().unwrap()
+            });
+            c.creation_flags(0x08000000);
+            c
+        };
+        #[cfg(target_os = "linux")]
+        let mut command = {
+            let mut c = Command::new("xdg-open");
+            c.arg(if target.is_dir() {
+                target.as_path()
+            } else {
+                target.parent().unwrap()
+            });
+            c
+        };
+        #[cfg(target_os = "windows")]
+        {
+            // Explorer can hand off to an existing process and return a nonzero
+            // status despite success; only report whether launching succeeded.
+            command
+                .spawn()
+                .map_err(|e| format!("无法打开文件管理器：{e}"))?;
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let status = command
+                .status()
+                .map_err(|e| format!("无法打开文件管理器：{e}"))?;
+            if !status.success() {
+                return Err("文件管理器未能打开该路径。".into());
+            }
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -675,6 +925,9 @@ pub fn run() {
             show_launcher,
             open_browser,
             open_data_maintenance,
+            close_data_maintenance,
+            file_locations,
+            reveal_file,
             open_web_address,
             print_document,
             updates::update_info,
@@ -783,4 +1036,45 @@ pub fn run() {
                 show_app(_app);
             }
         });
+}
+
+#[cfg(test)]
+mod file_location_tests {
+    use super::reveal_target;
+    use std::path::Path;
+
+    #[test]
+    fn reveal_requires_existing_absolute_path_within_local_scope() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let file = root.path().join("备份 with spaces.zip");
+        std::fs::write(&file, "test").unwrap();
+        assert_eq!(
+            reveal_target(&file, Some(root.path()), None).unwrap(),
+            file.canonicalize().unwrap()
+        );
+        assert!(reveal_target(root.path(), Some(root.path()), None).is_ok());
+        assert!(reveal_target(Path::new("relative.zip"), None, None).is_err());
+        assert!(reveal_target(&root.path().join("missing.zip"), None, None).is_err());
+        assert!(reveal_target(Path::new("s3://bucket/backup.zip"), None, None).is_err());
+        assert!(reveal_target(outside.path(), Some(root.path()), None).is_err());
+        let config = outside.path().join("connection.json");
+        std::fs::write(&config, "{}").unwrap();
+        assert!(reveal_target(&config, Some(root.path()), Some(&config)).is_ok());
+        assert!(reveal_target(outside.path(), Some(root.path()), Some(&config)).is_ok());
+        let other = outside.path().join("not-allowed.json");
+        std::fs::write(&other, "{}").unwrap();
+        assert!(reveal_target(&other, Some(root.path()), Some(&config)).is_err());
+        assert!(reveal_target(&config, None, None).is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reveal_rejects_symlink_escape() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let link = root.path().join("external");
+        std::os::unix::fs::symlink(outside.path(), &link).unwrap();
+        assert!(reveal_target(&link, Some(root.path()), None).is_err());
+    }
 }

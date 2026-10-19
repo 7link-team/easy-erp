@@ -1,6 +1,8 @@
 fn main() {
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
         tauri_build::AppManifest::new().commands(&[
+            "file_locations",
+            "reveal_file",
             "recovery_list",
             "recovery_select_backup",
             "recovery_execute",
@@ -13,6 +15,7 @@ fn main() {
             "open_browser",
             "open_web_address",
             "open_data_maintenance",
+            "close_data_maintenance",
             "print_document",
             "update_info",
             "check_update",

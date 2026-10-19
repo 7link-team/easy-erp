@@ -109,17 +109,16 @@
         <p id="recovery-remote" class="warning" hidden>
           当前连接的是远程库存电脑。以下操作只影响本机路径，不影响远程主机。
         </p>
-        <p>
-          本机数据：<strong id="recovery-data-dir"></strong
-          ><br />本机备份：<span id="recovery-backups-dir"></span>
-        </p>
+        <div id="recovery-data-dir"></div>
+        <div id="recovery-backups-dir"></div>
+        <div id="recovery-locations" aria-label="本机文件位置"></div>
         <label for="recovery-action">维护操作</label>
         <select id="recovery-action" name="recovery-action" autocomplete="off">
           <option value="reset">清空数据（不含备份数据）</option>
           <option value="restore">从备份恢复全部数据</option>
           <option value="clear-backups">清空本机全部备份</option>
         </select>
-        <p id="recovery-description" class="warning"></p>
+        <p id="recovery-description" class="danger-warning" role="alert"></p>
         <div id="recovery-source" hidden>
           <label for="recovery-backup">选择本机备份</label>
           <select
@@ -161,6 +160,24 @@
           <button id="recovery-submit" class="danger" disabled>执行维护</button>
           <button id="recovery-refresh" class="secondary">刷新备份</button>
           <button id="recovery-close" class="secondary">关闭</button>
+        </div>
+      </dialog>
+      <dialog
+        id="recovery-final"
+        aria-labelledby="recovery-final-title"
+        aria-describedby="recovery-final-warning"
+      >
+        <h2 id="recovery-final-title">危险操作 · 最后确认</h2>
+        <p id="recovery-final-warning" class="danger-warning"></p>
+        <p id="recovery-final-target" class="file-location"></p>
+        <p>请确认已核对目标和备份。确认后立即执行，无法撤销。</p>
+        <div id="recovery-final-review" class="recovery-actions">
+          <button id="recovery-final-cancel" class="secondary" autofocus>
+            取消操作
+          </button>
+          <button id="recovery-final-next" class="danger">
+            确认风险，立即执行
+          </button>
         </div>
       </dialog>
     </main>

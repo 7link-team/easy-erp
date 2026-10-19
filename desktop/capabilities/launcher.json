@@ -6,6 +6,8 @@
   "windows": ["launcher"],
   "permissions": [
     "core:default",
+    "allow-file-locations",
+    "allow-reveal-file",
     "allow-recovery-list",
     "allow-recovery-select-backup",
     "allow-recovery-execute",
@@ -15,6 +17,7 @@
     "allow-start-local",
     "allow-resume-last",
     "allow-show-launcher",
+    "allow-close-data-maintenance",
     "allow-open-browser",
     "allow-update-info",
     "allow-check-update",

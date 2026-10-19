@@ -127,8 +127,10 @@ const recoveryBackup = document.querySelector("#recovery-backup");
 const recoveryStatus = document.querySelector("#recovery-status");
 let recoveryBusy = false;
 let recoveryLoaded = false;
+let returnToInventory = false;
 let externalBackup = "";
 let backups = [];
+let recoveryInfo;
 const recoveryActions = {
   reset: {
     phrase: "清空全部数据",
@@ -143,7 +145,7 @@ const recoveryActions = {
   "clear-backups": {
     phrase: "清空全部备份",
     description:
-      "仅删除本机备份目录中的全部备份，不可恢复。现有业务数据、图片、账号与设置不变，不会删除远程主机的备份。",
+      "删除本机配置的存储中的全部备份（包括已配置的 S3 对象存储），不可恢复。现有业务数据、图片、账号与设置不变。请核对存储位置，其他设备可能也在使用这些备份。",
   },
 };
 function updateRecovery() {
@@ -180,6 +182,48 @@ function formatBackupTime(backup) {
       }).format(date);
   return time;
 }
+function showPath(element, path, prefix = "") {
+  const content = document.createElement("span");
+  content.className = "file-location-content";
+  if (prefix) {
+    const label = document.createElement("strong");
+    label.className = "file-location-label";
+    label.textContent = prefix.replace(/：$/, "");
+    content.append(label);
+  }
+  const value = document.createElement("code");
+  value.className = "file-location-path";
+  value.textContent = path;
+  content.append(value);
+  element.replaceChildren(content);
+  element.classList.add("file-location");
+  if (!path || path.startsWith("s3://")) {
+    if (path)
+      element.append(
+        document.createTextNode("（对象存储，无法在本机文件管理器查看）"),
+      );
+    return;
+  }
+  const button = document.createElement("button");
+  button.className = "secondary";
+  button.textContent = "打开位置";
+  button.setAttribute("aria-label", `在文件管理器中查看 ${path}`);
+  button.addEventListener("click", async () => {
+    if (recoveryBusy) return;
+    setRecoveryBusy(true);
+    recoveryStatus.textContent = "正在打开文件管理器…";
+    try {
+      await invoke("reveal_file", { path });
+      recoveryStatus.textContent = "已请求打开文件管理器。";
+    } catch (error) {
+      recoveryStatus.textContent = String(error);
+    } finally {
+      setRecoveryBusy(false);
+    }
+  });
+  element.append(button);
+}
+
 async function loadRecovery() {
   if (recoveryBusy) return;
   setRecoveryBusy(true);
@@ -187,9 +231,45 @@ async function loadRecovery() {
   recoveryLoaded = false;
   try {
     const info = await invoke("recovery_list");
-    document.querySelector("#recovery-data-dir").textContent = info.data_dir;
-    document.querySelector("#recovery-backups-dir").textContent =
-      info.backups_dir;
+    recoveryInfo = info;
+    recoveryConfirm.value = "";
+    showPath(document.querySelector("#recovery-data-dir"), info.data_dir, "本机数据");
+    showPath(document.querySelector("#recovery-backups-dir"), info.backups_dir, "本机备份");
+    const locations = document.querySelector("#recovery-locations");
+    locations.replaceChildren();
+    const summary = document.createElement("p");
+    summary.textContent = `本机数据库文件：${info.has_data ? "已存在" : "未找到"} · 备份：${(info.items || []).length} 份${info.pending ? " · 检测到未完成维护，请先核对状态" : ""}`;
+    locations.append(summary);
+    for (const storage of info.storage_locations || []) {
+      for (const [label, path] of [
+        ["备份", storage.backups],
+        ["附件", storage.attachments],
+      ]) {
+        if (path === info.backups_dir) continue;
+        const row = document.createElement("p");
+        showPath(row, path, `${storage.kind} ${label}位置：`);
+        locations.append(row);
+      }
+    }
+    const files = await invoke("file_locations");
+    for (const item of files?.details || []) {
+      const row = document.createElement("p");
+      row.className = "file-location";
+      row.textContent = `${item.label}：${item.value}`;
+      locations.append(row);
+    }
+    for (const item of files?.items || []) {
+      if ([info.data_dir, info.backups_dir].includes(item.path)) continue;
+      const row = document.createElement("p");
+      showPath(row, item.path, `${item.label}：`);
+      if (item.exists !== undefined) {
+        const metadata = document.createElement("small");
+        metadata.className = "file-location-meta";
+        metadata.textContent = `${item.exists ? "已存在" : "尚未创建"}${item.size != null ? ` · ${item.size.toLocaleString()} 字节` : ""}${item.modified ? ` · 修改于 ${new Date(item.modified).toLocaleString("zh-CN")}` : ""}`;
+        row.querySelector(".file-location-content").append(metadata);
+      }
+      locations.append(row);
+    }
     document.querySelector("#recovery-remote").hidden = !info.remote_mode;
     backups = info.items || [];
     recoveryBackup.replaceChildren(
@@ -220,17 +300,27 @@ async function loadRecovery() {
     setRecoveryBusy(false);
   }
 }
-async function openRecovery() {
+async function openRecovery(fromInventory = false) {
   if (busy || recoveryBusy) return;
+  returnToInventory = fromInventory;
   recoveryConfirm.value = "";
   document.querySelector("#recovery-restart").checked = false;
   if (!recovery.open) recovery.showModal();
   await loadRecovery();
   recoveryAction.focus();
 }
-document.querySelector("#maintenance").addEventListener("click", openRecovery);
-window.__TAURI__.event.listen("open-recovery", openRecovery);
-recovery.addEventListener("close", () => {
+document.querySelector("#maintenance").addEventListener("click", () => openRecovery());
+window.__TAURI__.event.listen("open-recovery", () => openRecovery(true));
+recovery.addEventListener("close", async () => {
+  const shouldReturn = returnToInventory;
+  returnToInventory = false;
+  if (shouldReturn) {
+    try {
+      if (await invoke("close_data_maintenance")) return;
+    } catch (error) {
+      status.textContent = `无法返回库存窗口：${error}`;
+    }
+  }
   document.querySelector("#maintenance").focus();
 });
 recovery.addEventListener("focusin", (event) => {
@@ -252,12 +342,19 @@ recoveryAction.addEventListener("change", () => {
 });
 recoveryConfirm.addEventListener("input", updateRecovery);
 recoveryBackup.addEventListener("change", () => {
+  recoveryConfirm.value = "";
   externalBackup = "";
   document.querySelector("#recovery-external").textContent = "";
   const backup = backups.find((item) => item.path === recoveryBackup.value);
   document.querySelector("#recovery-backup-detail").textContent = backup
     ? `${backup.path} · ${formatBackupTime(backup)} · ${new Intl.NumberFormat().format(backup.size || 0)} 字节${backup.metadata_error ? " · 备份元数据读取失败，恢复时将重新校验" : ""}`
     : "";
+  if (backup) {
+    const detail = document.querySelector("#recovery-backup-detail");
+    const metadata = detail.textContent.slice(backup.path.length);
+    showPath(detail, backup.path);
+    detail.append(document.createTextNode(metadata));
+  }
   updateRecovery();
 });
 document.querySelector("#recovery-pick").addEventListener("click", async () => {
@@ -266,11 +363,11 @@ document.querySelector("#recovery-pick").addEventListener("click", async () => {
   try {
     const path = await invoke("recovery_select_backup");
     if (path) {
+      recoveryConfirm.value = "";
       externalBackup = path;
       recoveryBackup.value = "";
       document.querySelector("#recovery-backup-detail").textContent = "";
-      document.querySelector("#recovery-external").textContent =
-        `已选择：${path}`;
+      showPath(document.querySelector("#recovery-external"), path, "已选择：");
     }
   } catch (error) {
     recoveryStatus.textContent = String(error);
@@ -278,6 +375,38 @@ document.querySelector("#recovery-pick").addEventListener("click", async () => {
     setRecoveryBusy(false);
   }
 });
+const finalDialog = document.querySelector("#recovery-final");
+let finishFinal;
+function cancelFinal() {
+  finalDialog.close();
+  finishFinal?.(null);
+  finishFinal = undefined;
+}
+finalDialog.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  cancelFinal();
+});
+document
+  .querySelector("#recovery-final-cancel")
+  .addEventListener("click", cancelFinal);
+document.querySelector("#recovery-final-next").addEventListener("click", () => {
+  finalDialog.close();
+  finishFinal?.(true);
+  finishFinal = undefined;
+});
+function confirmRecovery(args) {
+  document.querySelector("#recovery-final-warning").textContent =
+    recoveryActions[args.action].description;
+  document.querySelector("#recovery-final-target").textContent =
+    `目标：这台电脑。数据目录：${recoveryInfo.data_dir}。备份存储：${recoveryInfo.backups_dir}。${(recoveryInfo.storage_locations || []).map((s) => `配置存储 ${s.kind}：备份 ${s.backups}；附件 ${s.attachments}`).join("；")}。${args.backup ? `恢复来源：${args.backup}。` : ""}${args.restart ? "完成后将启动本机服务。" : "完成后本机服务保持停止。"}`;
+  document.querySelector("#recovery-final-review").hidden = false;
+  return new Promise((resolve) => {
+    finishFinal = resolve;
+    finalDialog.showModal();
+    document.querySelector("#recovery-final-cancel").focus();
+  });
+}
+
 document
   .querySelector("#recovery-submit")
   .addEventListener("click", async () => {
@@ -293,8 +422,16 @@ document
       restart: document.querySelector("#recovery-restart").checked,
     };
     setRecoveryBusy(true);
+    const confirmed = await confirmRecovery(args);
+    recoveryConfirm.value = "";
+    if (!confirmed) {
+      setRecoveryBusy(false);
+      recoveryStatus.textContent = "已取消操作，未修改数据。";
+      recoveryConfirm.focus();
+      return;
+    }
     recoveryStatus.textContent =
-      "正在安全停止本机服务并执行维护，请勿退出应用…";
+      "正在安全停止服务并执行维护，请勿退出应用…";
     try {
       const result = await invoke("recovery_execute", args);
       const notes = [
@@ -304,6 +441,11 @@ document
       if (result.previous_data)
         notes.push(`原数据保护副本：${result.previous_data}`);
       recoveryStatus.textContent = `${result.started ? "维护完成，本机库存管理已启动。" : "维护完成，本机服务保持停止。可继续维护，或关闭此窗口后点击“使用本机并进入库存管理”手动启动。"}${notes.filter(Boolean).join("；")}`;
+      if (result.previous_data) {
+        const row = document.createElement("p");
+        showPath(row, result.previous_data, "原数据保护副本：");
+        document.querySelector("#recovery-locations").append(row);
+      }
       recoveryConfirm.value = "";
       // A new listing is required before another destructive operation.
       recoveryLoaded = false;
