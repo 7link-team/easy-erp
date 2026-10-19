@@ -179,7 +179,7 @@ pub async fn finish(
         did = id();
         execute(
             &txn,
-            "INSERT INTO documents VALUES (?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO documents (id,number,kind,actor_id,actor_name,person,note,status,reference_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
             vec![
                 did.clone().into(),
                 format!("PD-{}", &did[..12]).into(),

@@ -84,6 +84,10 @@ pub struct Filter {
     pub item_id: Option<String>,
     pub status: Option<String>,
     pub sort: Option<String>,
+    /// Inclusive business period as local calendar days, `YYYY-MM-DD`.
+    pub from: Option<String>,
+    pub to: Option<String>,
+    pub team: Option<String>,
 }
 pub async fn items(
     State(s): State<AppState>,
@@ -469,6 +473,11 @@ pub struct Movement {
     pub note: String,
     #[serde(default)]
     pub reference_id: String,
+    /// Which production group, or outside source, the goods came from. Empty
+    /// when the deployment does not track groups, or for records a group does
+    /// not apply to.
+    #[serde(default)]
+    pub team: String,
     pub lines: Vec<MovementLine>,
 }
 #[derive(Deserialize, Serialize)]
@@ -501,6 +510,12 @@ pub(crate) async fn post_movement(s: &AppState, actor: User, input: Movement) ->
     }
     clean(&input.note, "备注", 500, kind == MovementKind::Scrap)?;
     clean(&input.person, "领用人或来源去向", 100, false)?;
+    // Groups describe where incoming goods were produced, so an outgoing record
+    // carrying one would only make a period summary ambiguous.
+    let team = clean(&input.team, "小组", 128, false)?;
+    if !team.is_empty() && !kind.incoming() {
+        return Err(ApiError::bad("只有入库记录可以选择小组。"));
+    }
     if uuid::Uuid::parse_str(&input.request_id).is_err() {
         return Err(ApiError::bad("请求编号无效，请重新打开表单。"));
     }
@@ -534,7 +549,7 @@ pub(crate) async fn post_movement(s: &AppState, actor: User, input: Movement) ->
     );
     execute(
         &txn,
-        "INSERT INTO documents VALUES (?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO documents (id,number,kind,actor_id,actor_name,person,note,status,reference_id,created_at,team) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
         vec![
             did.clone().into(),
             number.clone().into(),
@@ -546,6 +561,7 @@ pub(crate) async fn post_movement(s: &AppState, actor: User, input: Movement) ->
             "posted".into(),
             input.reference_id.clone().into(),
             now().into(),
+            team.clone().into(),
         ],
     )
     .await?;
@@ -694,9 +710,12 @@ pub(crate) fn document_filter(
     actor: &User,
 ) -> Result<(String, Vec<sea_orm::Value>)> {
     let q = clean(filter.q.as_deref().unwrap_or(""), "搜索内容", 100, false)?;
-    let mut clause = "(?=1 OR d.actor_id=?) AND (?='' OR instr(d.number,?)>0 OR instr(d.actor_name,?)>0 OR instr(d.person,?)>0 OR instr(d.note,?)>0 OR EXISTS(SELECT 1 FROM document_lines l WHERE l.document_id=d.id AND (instr(l.item_name,?)>0 OR instr(l.item_code,?)>0)))".to_string();
+    // The keyword also has to reach the material specification and the group
+    // name: operators look records up by a size such as 7.5×8.5, or by the
+    // group that produced them, neither of which is stored on the record line.
+    let mut clause = "(?=1 OR d.actor_id=?) AND (?='' OR instr(d.number,?)>0 OR instr(d.actor_name,?)>0 OR instr(d.person,?)>0 OR instr(d.note,?)>0 OR instr(d.team,?)>0 OR EXISTS(SELECT 1 FROM document_lines l LEFT JOIN items i ON i.id=l.item_id WHERE l.document_id=d.id AND (instr(l.item_name,?)>0 OR instr(l.item_code,?)>0 OR instr(COALESCE(i.spec,''),?)>0)))".to_string();
     let mut values = vec![actor.can("records.all").into(), actor.id.clone().into()];
-    values.extend((0..7).map(|_| q.clone().into()));
+    values.extend((0..9).map(|_| q.clone().into()));
     if let Some(item_id) = filter.item_id.as_deref().filter(|id| !id.is_empty()) {
         let item_id = clean(item_id, "物料", 100, true)?;
         clause.push_str(" AND EXISTS(SELECT 1 FROM document_lines material WHERE material.document_id=d.id AND material.item_id=?)");
@@ -711,7 +730,51 @@ pub(crate) fn document_filter(
         "sales" => " AND d.kind='sales'",
         _ => return Err(ApiError::bad("记录类型筛选无效。")),
     });
+    if let Some(from) = filter.from.as_deref().filter(|v| !v.is_empty()) {
+        clause.push_str(" AND d.created_at>=?");
+        values.push(period_bound(from, false)?.into());
+    }
+    if let Some(to) = filter.to.as_deref().filter(|v| !v.is_empty()) {
+        clause.push_str(" AND d.created_at<=?");
+        values.push(period_bound(to, true)?.into());
+    }
+    if let Some(team) = filter.team.as_deref().filter(|v| !v.is_empty()) {
+        clause.push_str(" AND d.team=?");
+        values.push(clean(team, "小组", 128, true)?.into());
+    }
     Ok((clause, values))
+}
+
+/// Turn a local calendar day into an inclusive millisecond bound, because
+/// records are stamped in UTC but an operator picks days in their own time.
+pub(crate) fn period_bound(value: &str, end_of_day: bool) -> Result<i64> {
+    use chrono::TimeZone;
+    let value = value.trim();
+    // chrono reads a two-digit year, so "26-10-01" would quietly mean year 26
+    // and return nothing at all. A date field always sends four digits.
+    let day = Some(value)
+        .filter(|value| value.len() == 10)
+        .and_then(|value| chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").ok())
+        .ok_or_else(|| ApiError::bad("日期请按 2026-10-01 的格式填写。"))?;
+    let moment = if end_of_day {
+        day.and_hms_milli_opt(23, 59, 59, 999)
+    } else {
+        day.and_hms_opt(0, 0, 0)
+    }
+    .ok_or_else(|| ApiError::bad("日期无效。"))?;
+    // A daylight-saving change can make local midnight missing or doubled. Take
+    // the widest reading of the day so a record is never silently left out.
+    Ok(match chrono::Local.from_local_datetime(&moment) {
+        chrono::LocalResult::Single(stamp) => stamp.timestamp_millis(),
+        chrono::LocalResult::Ambiguous(early, late) => {
+            if end_of_day {
+                late.timestamp_millis()
+            } else {
+                early.timestamp_millis()
+            }
+        }
+        chrono::LocalResult::None => moment.and_utc().timestamp_millis(),
+    })
 }
 pub(crate) fn audit_filter(filter: &Filter, actor: &User) -> Result<(String, Vec<sea_orm::Value>)> {
     let q = clean(filter.q.as_deref().unwrap_or(""), "搜索内容", 100, false)?;
@@ -769,6 +832,117 @@ pub async fn documents(
     Ok(Json(
         json!({"items":docs,"total":int(&count,"total"),"selected_item":selected_item}),
     ))
+}
+/// Per-material totals for the filtered period, with the one grand total that
+/// means anything across different materials: the money.
+///
+/// Quantities and unit prices are deliberately never summed. Adding a count of
+/// one product to a count of another produces a number nobody can act on, which
+/// is exactly what the operators asked us not to print. Quantities go out as
+/// scaled integers with their precision, the same contract the record list uses.
+pub async fn documents_summary(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Query(filter): Query<Filter>,
+) -> Result<Json<JsonValue>> {
+    #[derive(Default)]
+    struct Total {
+        name: String,
+        code: String,
+        spec: String,
+        unit: String,
+        precision: i64,
+        quantity: i64,
+        value: Option<i128>,
+    }
+    let actor = current(&s, &headers).await?;
+    actor.require("records.read")?;
+    // The totals are money derived from the cost price, which is otherwise only
+    // readable through the material list. Without this an account allowed to
+    // read records but not materials would see valuations it can reach nowhere
+    // else.
+    actor.require("items.read")?;
+    // Line quantities are unsigned magnitudes, so without a direction this
+    // would add goods received to goods issued and report the sum as one
+    // number. There is no reading of that figure that helps anyone.
+    if !matches!(filter.kind.as_deref().unwrap_or(""), "in" | "out" | "sales") {
+        return Err(ApiError::bad("请选择入库、出库或销售。"));
+    }
+    let (clause, values) = document_filter(&filter, &actor)?;
+    // A cancelled record and the reversal that cancelled it would both land in
+    // the period, reporting goods that were never kept.
+    let scope = format!("{clause} AND d.status<>'voided' AND d.kind<>'void'");
+    // Grouping by material and group, and taking MIN of the descriptive columns,
+    // keeps this valid under MySQL's ONLY_FULL_GROUP_BY: those columns are fixed
+    // by the material, so the minimum is that one value.
+    let rows = all(
+        &s.db,
+        &format!(
+            "SELECT l.item_id AS item_id,d.team AS team,MIN(l.item_name) AS item_name,MIN(l.item_code) AS item_code,MIN(l.unit) AS unit,MIN(l.precision) AS precision,MIN(COALESCE(i.spec,'')) AS spec,MIN(COALESCE(i.cost_price,-1)) AS cost_price,SUM(l.quantity) AS quantity FROM document_lines l JOIN documents d ON d.id=l.document_id LEFT JOIN items i ON i.id=l.item_id WHERE {scope} GROUP BY l.item_id,d.team"
+        ),
+        values,
+    )
+    .await?;
+    let mut totals: std::collections::HashMap<String, Total> = Default::default();
+    let mut teams: std::collections::HashMap<String, i128> = Default::default();
+    let mut total_value = 0i128;
+    for row in &rows {
+        let quantity = int(row, "quantity");
+        // The same price and rounding as the stock list, so the two screens can
+        // never disagree about what the goods are worth.
+        let value = optional_price(row, "cost_price").map(|price| stock_value(quantity, price));
+        total_value += value.unwrap_or(0);
+        *teams.entry(text(row, "team")).or_default() += value.unwrap_or(0);
+        let total = totals.entry(text(row, "item_id")).or_insert_with(|| Total {
+            name: text(row, "item_name"),
+            code: text(row, "item_code"),
+            spec: text(row, "spec"),
+            unit: text(row, "unit"),
+            precision: int(row, "precision"),
+            ..Default::default()
+        });
+        total.quantity += quantity;
+        if let Some(value) = value {
+            total.value = Some(total.value.unwrap_or(0) + value);
+        }
+    }
+    let unpriced = totals
+        .values()
+        .filter(|total| total.value.is_none() && total.quantity != 0)
+        .count();
+    let mut materials = totals.into_iter().collect::<Vec<_>>();
+    // Biggest money first; an unpriced material sorts last but is still listed,
+    // with the count below telling the reader the total is missing them.
+    materials.sort_by(|(left_id, left), (right_id, right)| {
+        right
+            .value
+            .unwrap_or(-1)
+            .cmp(&left.value.unwrap_or(-1))
+            .then_with(|| left.name.cmp(&right.name))
+            .then_with(|| left_id.cmp(right_id))
+    });
+    // Biggest producer first. Sorting group names instead would order them by
+    // codepoint, and Chinese numerals do not run in codepoint order: 小组一,
+    // 小组二, 小组三 would come out 一, 三, 二.
+    let mut team_order = teams.into_iter().collect::<Vec<_>>();
+    team_order.sort_by(|(left_name, left), (right_name, right)| {
+        right.cmp(left).then_with(|| left_name.cmp(right_name))
+    });
+    Ok(Json(json!({
+        "materials": materials.iter().map(|(id, total)| json!({
+            "item_id": id,
+            "name": total.name,
+            "code": total.code,
+            "spec": total.spec,
+            "unit": total.unit,
+            "precision": total.precision,
+            "quantity": total.quantity,
+            "value": total.value.map(value_text),
+        })).collect::<Vec<_>>(),
+        "total_value": value_text(total_value),
+        "unpriced_items": unpriced,
+        "teams": team_order.iter().map(|(team, value)| json!({"team": team, "value": value_text(*value)})).collect::<Vec<_>>(),
+    })))
 }
 pub async fn document(db: &impl ConnectionTrait, row: sea_orm::QueryResult) -> Result<JsonValue> {
     let did = text(&row, "id");
@@ -835,7 +1009,7 @@ pub async fn void_document(
     let number = format!("ZF-{}", &reversal[..12]);
     execute(
         &txn,
-        "INSERT INTO documents VALUES (?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO documents (id,number,kind,actor_id,actor_name,person,note,status,reference_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
         vec![
             reversal.clone().into(),
             number.into(),
@@ -931,4 +1105,25 @@ pub async fn audits(
     Ok(Json(
         json!({"items":all(&s.db,&format!("SELECT a.* FROM (SELECT id,created_at FROM audit WHERE {clause} ORDER BY created_at DESC,id LIMIT 50 OFFSET ?) page JOIN audit a ON a.id=page.id ORDER BY page.created_at DESC,page.id"),paged).await?.into_iter().map(audit_json).collect::<Vec<_>>(),"total":int(&count,"total"),"actions":actions.iter().map(|row|text(row,"action")).collect::<Vec<_>>()}),
     ))
+}
+
+#[cfg(test)]
+mod period_tests {
+    use super::period_bound;
+
+    #[test]
+    fn a_period_covers_whole_local_days_and_rejects_other_formats() {
+        let start = period_bound("2026-10-01", false).unwrap();
+        let end = period_bound("2026-10-01", true).unwrap();
+        // One local day, inclusive at both ends: a record stamped at the last
+        // millisecond of the day still belongs to it.
+        assert_eq!(end - start, 86_399_999);
+        // Days are ordered, and a later day starts after an earlier one ends.
+        assert!(period_bound("2026-10-02", false).unwrap() > end);
+        // Whitespace from a form field is not an error.
+        assert_eq!(period_bound("  2026-10-01  ", false).unwrap(), start);
+        for bad in ["2026/10/01", "2026-13-01", "26-10-01", "", "2026-10-32"] {
+            assert!(period_bound(bad, false).is_err(), "accepted {bad}");
+        }
+    }
 }

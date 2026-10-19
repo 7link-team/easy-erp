@@ -19,7 +19,11 @@ pub fn key(name: &str) -> String {
     name.trim().to_lowercase()
 }
 fn validate(field: &str, name: &str) -> Result<String> {
-    if !["spec", "kind", "unit"].contains(&field) {
+    // "team" names the production groups a stock-in can be attributed to. It
+    // lives with the material options because both are lists a deployment
+    // maintains for the inventory side, and never hard-coded: a factory names
+    // its own groups.
+    if !["spec", "kind", "unit", "team"].contains(&field) {
         return Err(ApiError::bad("选项类别无效。"));
     }
     clean(
@@ -110,6 +114,15 @@ pub async fn list(State(s): State<AppState>, headers: HeaderMap) -> Result<Json<
                     .entry((field.into(), key(&text(&row, field))))
                     .or_default() += 1;
             }
+        }
+    }
+    // A group is used by stock-in records, not by materials, so its count comes
+    // from the records instead.
+    if actor.can("records.read") && actor.can("options.read") {
+        for row in all(&s.db, "SELECT team FROM documents WHERE team<>''", vec![]).await? {
+            *usage
+                .entry(("team".into(), key(&text(&row, "team"))))
+                .or_default() += 1;
         }
     }
     let items = rows
@@ -294,7 +307,7 @@ pub async fn reorder(
     let _guard = s.writes.lock().await;
     let actor = current(&s, &headers).await?;
     let (table, column, permission) = match input.kind.as_str() {
-        "spec" | "kind" | "unit" => ("material_options", "field", "options.update"),
+        "spec" | "kind" | "unit" | "team" => ("material_options", "field", "options.update"),
         "account" => ("sales_catalog", "kind", "accounts.update"),
         "type" | "department" | "salesperson" => ("sales_catalog", "kind", "catalog.update"),
         _ => return Err(ApiError::bad("此类别不支持排序。")),

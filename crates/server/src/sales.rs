@@ -877,7 +877,7 @@ async fn inventory_delta(
     let did = id();
     execute(
         db,
-        "INSERT INTO documents VALUES (?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO documents (id,number,kind,actor_id,actor_name,person,note,status,reference_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
         vec![
             did.clone().into(),
             format!("XS-KC-{}", &did[..8]).into(),
@@ -1095,6 +1095,59 @@ pub async fn list(
         json!({"items":items,"page":page,"total":total,"counts":{"all":int(&counts,"total"),"draft":int(&counts,"draft"),"posted":int(&counts,"posted"),"voided":int(&counts,"voided")}}),
     ))
 }
+/// Sales revenue for a period, grouped the way the operators asked for it:
+/// which customer the money came from, plus one grand total.
+///
+/// Amounts come back already formatted, the same contract the stock summary
+/// uses, so the page that shows both does not have to branch on the direction.
+pub async fn summary(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Query(filter): Query<Filter>,
+) -> Result<Json<Value>> {
+    let actor = current(&s, &headers).await?;
+    sales_access(&actor)?;
+    let (base, values, _) = list_filter(&filter, &actor)?;
+    // Only a posted document is revenue: a draft is not a sale yet, and a
+    // cancelled one never was.
+    let scope = format!("{base} AND status='posted'");
+    // json_extract is the SQLite spelling; the MySQL layer rewrites it, casting
+    // '$.total' to an integer and unquoting the customer name.
+    let rows = all(
+        &s.db,
+        &format!(
+            "SELECT customer_id AS customer_id,MIN(json_extract(data,'$.customer.name')) AS customer_name,COUNT(*) AS count,SUM(json_extract(data,'$.total')) AS amount FROM sales WHERE {scope} GROUP BY customer_id"
+        ),
+        values,
+    )
+    .await?;
+    let mut customers = rows
+        .iter()
+        .map(|row| {
+            (
+                text(row, "customer_id"),
+                text(row, "customer_name"),
+                int(row, "count"),
+                int(row, "amount"),
+            )
+        })
+        .collect::<Vec<_>>();
+    // Biggest customer first; names would sort by codepoint, which does not
+    // match how Chinese reads.
+    customers.sort_by(|left, right| right.3.cmp(&left.3).then_with(|| left.1.cmp(&right.1)));
+    let total = customers.iter().map(|entry| entry.3 as i128).sum::<i128>();
+    Ok(Json(json!({
+        "customers": customers.iter().map(|(id, name, count, amount)| json!({
+            "customer_id": id,
+            "name": name,
+            "count": count,
+            "amount": crate::money::display(*amount),
+        })).collect::<Vec<_>>(),
+        "total_amount": crate::money::display(i64::try_from(total).unwrap_or(i64::MAX)),
+        "count": customers.iter().map(|entry| entry.2).sum::<i64>(),
+    })))
+}
+
 #[derive(Deserialize)]
 pub struct AdjustmentFilter {
     pub q: Option<String>,

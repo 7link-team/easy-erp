@@ -330,6 +330,7 @@ async fn main() -> anyhow::Result<()> {
             axum::routing::delete(sales::remove_catalog),
         )
         .route("/api/sales/finance", get(sales::finance))
+        .route("/api/sales/summary", get(sales::summary))
         .route("/api/sales/cash", get(sales::cash_ledger))
         .route("/api/sales/adjustments", get(sales::adjustments))
         .route("/api/sales/{id}", get(sales::get))
@@ -347,6 +348,7 @@ async fn main() -> anyhow::Result<()> {
             axum::routing::delete(inventory::delete_item),
         )
         .route("/api/documents", get(inventory::documents))
+        .route("/api/documents/summary", get(inventory::documents_summary))
         .route("/api/documents/{id}/void", post(inventory::void_document))
         .route("/api/audit", get(inventory::audits))
         .route(

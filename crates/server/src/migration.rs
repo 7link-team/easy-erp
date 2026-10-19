@@ -47,6 +47,7 @@ impl MigratorTrait for Migrator {
             Box::new(QueryIndexes),
             Box::new(ItemPrices),
             Box::new(FileStorage),
+            Box::new(DocumentTeams),
         ]
     }
 }
@@ -497,5 +498,53 @@ impl MigrationTrait for MaterialOptionMetadata {
     }
     async fn down(&self, _: &SchemaManager) -> std::result::Result<(), DbErr> {
         Err(DbErr::Custom("不自动回退候选资料管理字段".into()))
+    }
+}
+
+/// Stock-in records which production group, or outside source, the goods came
+/// from, so a period summary can report what each group produced.
+///
+/// VARCHAR rather than TEXT on purpose: MySQL refuses a default value on a TEXT
+/// column and cannot index one without a prefix length, so a TEXT column would
+/// fail this migration on a MySQL deployment. Existing records keep an empty
+/// group instead of being guessed at.
+struct DocumentTeams;
+impl MigrationName for DocumentTeams {
+    fn name(&self) -> &str {
+        "document_teams_v1"
+    }
+}
+#[async_trait::async_trait]
+impl MigrationTrait for DocumentTeams {
+    async fn up(&self, m: &SchemaManager) -> std::result::Result<(), DbErr> {
+        if !m.has_column("documents", "team").await? {
+            m.alter_table(
+                Table::alter()
+                    .table(Alias::new("documents"))
+                    .add_column(
+                        ColumnDef::new(Alias::new("team"))
+                            .string_len(128)
+                            .not_null()
+                            .default(""),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+        }
+        if !m.has_index("documents", "documents_team").await? {
+            m.create_index(
+                Index::create()
+                    .name("documents_team")
+                    .table(Alias::new("documents"))
+                    .col(Alias::new("team"))
+                    .col(Alias::new("created_at"))
+                    .to_owned(),
+            )
+            .await?;
+        }
+        Ok(())
+    }
+    async fn down(&self, _: &SchemaManager) -> std::result::Result<(), DbErr> {
+        Err(DbErr::Custom("不自动删除入库小组字段".into()))
     }
 }

@@ -1319,13 +1319,30 @@ async fn previous_blob_backup_restores_but_external_references_are_rejected() {
             db.execute_unprepared("ALTER TABLE sales_attachments DROP COLUMN storage_key")
                 .await
                 .unwrap();
-            db.execute_unprepared("DELETE FROM seaql_migrations WHERE version='file_storage_v1'")
+            // Strip every purely additive migration this archive predates, so
+            // the restore path is held to accepting a real older backup. A new
+            // additive migration that is not listed in the compatibility set
+            // makes every archive from the previous release unrestorable, and
+            // only a case like this one catches it.
+            // A database from before that migration has neither the index nor
+            // the column, and SQLite refuses to drop a column an index uses.
+            db.execute_unprepared("DROP INDEX documents_team")
                 .await
                 .unwrap();
-            manifest["schema"]
-                .as_array_mut()
-                .unwrap()
-                .retain(|v| v != "file_storage_v1");
+            db.execute_unprepared("ALTER TABLE documents DROP COLUMN team")
+                .await
+                .unwrap();
+            for version in ["file_storage_v1", "document_teams_v1"] {
+                db.execute_unprepared(&format!(
+                    "DELETE FROM seaql_migrations WHERE version='{version}'"
+                ))
+                .await
+                .unwrap();
+                manifest["schema"]
+                    .as_array_mut()
+                    .unwrap()
+                    .retain(|v| v != version);
+            }
         } else {
             db.execute_unprepared("UPDATE sales_attachments SET storage_backend='local',storage_key='attachments/../../inventory.sqlite'").await.unwrap();
         }

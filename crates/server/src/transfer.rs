@@ -1017,6 +1017,8 @@ pub async fn commit(
                     person: String::new(),
                     note: "首次库存表格导入".into(),
                     reference_id: String::new(),
+                    // An opening balance predates the groups, so it belongs to none.
+                    team: String::new(),
                     lines,
                 },
             )

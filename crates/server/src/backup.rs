@@ -849,17 +849,24 @@ pub(crate) async fn prepare_restore(
         ]
         .into_iter()
         .any(|schema| {
+            // Each purely additive migration gets a toggle here, so an archive
+            // written before it was introduced still stages forward. Forgetting
+            // one makes every backup taken by the previous release
+            // unrestorable, which is the worst outcome this code has.
             [false, true].into_iter().any(|prices| {
                 [false, true].into_iter().any(|storage| {
-                    schema
-                        .iter()
-                        .filter(|v| {
-                            !(prices && v.as_str() == "item_prices_v1"
-                                || storage && v.as_str() == "file_storage_v1")
-                        })
-                        .cloned()
-                        .collect::<Vec<_>>()
-                        == manifest.schema
+                    [false, true].into_iter().any(|teams| {
+                        schema
+                            .iter()
+                            .filter(|v| {
+                                !(prices && v.as_str() == "item_prices_v1"
+                                    || storage && v.as_str() == "file_storage_v1"
+                                    || teams && v.as_str() == "document_teams_v1")
+                            })
+                            .cloned()
+                            .collect::<Vec<_>>()
+                            == manifest.schema
+                    })
                 })
             })
         });
