@@ -165,6 +165,7 @@ test("桌面备份页只打开维护入口，失败显示原因并允许重试",
         invoke: async (command: string) => {
           if (command === "update_info")
             return { version: "0.2.1", enabled: false, mobile: false };
+          if (command === "file_locations") return { local: false, items: [] };
           state.maintenanceCalls.push(command);
           if (command === "open_data_maintenance" && state.failMaintenance)
             throw new Error("找不到本机数据维护窗口，请重启桌面版。");
@@ -191,3 +192,76 @@ test("桌面备份页只打开维护入口，失败显示原因并允许重试",
     .toEqual(["open_data_maintenance", "open_data_maintenance"]);
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
+
+for (const local of [true, false]) {
+  test(`备份路径区分${local ? "本机" : "远程"}，对象存储不显示本机查看按钮`, async ({
+    page,
+  }) => {
+    await login(page);
+    await page.addInitScript((local) => {
+      const state = window as any;
+      state.revealed = [];
+      state.__TAURI__ = {
+        core: {
+          invoke: async (command: string, args: any) => {
+            if (command === "update_info")
+              return { version: "0.2.5", enabled: false, mobile: false };
+            if (command === "file_locations")
+              return {
+                local,
+                items: local
+                  ? [{ label: "服务日志", path: "/fixture/server.log" }]
+                  : [],
+              };
+            if (command === "reveal_file") {
+              state.revealed.push(args.path);
+              throw new Error("文件已被移走");
+            }
+          },
+        },
+      };
+    }, local);
+    await page.route("**/api/backups", (route) =>
+      route.fulfill({
+        json: {
+          items: [
+            backup(0),
+            { ...backup(1), path: "s3://bucket/snapshot.zip" },
+          ],
+          schedule: { keep_days: 7 },
+          last_success: "",
+          last_error: "",
+        },
+      }),
+    );
+    await page.goto("/#/settings");
+    await expect(
+      page.getByText("s3://bucket/snapshot.zip", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /在文件管理器中查看 s3:/ }),
+    ).toHaveCount(0);
+    const reveal = page.getByRole("button", {
+      name: "在文件管理器中查看 /fixture/backups/snapshot-00.zip",
+      exact: true,
+    });
+    if (local) {
+      await reveal.click();
+      await expect(page.getByRole("alert")).toContainText("文件已被移走");
+      await expect(reveal).toBeEnabled();
+      expect(await page.evaluate(() => (window as any).revealed)).toEqual([
+        "/fixture/backups/snapshot-00.zip",
+      ]);
+      await expect(
+        page.getByText("/fixture/server.log", { exact: true }),
+      ).toBeVisible();
+    } else {
+      await expect(reveal).toHaveCount(0);
+      await expect(
+        page
+          .getByRole("table", { name: "备份记录" })
+          .getByText("请在库存主机的桌面版中查看", { exact: true }),
+      ).toBeVisible();
+    }
+  });
+}

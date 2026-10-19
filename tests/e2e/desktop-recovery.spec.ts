@@ -50,6 +50,17 @@ async function launcher(
             }
             if (command === "resume_last" && failStart)
               throw "本机服务启动失败：数据库损坏";
+            if (command === "close_data_maintenance")
+              return state.businessWindowAvailable ?? true;
+            if (command === "file_locations")
+              return {
+                local: true,
+                items: [
+                  { label: "服务日志", path: "/fixture/local/server.log" },
+                ],
+              };
+            if (command === "reveal_file" && state.revealFailure)
+              throw state.revealFailure;
             if (command === "recovery_list" && state.listFailure)
               throw state.listFailure;
             if (command === "recovery_list")
@@ -90,6 +101,20 @@ async function launcher(
   await expect(page.locator("#maintenance")).toBeEnabled();
 }
 
+async function confirmPassword(page: Page) {
+  const final = page.locator("#recovery-final");
+  await expect(final).toBeVisible();
+  await expect(page.locator("#recovery-final-cancel")).toBeFocused();
+  expect(
+    await page.evaluate(() =>
+      (window as any).nativeCalls.filter(
+        (c: any) => c.command === "recovery_execute",
+      ),
+    ),
+  ).toHaveLength(0);
+  await page.locator("#recovery-final-next").click();
+}
+
 test("启动失败后可维护，精确确认且执行中锁住所有选项和关闭", async ({
   page,
 }) => {
@@ -106,6 +131,7 @@ test("启动失败后可维护，精确确认且执行中锁住所有选项和�
   await expect(submit).toBeDisabled();
   await page.locator("#recovery-confirm").fill("清空全部数据");
   await submit.click();
+  await confirmPassword(page);
   await expect(page.locator("#recovery-action")).toBeDisabled();
   await expect(page.locator("#recovery-close")).toBeDisabled();
   await expect(page.locator("#recovery-confirm")).toBeDisabled();
@@ -165,13 +191,15 @@ test("远程连接时菜单进入维护只显示本机范围，选择ZIP恢复�
   await page
     .locator("#recovery-backup")
     .selectOption("/fixture/local/backups/snapshot.zip");
-  await expect(page.locator("#recovery-submit")).toBeEnabled();
+  await expect(page.locator("#recovery-submit")).toBeDisabled();
   await page.locator("#recovery-pick").click();
   await expect(page.locator("#recovery-external")).toContainText(
     "/fixture/external/photos.zip",
   );
+  await page.locator("#recovery-confirm").fill("恢复全部数据");
   await page.locator("#recovery-restart").check();
   await page.locator("#recovery-submit").click();
+  await confirmPassword(page);
   expect(await page.evaluate(() => (window as any).nativeCalls.at(-1))).toEqual(
     {
       command: "recovery_execute",
@@ -206,10 +234,13 @@ test("单独清空备份说明不可恢复、业务不变，失败后可重试",
   );
   await page.locator("#recovery-confirm").fill("清空全部备份");
   await page.locator("#recovery-submit").click();
+  await confirmPassword(page);
   await page.evaluate(() =>
     (window as any).failRecovery("本机服务现已停止；可重试维护或手动启动"),
   );
   await expect(page.locator("#recovery-status")).toContainText("手动启动");
+  await expect(page.locator("#recovery-submit")).toBeDisabled();
+  await page.locator("#recovery-confirm").fill("清空全部备份");
   await expect(page.locator("#recovery-submit")).toBeEnabled();
   await expect(page.locator("#recovery-close")).toBeEnabled();
   await page.locator("#recovery-action").selectOption("reset");
@@ -395,4 +426,117 @@ test("数据库配置已保存但服务启动失败时，重试直接沿用原�
   expect(calls[0].args.database).toEqual({ kind: "sqlite" });
   expect(calls[1].args.database).toBeUndefined();
   await expect(page.locator("#status")).toHaveText("");
+});
+
+test("文件路径可定位，外部备份和失败反馈可用", async ({ page }) => {
+  await launcher(page);
+  await page.getByRole("button", { name: "本机数据维护", exact: true }).click();
+  await page
+    .getByRole("button", {
+      name: "在文件管理器中查看 /fixture/local",
+      exact: true,
+    })
+    .click();
+  await expect(page.locator("#recovery-status")).toContainText("已请求打开");
+  await expect(page.locator("#recovery-locations")).toContainText(
+    "/fixture/local/server.log",
+  );
+  await page.locator("#recovery-action").selectOption("restore");
+  await page
+    .locator("#recovery-backup")
+    .selectOption("/fixture/local/backups/snapshot.zip");
+  await page
+    .getByRole("button", {
+      name: "在文件管理器中查看 /fixture/local/backups/snapshot.zip",
+      exact: true,
+    })
+    .click();
+  await page.locator("#recovery-pick").click();
+  await page
+    .getByRole("button", {
+      name: "在文件管理器中查看 /fixture/external/photos.zip",
+      exact: true,
+    })
+    .click();
+  expect(
+    await page.evaluate(() =>
+      (window as any).nativeCalls
+        .filter((c: any) => c.command === "reveal_file")
+        .map((c: any) => c.args.path),
+    ),
+  ).toEqual([
+    "/fixture/local",
+    "/fixture/local/backups/snapshot.zip",
+    "/fixture/external/photos.zip",
+  ]);
+  await page.evaluate(() => {
+    (window as any).revealFailure = "路径不存在或无法访问";
+  });
+  await page
+    .getByRole("button", {
+      name: "在文件管理器中查看 /fixture/local/server.log",
+      exact: true,
+    })
+    .click();
+  await expect(page.locator("#recovery-status")).toContainText(
+    "路径不存在或无法访问",
+  );
+  await expect(page.locator("#recovery-close")).toBeEnabled();
+});
+
+test("维护二次确认默认取消，Esc 不执行", async ({ page }) => {
+  await launcher(page);
+  await page.locator("#maintenance").click();
+  await page.locator("#recovery-confirm").fill("清空全部数据");
+  await page.locator("#recovery-submit").click();
+  await expect(page.locator("#recovery-final-target")).toContainText(
+    "/fixture/local",
+  );
+  await expect(page.locator("#recovery-final-cancel")).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#recovery-final")).not.toBeVisible();
+  await expect(page.locator("#recovery-confirm")).toHaveValue("");
+  await page.locator("#recovery-confirm").fill("清空全部数据");
+  await page.locator("#recovery-submit").click();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#recovery-final")).not.toBeVisible();
+  await expect(page.locator("#recovery-confirm")).toHaveValue("");
+  expect(
+    await page.evaluate(() =>
+      (window as any).nativeCalls.filter(
+        (c: any) => c.command === "recovery_execute",
+      ),
+    ),
+  ).toHaveLength(0);
+});
+
+test("从库存窗口打开维护，关闭或 Escape 返回原窗口而不重新连接", async ({ page }) => {
+  await launcher(page, "remote", false);
+  for (const closeWithEscape of [false, true]) {
+    await page.evaluate(() => (window as any).nativeListeners["open-recovery"]({ payload: null }));
+    await expect(page.locator("#recovery")).toBeVisible();
+    await expect(page.locator("#recovery-close")).toBeEnabled();
+    if (closeWithEscape) await page.keyboard.press("Escape");
+    else await page.locator("#recovery-close").click();
+    await expect(page.locator("#recovery")).not.toBeVisible();
+    await expect.poll(() => page.evaluate(() => (window as any).nativeCalls.filter(
+      (call: any) => call.command === "close_data_maintenance",
+    ).length)).toBe(closeWithEscape ? 2 : 1);
+  }
+  const connections = await page.evaluate(() => (window as any).nativeCalls.filter(
+    (call: any) => ["resume_last", "start_local", "connect_host"].includes(call.command),
+  ));
+  expect(connections.map((call: any) => call.command)).toEqual(["resume_last"]);
+});
+
+test("连接设置中打开维护，关闭后保留连接设置入口", async ({ page }) => {
+  await launcher(page);
+  await page.locator("#maintenance").click();
+  await expect(page.locator("#recovery-close")).toBeEnabled();
+  await page.locator("#recovery-close").click();
+  await expect(page.locator("#recovery")).not.toBeVisible();
+  await expect(page.locator("#maintenance")).toBeFocused();
+  expect(await page.evaluate(() => (window as any).nativeCalls.filter(
+    (call: any) => call.command === "close_data_maintenance",
+  ))).toHaveLength(0);
 });

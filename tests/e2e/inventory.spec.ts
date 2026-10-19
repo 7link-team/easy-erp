@@ -325,6 +325,11 @@ test.describe.serial("真实主机与浏览器的库存闭环", () => {
       .click();
     await page.getByLabel("恢复确认", { exact: false }).fill("恢复全部数据");
     await page.getByRole("button", { name: "恢复全部数据并退出登录" }).click();
+    // The restore now goes through an independent target review before it runs.
+    await page
+      .getByRole("dialog", { name: "再次确认覆盖全部数据？" })
+      .getByRole("button", { name: "确认覆盖，立即恢复" })
+      .click();
     await expect(
       page.getByRole("heading", { name: "登录库存管理" }),
     ).toBeVisible();

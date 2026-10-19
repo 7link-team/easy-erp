@@ -126,6 +126,9 @@ test("误建物料删除确认、保留审计；历史库存和普通账号不�
         await worker.delete(`/api/items/${untouched}/permanent`, { headers })
       ).status(),
     ).toBe(403);
+    // The system information panel reports host paths and deployment flags, so
+    // it must stay admin-only.
+    expect((await worker.get("/api/system-info")).status()).toBe(403);
   } finally {
     await worker.dispose();
   }
