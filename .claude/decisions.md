@@ -368,3 +368,21 @@ Tradeoffs: 预览无缩放/平移，仅按视口高度等比适配；打包应�
 Scope: 仅销售单详情的签字凭证预览。desktop/ 的 on_new_window 与 capabilities 不变 ——
 **后续不要为了预览去放开新窗口限制**。
 Status: 已实现；sales.spec.ts 的凭证测试增加「点击缩略图出浮层 + 未开新页」断言，chromium 与 webkit 均通过。
+
+## 2026-10-19 业务数据目录统一为可见的 EasyERP
+Decision: macOS 与 Windows 的业务数据目录都改为用户主目录下的可见 `EasyERP`。
+macOS 从 `~/.EasyERP`（0.3.0）与更早的应用支持目录两处迁入；Windows 仅改名，NTFS 大小写不敏感，
+既有 `EasyErp` 就是同一目录，不移动数据。连接与更新设置继续留在系统配置目录。
+Reason: 用户指出 `~/.EasyERP` 带点在 Finder 里默认看不见，与"让用户能找到自己的数据"的初衷相反，
+且与 Windows 的 `EasyErp` 拼写不一致。0.3.0 刚发布，受影响机器最少，现在改代价最低。
+Alternatives Considered: 保留 `.EasyERP` 不动（隐藏问题长期存在）；
+把 connection.json 一并移入数据目录（否决：只连远程主机的机器没有业务数据目录，却仍需知道连哪台）；
+Windows 额外做一次大小写重命名（否决：纯观感，目录被占用时会失败，收益为零）。
+Tradeoffs: macOS 多了一次整目录迁移；Windows 资源管理器里既有安装仍显示 `EasyErp` 旧拼写（同一目录）；
+同时存在多个历史目录时报错要求人工确认，不自动选择。
+Scope: 桌面数据目录解析与 Windows 安装器脚本。服务端、备份格式、S3/外置存储路径不变。
+Status: 已实现。`select_macos` 改为先看完所有历史目录再决定迁移哪一个 ——
+逐对迁移会在第二处被拒时留下半迁移状态，使一套库存散在两个目录。
+desktop 28 项测试通过，含新增两例：0.3.0 隐藏目录迁入可见目录（含 attachments 一起移动、二次调用幂等）；
+两个历史目录同时有数据时报错且两边文件一字未动、空的历史目录不阻塞迁移。
+Windows 安装器迁移为实机脚本覆盖（scripts/test-windows-installer.ps1），本机未执行。
