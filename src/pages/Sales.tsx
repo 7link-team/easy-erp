@@ -1569,6 +1569,7 @@ function Detail({
     new URLSearchParams(location.search).get("sale_print") === sale.id,
   );
   const [operation, setOperation] = useState("");
+  const [preview, setPreview] = useState<Sale["attachments"][number]>();
   const confirm = useConfirm();
   const [snapshot, setSnapshot] = useState<{
     before: Sale | null;
@@ -1744,6 +1745,14 @@ function Detail({
               href={`/api/sales/attachments/${a.id}`}
               target="_blank"
               rel="noreferrer"
+              onClick={(event) => {
+                // Previewing in place keeps the operator on the document, and
+                // the packaged application refuses new windows, so following
+                // the link showed nothing there. The href stays so a browser
+                // can still middle-click it or copy the address.
+                event.preventDefault();
+                setPreview(a);
+              }}
             >
               <img
                 src={`/api/sales/attachments/${a.id}`}
@@ -1854,6 +1863,15 @@ function Detail({
             setOperation("");
           }}
         />
+      )}
+      {preview && (
+        <Modal title="签字凭证" onClose={() => setPreview(undefined)}>
+          <img
+            className="attachment-preview"
+            src={`/api/sales/attachments/${preview.id}`}
+            alt={`签字凭证，上传人 ${preview.actor_name}`}
+          />
+        </Modal>
       )}
       {print && (
         <SalesPrint

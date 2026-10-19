@@ -1986,7 +1986,7 @@ test("开单收款权限：无收款权限可全部欠款，直接 API 收款被
   }
 });
 
-test("凭证移除先确认，取消保留当前凭证，确认后保留历史及欠款", async ({
+test("凭证在应用内预览且不开新窗口；移除先确认，取消保留当前凭证，确认后保留历史及欠款", async ({
   page,
   request,
 }) => {
@@ -2008,6 +2008,17 @@ test("凭证移除先确认，取消保留当前凭证，确认后保留历史�
   const image = page.getByRole("img", { name: /签字凭证/ });
   await expect(image).toHaveAttribute("width", "240");
   await expect(image).toHaveAttribute("height", "160");
+  // The packaged application refuses new windows, so the preview has to stay
+  // inside the page instead of following the link.
+  await image.click();
+  const preview = page.getByRole("dialog", { name: "签字凭证", exact: true });
+  await expect(preview.getByRole("img", { name: /签字凭证/ })).toHaveAttribute(
+    "src",
+    /\/api\/sales\/attachments\//,
+  );
+  expect(page.context().pages()).toHaveLength(1);
+  await preview.getByRole("button", { name: "关闭", exact: true }).click();
+  await expect(preview).toHaveCount(0);
   await remove.click();
   const dialog = page.getByRole("dialog", { name: "移除凭证？", exact: true });
   await expect(dialog).toContainText("历史记录仍保留");

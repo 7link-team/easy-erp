@@ -94,6 +94,13 @@
   object-fit: contain;
   border: 1px solid var(--border);
 }
+.attachment-preview {
+  display: block;
+  margin-inline: auto;
+  max-width: 100%;
+  max-height: calc(var(--viewport-height, 100dvh) - 180px);
+  object-fit: contain;
+}
 .sale-snapshot {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
