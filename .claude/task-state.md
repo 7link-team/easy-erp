@@ -1,54 +1,86 @@
 # Task State
 
 ## Task / Objective
-评审 Codex 的改动，按用户指示撤掉危险操作密码要求，保留其余四项，然后发版。
-用户原话：「刚刚让codex 做了一些优化，你评审下没问题就提交推送发版？」→ 评审发现问题 →
-「那就不要输入密码吧？」→ 选择「全部撤掉」。
+发正式 v0.3.0 前清掉两个阻塞项。用户原话：
+「那不行 要修一下，不能一直这样， 处理好发正式0。3」（e2e 抖动）
+「打包本地应用运行的时候 下载备份包没反应， 不知道还有没有其他类似问题 排查下」
+已确认排期（用户「可以 youcall」）：0.3 = ①抖动 ②下载；0.4 = 一菜单一页面 + 客户新需求。
 
 ## Current Phase
-IMPLEMENTATION — 已分组提交，待版本号与推送发版。
+REVIEW — 两项修复已落地并通过双浏览器全量回归，待提交推送发版。
 
-## 评审结论（为何不能原样发）
-- 全量 e2e 2 失败 → CI 的 sqlite job 会挂 → build 被 gate → 出不了镜像。
-  Codex 只跑了聚焦子集（自述 65/67 与 10/10），没跑过全量 189。
-- 一个安全测试变成不可能失败：recovery.rs 的符号链接测试 fixture 是假库，
-  认证前置后卡在认证、走不到守卫。**产品守卫没坏**（我用真库+正确凭据实测：
-  exit=1「不是普通目录，已停止维护」，外部文件完好），只是测试空转。
-- 账号库损坏时离线维护连 reset 都执行不了，而离线维护的用途正是救坏库（实测确认）。
-- 可逆的「停用」被当成删除：弹「即将执行删除或覆盖操作」并要求密码，而反向的「启用」免密。
-- 两项安全声明无测试：非管理员不能覆盖恢复、429 限流。
-- ERP_STORAGE_LOCAL_DIR 指向不存在目录会让桌面端起不来（服务端容错，桌面端致命）。
+## Current Step
+按两组提交（playwright 余量 / 桌面下载）并推 main。
 
-## 评审中查实为良好的部分（撤销时予以保留或承认）
-- 7 个危险端点在 api.ts 集中拦截，无漏网调用点（穷举：5 个 DELETE + 1 个 restore，
-  api() 外无 fetch）。设计比逐点加 header 稳。
-- macOS 迁移不可能丢数据：renamex_np(RENAME_EXCL) + 持旧目录 server.lock 独占锁，
-  无 copy / 无 plain-rename 回退；跨卷与符号链接一律干净拒绝。
-- 没有凭据泄漏（diagnostics 白名单）、密码不进日志、客户端兼容性无风险
-  （客户端加载服务端下发的 UI，外壳自身不调 DELETE）。
-- 12 个被改 spec 无一处放宽断言；角色 fixture 送的是各自账号密码，实际更强。
+## Overall Progress
+- [x] ① e2e 抖动根因定位 + 修复
+- [x] ② 桌面下载根因定位 + 修复 + 单元测试
+- [x] 双浏览器 e2e 回归（在含前端改动的重建产物上跑）
+- [ ] 提交推送 → 两条流水线 → 打标签 → publish-verified 发正式 0.3.0
 
-## Delivered（本轮）
-撤掉：protect_destructive/verify_password 中间件、CLI authenticate 与
---verify-recovery-password、maintenance_database、前端密码弹窗与 api.ts 拦截、
-启动器密码表单、destructive-auth.spec.ts、以及 9 个纯密码 spec 改动。
-保留：system-info（含非管理员 403 测试）、macOS ~/.EasyERP 与原子迁移、
-路径排版、维护关闭返回导航，以及强提醒 + 确认短语 + 二次目标复核（默认停在取消）。
-顺带：收掉 Codex 引入的 1 条 desktop clippy；补回被我回退时带走的 system-info 403 断言。
-完整密码方案保存在分支 codex/destructive-auth-full (f0562bd)，可随时取回。
+## ① e2e 抖动：根因与修复
+**不是产品 bug，是套件时序临界。** 实测证据：
+- 单测 ×3 unloaded 全过，耗时 10.9–15.4s；
+- 人为加压（load avg 27，24 路 yes）再跑 ×4 全过，但耗时涨到 **32.1s**，上限只有 45s。
+- CI 的 `queries.spec.ts` 报 `toHaveCount(3)` 实收 **50**（正好整页）= 断言 5s 预算
+  用尽时页面还停在筛选前状态；`workflows.spec.ts:399` 在**已发布基线 972b884 上同样失败**，
+  佐证是环境而非代码回归。
+排除项（均已实证，勿重查）：`useQueryValue` 的 erp:navigate 覆盖缺触发源（`address()`
+保留 location.search）；`useResource` 按依赖中止且有 aborted 守卫，无响应乱序；
+`Input` 是透传受控组件；审计列表 `ORDER BY created_at DESC,id` + 配套索引，排序确定。
+**修复**：playwright.config.ts 给出真实余量 —— timeout 45s→90s、
+新增 expect.timeout 20s（原为 Playwright 默认 5s）、webServer.timeout 30s→120s。
+未加 retries（会掩盖真 bug，且共享 SQLite 下重试脏库）。抬等待不改变任何断言强度。
+
+## ② 桌面下载：根因与修复
+**根因在 wry 源码层证实**：`wry-0.57.0/src/wkwebview/navigation.rs:96-101` —
+未注册 download handler 时，`canShowMIMEType()` 为 false 的响应（zip/xlsx）直接走
+`Allow`，WKWebView 允许一个自己渲染不了的导航 → 界面上毫无反应。
+desktop/src/desktop.rs 全仓只有**一个** WebviewWindowBuilder（:220），一处修复覆盖
+7 个下载入口（备份 1 + 导出 5 + 模板 1，均为同窗 `<a href>`，无 target/download 属性）。
+**修复**：挂 `.on_download`，保留平台已解析好的目标（下载文件夹 + 服务端
+Content-Disposition 给的权威文件名，支持中文），只补 wry 缺的那道防线 ——
+`download_destination()`：目标父目录不是下载目录时降级为末段文件名，重名编号不覆盖。
+（wry `push(&suggested_filename)` 无任何清洗，这是信任边界。）
+
+## Known Issues / Risks
+- **第 8 个入口未修**：`src/pages/Sales.tsx:1744` 销售附件预览带 `target="_blank"`，
+  被 `on_new_window → Deny` 在 download 之前掐掉，打包后点击无反应。属**独立缺陷**，
+  修法涉及产品决策（新窗 / 外部浏览器 / 内嵌查看器），按 §2 C 只报告不实施。
+- `delete-items.spec.ts:44`（审计 page-1 断言）**未复现、无根因，且抬超时救不了它**
+  （断言的是 API 返回，不是 UI）。已逐条排除，勿重查：
+  ①排序并列 —— `now()` 是毫秒精度，`ORDER BY created_at DESC,id` 且有配套索引；
+  ②乐观 UI —— Inventory 删除是 `await send()` 之后才 refresh，不提前移除行；
+  ③审计写入竞态 —— `inventory.rs:395` 审计与 DELETE 同事务，响应返回前已提交。
+  因此该审计行必然是最新行、必然在 page 1。只出现一次，若 CI 再现需要 trace 与
+  实际报错文本（上次 artifact 只有页面快照），而不是继续猜。
+- `desktop/src/desktop.rs:924` 一条既有 clippy collapsible_if（新版 clippy 1.99 收紧，
+  非本批引入）。CI 不跑 clippy（只有 cargo test），不影响发版。
+- `on_download` 实际触发只在源码层证实，**未在打包 GUI 中人工点击验证**（无头环境做不到）。
 
 ## Verification
-- server：fmt 干净、clippy 基线 8、17 单元 + 11 集成。
-- desktop：fmt 干净、clippy 基线 1、25 测试（含 5 个 macOS 迁移用例）。
-- 前端：tsc、e2e tsc、构建通过。
-- e2e：chromium **186/186**。
-- WebKit 1 条失败（workflows.spec.ts:399，点击 45s 超时）：**本批未改动该文件**，
-  且在已发布基线 972b884 上同样失败（实测），当时负载 5.42 且有多个遗留预览进程在跑。
-  判定为环境/既有，非本批引入；CI 干净 runner 为权威门禁（v0.2.5 上该 job 为绿）。
+- desktop：fmt 干净、`cargo test` **26 PASS**（含新增 download_destination 用例）。
+- 前端：`typecheck` / `typecheck:e2e` / `vite build` / `prettier --check` 全 PASS。
+- e2e chromium：**186/186 PASS**（16.6m）
+- e2e webkit：**186/186 PASS**（25.8m）
+  两者均在 `vite build` + 重编服务端之后跑，验的是含前端 `download` 属性的最终产物。
+- 服务端：本批未改动任何 server 源文件，未跑（如实记录，非遗漏）。
+- **局限**：本地绿只是必要条件。抬余量是基于实测耗时的推断修复，
+  抖动是否真的消除以 CI 干净 runner 为权威判据。
+  `on_download` 只在 wry 源码层证实，**未在打包 GUI 中人工点击验证**（无头环境做不到）。
 
 ## Next Action
-版本号 v0.3.0（macOS 数据目录默认位置变更 + 自动迁移属行为变更，不宜叫 patch），
-推送 main → 等两条流水线 → 给同一 SHA 打标签 → publish-verified 生成草稿。
+分三组提交（playwright 余量 / 桌面下载 / 本状态文件），推 main，等 Build and release 与
+Server container 两条流水线，对同一 SHA 打 v0.3.0 标签，由 publish-verified 出正式版。
+版本号无需再改：b7ccecb 已是 chore(release): v0.3.0，尚未打标签。
 
 ## Last Checkpoint
-2026-10-19 密码要求已全部撤销并分组提交，待发版。
+2026-10-19 两项修复完成，双浏览器全量 e2e 各 186/186，待提交推送发 0.3.0。
+
+## 0.4 待办（用户已确认排期）
+③ 一菜单一页面拆分：invoice/sales/finance/accounts/performance/returns/customers/catalog
+   目前全部经 salesView 开关渲染同一个 Sales 组件。
+④ 客户新需求 `docs/客户需求/20261019.md`（该文件仍未纳入版本管理）：库存总价值汇总
+   （注意 Inventory.tsx:408 已有总价值）、按期间的库存/销售汇总与合计、入库加「小组」
+   字段（需迁移）、关键词+日期区间+方向筛选、导出为图片、云备份（v0.2.4 的 S3 已实现）。
+⑤ 可选：e2e 并行化（需每 worker 独立服务端与库，否则重现脏库事故）。
