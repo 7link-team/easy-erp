@@ -73,25 +73,46 @@ test("期间汇总逐款列出数量金额并合计，按小组与方向分别�
   });
   expect(outgoing.status()).toBe(400);
   expect(await outgoing.text()).toContain("只有入库记录可以选择小组");
+  // Two bolts issued, so the period has something to report in both
+  // directions and the stock snapshot differs from what came in.
+  await post(page.request, "/movements", {
+    request_id: randomUUID(),
+    kind: "issue",
+    person: "车间",
+    lines: [{ item_id: bolt.id, quantity: "2" }],
+  });
 
   const summary = async (query: string) =>
     (await page.request.get(`/api/documents/summary?${query}`)).json();
   const scoped = `q=${encodeURIComponent(tag)}`;
-  let totals = await summary(`kind=in&${scoped}`);
-  expect(totals.total_value).toBe("60.00");
+  // Every direction at once is the default, and the two are reported side by
+  // side rather than added together: line quantities are unsigned magnitudes.
+  let totals = await summary(scoped);
+  expect(totals.in_value).toBe("60.00");
+  expect(totals.out_value).toBe("20.00");
   expect(totals.unpriced_items).toBe(1);
   expect(
     totals.materials.map(
-      (m: { name: string; quantity: number; value: string | null }) => [
+      (m: {
+        name: string;
+        cost_price: number | null;
+        in_quantity: number;
+        in_value: string;
+        out_quantity: number;
+        out_value: string;
+      }) => [
         m.name,
-        m.quantity,
-        m.value,
+        m.cost_price,
+        m.in_quantity,
+        m.in_value,
+        m.out_quantity,
+        m.out_value,
       ],
     ),
   ).toEqual([
-    [`螺丝-${tag}`, 5000, "50.00"],
-    [`垫片-${tag}`, 4000, "10.00"],
-    [`未定价-${tag}`, 7000, null],
+    [`螺丝-${tag}`, 100_000, 5000, "50.00", 2000, "20.00"],
+    [`垫片-${tag}`, 25_000, 4000, "10.00", 0, "0.00"],
+    [`未定价-${tag}`, null, 7000, "0.00", 0, "0.00"],
   ]);
   expect(
     totals.teams.map((t: { team: string; value: string }) => [t.team, t.value]),
@@ -99,46 +120,57 @@ test("期间汇总逐款列出数量金额并合计，按小组与方向分别�
     [groups[0], "50.00"],
     [groups[1], "10.00"],
   ]);
+  // The stock figure is a snapshot of what is on hand, not part of the period.
+  expect(totals.stock_value).toBe("40.00");
+
+  // Narrowing to one direction leaves the other column empty.
+  totals = await summary(`kind=in&${scoped}`);
+  expect([totals.in_value, totals.out_value]).toEqual(["60.00", "0.00"]);
+  totals = await summary(`kind=out&${scoped}`);
+  expect([totals.in_value, totals.out_value]).toEqual(["0.00", "20.00"]);
+  expect(totals.materials).toHaveLength(1);
 
   // The keyword reaches the specification, which is how operators look a size up.
-  totals = await summary(`kind=in&q=${encodeURIComponent(spec)}`);
-  expect(totals.total_value).toBe("50.00");
+  totals = await summary(`q=${encodeURIComponent(spec)}`);
+  expect(totals.in_value).toBe("50.00");
   expect(totals.materials).toHaveLength(1);
+  // It also narrows the stock snapshot, the way the material list behaves.
+  expect(totals.stock_value).toBe("30.00");
 
   totals = await summary(
     `kind=in&${scoped}&team=${encodeURIComponent(groups[1])}`,
   );
-  expect(totals.total_value).toBe("10.00");
+  expect(totals.in_value).toBe("10.00");
 
-  totals = await summary(`kind=out&${scoped}`);
-  expect(totals.total_value).toBe("0.00");
-  expect(totals.materials).toHaveLength(0);
-
-  // Local components, not toISOString: the period is a local calendar day, and
-  // in a zone ahead of UTC the UTC date is still yesterday.
+  // Local components, not toISOString: the period is local, and in a zone ahead
+  // of UTC the UTC date is still yesterday.
   const next = new Date();
   next.setDate(next.getDate() + 1);
-  const tomorrow = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-${String(next.getDate()).padStart(2, "0")}`;
-  totals = await summary(`kind=in&${scoped}&from=${tomorrow}`);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  const tomorrow = `${next.getFullYear()}-${pad(next.getMonth() + 1)}-${pad(next.getDate())}`;
+  totals = await summary(`${scoped}&from=${tomorrow}`);
   expect(totals.materials).toHaveLength(0);
-  // A bad date and a missing direction are different refusals; keep them apart
-  // so one cannot hide the other.
+  // A period may also be given to the minute.
+  totals = await summary(`${scoped}&from=${tomorrow}T08:30`);
+  expect(totals.materials).toHaveLength(0);
+  for (const bad of ["2026/10/01", "2026-10-01T8:30", "26-10-01"]) {
+    const refused = await page.request.get(
+      `/api/documents/summary?from=${encodeURIComponent(bad)}`,
+    );
+    expect(refused.status(), bad).toBe(400);
+    expect(await refused.text()).toContain("日期请按");
+  }
   expect(
-    (
-      await page.request.get("/api/documents/summary?kind=in&from=2026/10/01")
-    ).status(),
+    (await page.request.get("/api/documents/summary?kind=bogus")).status(),
   ).toBe(400);
-  const directionless = await page.request.get("/api/documents/summary");
-  expect(directionless.status()).toBe(400);
-  expect(await directionless.text()).toContain("请选择入库、出库或销售");
 
   // Cancelling a record must remove both it and its reversal from the period.
   const voided = await receipt(bolt.id, "9", groups[0]);
-  expect((await summary(`kind=in&${scoped}`)).total_value).toBe("150.00");
+  expect((await summary(scoped)).in_value).toBe("150.00");
   await post(page.request, `/documents/${voided.id}/void`, {
     reason: "汇总验收作废",
   });
-  expect((await summary(`kind=in&${scoped}`)).total_value).toBe("60.00");
+  expect((await summary(scoped)).in_value).toBe("60.00");
 
   // The session from the API login is shared with the page context.
   await page.goto("/");
@@ -151,8 +183,29 @@ test("期间汇总逐款列出数量金额并合计，按小组与方向分别�
     .getByRole("table", { name: "汇总列表" })
     .locator("tbody tr");
   await expect(rows).toHaveCount(3);
-  await expect(page.getByText("¥60.00")).toBeVisible();
+  // Direction is a chip group, like the other list pages.
+  const direction = page.getByRole("group", { name: "统计方向", exact: true });
+  await expect(
+    direction.getByRole("button", { name: "全部", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  const figures = page.getByLabel("汇总金额", { exact: true });
+  await expect(figures).toContainText("入库成本总额");
+  await expect(figures).toContainText("¥60.00");
+  await expect(figures).toContainText("当前库存成本总额");
   await expect(page.getByText("未设置成本价", { exact: false })).toBeVisible();
+  // The period defaults to this month, to the minute.
+  await expect(page.getByLabel("开始时间", { exact: false })).toHaveValue(
+    /^\d{4}-\d{2}-01T00:00$/,
+  );
+
+  // A resource keeps its last data when its path goes away, so the sales block
+  // has to follow the direction rather than whatever was last loaded.
+  await direction.getByRole("button", { name: "入库", exact: true }).click();
+  await expect(figures).not.toContainText("销售总额");
+  await expect(page.getByRole("table", { name: "销售汇总列表" })).toHaveCount(
+    0,
+  );
+  await direction.getByRole("button", { name: "全部", exact: true }).click();
 
   // One menu, one page: the summary keeps its own address.
   expect(new URL(page.url()).hash).toBe("#/summary");
@@ -268,10 +321,12 @@ test("入库小组可在基础资料里维护，建好后入库表单与汇总�
   ).toContainText([group]);
 
   await page.goto("/#/summary");
-  const filter = page.getByRole("combobox", { name: "小组", exact: false });
-  await expect(filter).toBeVisible();
-  await chooseSelect(filter, group);
-  await expect(filter).toContainText(group);
+  // The summary filters groups with chips, the way the other list pages filter.
+  const groups = page.getByRole("group", { name: "入库小组", exact: true });
+  const chip = groups.getByRole("button", { name: group, exact: true });
+  await expect(chip).toBeVisible();
+  await chip.click();
+  await expect(chip).toHaveAttribute("aria-pressed", "true");
 
   // The stock-in form goes last: choosing a group marks it unsaved, and the
   // navigation guard would then hold a hash navigation behind its own dialog.
