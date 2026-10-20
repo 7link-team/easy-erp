@@ -439,7 +439,7 @@ test("查看员权限、角色更改、停用、重置密码与退出登录", as
         })
       ).status(),
     ).toBe(403);
-    await row.getByRole("button", { name: "修改权限" }).click();
+    await row.getByRole("button", { name: "编辑账号" }).click();
     await chooseSelect(
       page.getByLabel("角色 必填", { exact: true }),
       "worker-111",
@@ -459,7 +459,7 @@ test("查看员权限、角色更改、停用、重置密码与退出登录", as
         })
       ).status(),
     ).toBe(401);
-    await row.getByRole("button", { name: "修改权限" }).click();
+    await row.getByRole("button", { name: "编辑账号" }).click();
     await page.getByRole("checkbox", { name: "允许此账号登录" }).check();
     await page.getByRole("button", { name: "保存账号" }).click();
     await expect(row).toContainText("操作员");

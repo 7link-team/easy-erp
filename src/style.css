@@ -16,6 +16,26 @@
 * {
   box-sizing: border-box;
 }
+/* Scrollbars follow the theme instead of the OS default, which is wide and
+   loud on Windows. The standard properties keep the engine's own behaviour,
+   so macOS overlay scrollbars stay overlaid rather than taking a permanent
+   gutter; the WebKit fallback only runs where they are unsupported. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-3) transparent;
+}
+@supports not (scrollbar-color: auto) {
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: var(--line-3);
+    border: 2px solid transparent;
+    background-clip: content-box;
+    border-radius: 8px;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: var(--ink-4); background-clip: content-box; }
+  ::-webkit-scrollbar-corner { background: transparent; }
+}
 body {
   margin: 0;
 }

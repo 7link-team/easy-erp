@@ -222,7 +222,7 @@ export default function Users({
                   <td>{user.active ? "允许登录" : "已停用"}</td>
                   <td>
                     <Button className="button small" onClick={() => open(user)}>
-                      修改权限
+                      编辑账号
                     </Button>
                   </td>
                 </tr>
@@ -319,7 +319,7 @@ export default function Users({
       </section>
       {editing && (
         <Modal
-          title={editing === "new" ? "添加人员账号" : "修改人员与权限"}
+          title={editing === "new" ? "添加人员账号" : "编辑人员账号"}
           onClose={() => setEditing(undefined)}
         >
           <Form
