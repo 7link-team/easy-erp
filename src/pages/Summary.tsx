@@ -150,15 +150,63 @@ const forInput = (value: string, endOfDay: boolean) =>
     ? `${value}T${endOfDay ? "23:59" : "00:00"}`
     : value;
 
-/** Draw the figures as a picture, so a period can be sent on as one image. */
+/** Draw the figures as a picture, so a period can be sent on as one image.
+ *  The columns follow whatever the page is showing: a direction that cannot
+ *  have a figure contributes no empty column here either. */
 function picture(
   rows: Material[],
   figures: [string, string][],
   title: string,
   period: string,
+  showIncoming: boolean,
+  showOutgoing: boolean,
 ) {
+  type Column = { head: string; read: (row: Material) => string };
+  const amounts: Column[] = [
+    {
+      head: "成本价",
+      read: (row) =>
+        row.cost_price === null ? "未定价" : `¥${costText(row.cost_price)}`,
+    },
+    ...(showIncoming
+      ? [
+          {
+            head: "入库数量",
+            read: (row: Material) =>
+              row.in_quantity
+                ? `${quantity(row.in_quantity, row.precision)} ${row.unit}`
+                : "—",
+          },
+          {
+            head: "入库金额",
+            read: (row: Material) =>
+              row.in_quantity ? `¥${row.in_value}` : "—",
+          },
+        ]
+      : []),
+    ...(showOutgoing
+      ? [
+          {
+            head: "出库数量",
+            read: (row: Material) =>
+              row.out_quantity
+                ? `${quantity(row.out_quantity, row.precision)} ${row.unit}`
+                : "—",
+          },
+          {
+            head: "出库金额",
+            read: (row: Material) =>
+              row.out_quantity ? `¥${row.out_value}` : "—",
+          },
+        ]
+      : []),
+  ];
   const scale = 2;
-  const width = 900;
+  const left = 28;
+  const nameWidth = 200;
+  const specWidth = 156;
+  const amountWidth = 132;
+  const width = left * 2 + nameWidth + specWidth + amounts.length * amountWidth;
   const step = 30;
   const top = 116;
   const height = top + (rows.length + 2) * step + 34 + figures.length * 25;
@@ -170,77 +218,66 @@ function picture(
   pen.scale(scale, scale);
   pen.fillStyle = "#ffffff";
   pen.fillRect(0, 0, width, height);
-  const at = [28, 230, 390, 500, 620, 730, 872];
-  // Each column has a width budget, or a long material name would run straight
-  // through the next one.
-  const limit = [196, 150, 100, 110, 100, 110, 130];
+  const right = width - left;
+  // Right edge of each amount column, laid out from the right so the money
+  // lines up however many columns are showing.
+  const edge = (index: number) =>
+    right - (amounts.length - 1 - index) * amountWidth;
   const body = "15px system-ui, -apple-system, sans-serif";
   const bold = "600 15px system-ui, -apple-system, sans-serif";
-  const write = (
+  const put = (
     value: string,
-    column: number,
+    x: number,
     y: number,
     font: string,
-    right = false,
+    limit: number,
+    end = false,
   ) => {
     pen.font = font;
-    pen.textAlign = right ? "right" : "left";
-    pen.fillText(value, at[column], y, limit[column]);
+    pen.textAlign = end ? "right" : "left";
+    pen.fillText(value, x, y, limit);
   };
   pen.fillStyle = "#111827";
-  pen.font = "600 22px system-ui, -apple-system, sans-serif";
-  pen.textAlign = "left";
-  pen.fillText(title, at[0], 46, width - 56);
+  put(
+    title,
+    left,
+    46,
+    "600 22px system-ui, -apple-system, sans-serif",
+    width - left * 2,
+  );
   pen.fillStyle = "#6b7280";
-  pen.font = body;
-  pen.fillText(period, at[0], 78, width - 56);
+  put(period, left, 78, body, width - left * 2);
   pen.fillStyle = "#374151";
-  const heads = [
-    "物料",
-    "规格",
-    "成本价",
-    "入库数量",
-    "入库金额",
-    "出库数量",
-    "出库金额",
-  ];
-  heads.forEach((head, column) => write(head, column, top, bold, column >= 2));
+  put("物料", left, top, bold, nameWidth - 12);
+  put("规格", left + nameWidth, top, bold, specWidth - 12);
+  amounts.forEach((column, index) =>
+    put(column.head, edge(index), top, bold, amountWidth - 12, true),
+  );
   pen.strokeStyle = "#d1d5db";
   pen.beginPath();
-  pen.moveTo(at[0], top + 11);
-  pen.lineTo(at[6], top + 11);
+  pen.moveTo(left, top + 11);
+  pen.lineTo(right, top + 11);
   pen.stroke();
   pen.fillStyle = "#111827";
   rows.forEach((row, index) => {
     const y = top + 11 + (index + 1) * step;
-    write(row.name, 0, y, body);
-    write(row.spec, 1, y, body);
-    write(
-      row.cost_price === null ? "未定价" : `¥${costText(row.cost_price)}`,
-      2,
-      y,
-      body,
-      true,
+    put(row.name, left, y, body, nameWidth - 12);
+    put(row.spec, left + nameWidth, y, body, specWidth - 12);
+    amounts.forEach((column, position) =>
+      put(column.read(row), edge(position), y, body, amountWidth - 12, true),
     );
-    write(quantity(row.in_quantity, row.precision), 3, y, body, true);
-    write(`¥${row.in_value}`, 4, y, body, true);
-    write(quantity(row.out_quantity, row.precision), 5, y, body, true);
-    write(`¥${row.out_value}`, 6, y, body, true);
   });
   const end = top + 11 + (rows.length + 1) * step;
   pen.strokeStyle = "#9ca3af";
   pen.beginPath();
-  pen.moveTo(at[0], end - 19);
-  pen.lineTo(at[6], end - 19);
+  pen.moveTo(left, end - 19);
+  pen.lineTo(right, end - 19);
   pen.stroke();
   pen.fillStyle = "#111827";
-  figures.forEach(([label, amount], index) => {
+  figures.forEach(([name, amount], index) => {
     const y = end + index * 25;
-    pen.font = bold;
-    pen.textAlign = "left";
-    pen.fillText(label, at[0], y, 420);
-    pen.textAlign = "right";
-    pen.fillText(amount, at[6], y, 240);
+    put(name, left, y, bold, 420);
+    put(amount, right, y, bold, 240, true);
   });
   return canvas.toDataURL("image/png");
 }
@@ -330,7 +367,14 @@ export default function Summary({
               !rows.length && !(showSales && revenue.data?.customers.length)
             }
             onClick={() => {
-              const drawn = picture(rows, figures, `${label}汇总`, period);
+              const drawn = picture(
+                rows,
+                figures,
+                `${label}汇总`,
+                period,
+                showIncoming,
+                showOutgoing,
+              );
               if (drawn) setImage(drawn);
               else setDrawFailed(true);
             }}
@@ -483,10 +527,18 @@ export default function Summary({
                     <tr>
                       <th>物料 / 规格</th>
                       <th className="numeric">成本价（元）</th>
-                      <th className="numeric">入库数量</th>
-                      <th className="numeric">入库金额</th>
-                      <th className="numeric">出库数量</th>
-                      <th className="numeric">出库金额</th>
+                      {showIncoming && (
+                        <>
+                          <th className="numeric">入库数量</th>
+                          <th className="numeric">入库金额</th>
+                        </>
+                      )}
+                      {showOutgoing && (
+                        <>
+                          <th className="numeric">出库数量</th>
+                          <th className="numeric">出库金额</th>
+                        </>
+                      )}
                     </tr>
                   </thead>
                   <tbody>
@@ -504,22 +556,30 @@ export default function Summary({
                             ? "未设置"
                             : `¥${costText(row.cost_price)}`}
                         </td>
-                        <td className="numeric" data-label="入库数量">
-                          {row.in_quantity
-                            ? `${quantity(row.in_quantity, row.precision)} ${row.unit}`
-                            : "—"}
-                        </td>
-                        <td className="numeric" data-label="入库金额">
-                          {row.in_quantity ? `¥${row.in_value}` : "—"}
-                        </td>
-                        <td className="numeric" data-label="出库数量">
-                          {row.out_quantity
-                            ? `${quantity(row.out_quantity, row.precision)} ${row.unit}`
-                            : "—"}
-                        </td>
-                        <td className="numeric" data-label="出库金额">
-                          {row.out_quantity ? `¥${row.out_value}` : "—"}
-                        </td>
+                        {showIncoming && (
+                          <>
+                            <td className="numeric" data-label="入库数量">
+                              {row.in_quantity
+                                ? `${quantity(row.in_quantity, row.precision)} ${row.unit}`
+                                : "—"}
+                            </td>
+                            <td className="numeric" data-label="入库金额">
+                              {row.in_quantity ? `¥${row.in_value}` : "—"}
+                            </td>
+                          </>
+                        )}
+                        {showOutgoing && (
+                          <>
+                            <td className="numeric" data-label="出库数量">
+                              {row.out_quantity
+                                ? `${quantity(row.out_quantity, row.precision)} ${row.unit}`
+                                : "—"}
+                            </td>
+                            <td className="numeric" data-label="出库金额">
+                              {row.out_quantity ? `¥${row.out_value}` : "—"}
+                            </td>
+                          </>
+                        )}
                       </tr>
                     ))}
                   </tbody>
