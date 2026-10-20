@@ -5,7 +5,8 @@
 客户需求出自 `docs/客户需求/20261019.md`（已脱敏纳管）。
 
 ## Current Phase
-ACCEPTANCE — 客户需求全部实现；评审 6 条发现全部验证并修复；跑最终全量门禁。
+ACCEPTANCE — v0.4.0 已发布；本轮为用户验收后的汇总改造（按方向分列、分钟级期间、
+排版重做），待全量通过后发 v0.5.0。
 
 ## Current Step
 等最终全量 chromium（b44638sbw）→ webkit 全量 → 分组提交推送 → 打标签 → publish-verified。
@@ -78,3 +79,14 @@ server: cargo test 11 集成 + 单测 PASS；手工 API 实测 PASS。
 
 ## Next Action
 前端加小组选择与汇总页；随后补 e2e 覆盖汇总接口；再做菜单拆分。
+
+
+## 2026-10-20 当前补充任务：汇总页排版
+- 用户要求美化 `4292/#/summary`，金额按「入库、当前库存、出库、销售」排序。
+- 直接执行，仅修改 Summary.tsx / style.css；保留已有未提交的后端及测试修改。
+- 已拆分筛选、金额、明细区域，增加筛选标签、库存快照说明、小组金额独立排列。
+- npm run build PASS。演示服务使用 debug-embed，需重编译并原参数重启才能查看新版。
+- 完成：cargo build PASS；4292 已按原数据目录 /tmp/erp-demo 重启，新版原地址实测通过。
+- 浏览器验收 PASS：1440px / 390px，无页面横向溢出；金额顺序、小组筛选、方向切换、空搜索、PNG 导出。
+- 现有测试：npm run test:e2e -- tests/e2e/summary.spec.ts -g 期间汇总逐款，1 passed。
+- 自评审与需求验收 PASS：复用控件及主题，无新增依赖，业务计算未改；本次任务无待办，未提交。
