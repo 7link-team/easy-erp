@@ -343,9 +343,15 @@ test("库存服务升级提示刷新，不丢失未提交内容", async ({ page 
   await start(page);
   await expect.poll(() => checks).toBeGreaterThanOrEqual(2);
   await page.getByRole("link", { name: /我要入库/ }).click();
-  await page
-    .getByLabel("备注或原因", { exact: false })
-    .fill("升级时保留的内容");
+  // Type instead of fill: a single programmatic value assignment can lose the
+  // race with React restoring its controlled value, which empties the field
+  // and leaves the form looking clean, so the reload guard correctly lets the
+  // reload through and the test fails far from the cause. Real keystrokes are
+  // what this test is about, and one dropped key cannot empty the field.
+  const note = page.getByLabel("备注或原因", { exact: false });
+  await note.click();
+  await note.pressSequentially("升级时保留的内容");
+  await expect(note).toHaveValue("升级时保留的内容");
   version = "0.2.0";
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect(page.locator(".service-update")).toContainText(

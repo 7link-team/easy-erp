@@ -5,11 +5,12 @@
 客户需求出自 `docs/客户需求/20261019.md`（已脱敏纳管）。
 
 ## Current Phase
-ACCEPTANCE — v0.4.0 已发布；本轮为用户验收后的汇总改造（按方向分列、分钟级期间、
-排版重做），待全量通过后发 v0.5.0。
+ACCEPTANCE — v0.6.0 发版中。标签构建 39406369784 除 webkit e2e 外全绿；
+webkit 188/189（17.0m，未超时），唯一失败已定位并修复，待重跑确认后 publish-verified。
 
 ## Current Step
-等最终全量 chromium（b44638sbw）→ webkit 全量 → 分组提交推送 → 打标签 → publish-verified。
+提交测试修复 → 重打 v0.6.0 标签 → 为新 SHA 手动派发镜像构建（tests/** 不在
+server-image.yml 的 paths 内）→ 等标签构建全绿 → publish-verified（仅建草稿）。
 
 ## 评审发现（6 条，全部自验并修复）
 1. **上一版备份全部不可恢复**（最严重，我自己没看到）：backup.rs 的 legacy 候选集合无一个
@@ -39,8 +40,9 @@ ACCEPTANCE — v0.4.0 已发布；本轮为用户验收后的汇总改造（按�
 - [x] 导出图片（原生 canvas 自绘，零新依赖）
 - [x] 库存逐款金额 —— **本就已有**（Inventory.tsx 的「库存金额（元）」列），未重复造
 - [x] 菜单：三个财务菜单原共用一个挂载实例（key 都映射成 "finance"），已改为各自独立
-- [ ] 全量 e2e（chromium 跑中 / webkit 待跑）
-- [ ] 评审发现修复 → 提交推送发版
+- [x] 全量 e2e：chromium 全绿；webkit 188/189，唯一失败已定位并修复
+- [x] 评审发现修复 → 提交推送
+- [ ] v0.6.0 标签构建重跑全绿 → publish-verified 建草稿
 
 ## 已实测（真服务端 + 真数据，非推演）
 螺丝 2+3=5 × ¥10 → value 50.00；垫片 4 × ¥2.5 → 10.00；**total_value 60.00**
@@ -71,14 +73,38 @@ catalog 的固定 key **有意保留**：切换基础资料栏目是同菜单内
   缺的是逐款明细的金额列。
 - 销售汇总：`/api/sales/finance` 已有客户/业绩维度聚合，是否满足"销售汇总"需确认，
   不要重复造。
-- 本地领先远端 6 个提交未推送（含数据目录改可见名）。
+- webkit 在 macos-15-intel 上已出现两次单例不复现失败（本次 update.spec.ts:335 已定位
+  为 `fill()` 注入竞态并修复；上一次 sales.spec.ts:1138「返回客户对账」仍未解释，
+  9 次本地复现含负载全过）。同一位置再现才是信号，不要当噪声。
+- 发版流程坑：标签落在只改 tests/** 或 .github/** 的提交上时，server-image.yml 的
+  paths 不覆盖，GHCR 不会有该 SHA 的镜像，publish 后拉取报 `sha-...: not found`。
+  打标签前必须确认或手动派发镜像构建（v0.4.0 已踩过一次）。
 
 ## Verification
-server: cargo test 11 集成 + 单测 PASS；手工 API 实测 PASS。
-前端 / e2e / 桌面：本轮尚未跑。
+Build: PASS（npm run typecheck、typecheck:e2e 均干净，无 tsc 散落产物）
+Tests: 标签构建 39406369784 —— chromium e2e PASS；webkit 188/189（已修）；
+       其余作业全部 PASS。修复后本地 webkit 该用例 5/5 PASS。
+Other: cargo test 11 集成 + 单测 PASS；手工 API 实测 PASS。
+
+## Last Checkpoint
+2026-10-20 webkit 失败定位完成并修复，待重打标签重跑。
 
 ## Next Action
-前端加小组选择与汇总页；随后补 e2e 覆盖汇总接口；再做菜单拆分。
+等 v0.6.0 标签构建（含 webkit e2e）全绿；绿则跑 publish-verified 建草稿，由用户决定发布。
+若 webkit 再次失败，先取 e2e-webkit-evidence 的 trace 做快照对照（见下方定位方法），
+不要靠重跑判断。
+
+## update.spec.ts:335 webkit 偶发失败 —— 已定位并修复
+症状：点「刷新页面」后 `.service-update` 整个消失、断言 element not found。
+排除：仍在登录态、仍在入库页（非掉线、非导航）；本地孤立 8/8、整文件 18/18、
+10×CPU 负载 10/10 全过，共 36 次不复现。
+定位方法（可复用）：解包 trace.zip，比对 `frame-snapshot` 条目是否含输入值 ——
+通过的本地 trace 有 3 张含值，失败的 CI trace **0 张**（已用 `manager` 作对照
+确认 Playwright 确实记录 textarea 实时值）。
+结论：`fill()` 的单次程序化赋值被 React 受控输入回填吃掉，`setNote` 从未执行，
+`hasChanges`/`dirty` 保持 false，守卫按它看到的「干净表单」正确放行 reload。
+**产品无缺陷**；改为 `pressSequentially` 逐字输入 + 填入后立即断言值已落地。
+单字符丢失不会让字段变空，所以仍能抓到真实的输入丢失缺陷。
 
 
 ## 2026-10-20 当前补充任务：汇总页排版
