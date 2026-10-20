@@ -3,6 +3,8 @@ const status = document.querySelector("#status");
 const address = document.querySelector("#address");
 let busy = false;
 let databaseConfigured = true;
+const storageNames = { local: "本地文件", s3: "S3 对象存储", legacy: "旧数据目录" };
+const storageName = (kind) => (storageNames[kind] ? `${storageNames[kind]} ` : "");
 const databaseForm = document.querySelector("#database-form");
 const databaseKind = document.querySelector("#database-kind");
 function showDatabaseState(configured) {
@@ -247,7 +249,7 @@ async function loadRecovery() {
       ]) {
         if (path === info.backups_dir) continue;
         const row = document.createElement("p");
-        showPath(row, path, `${storage.kind} ${label}位置：`);
+        showPath(row, path, `${storageName(storage.kind)}${label}位置：`);
         locations.append(row);
       }
     }
@@ -398,7 +400,7 @@ function confirmRecovery(args) {
   document.querySelector("#recovery-final-warning").textContent =
     recoveryActions[args.action].description;
   document.querySelector("#recovery-final-target").textContent =
-    `目标：这台电脑。数据目录：${recoveryInfo.data_dir}。备份存储：${recoveryInfo.backups_dir}。${(recoveryInfo.storage_locations || []).map((s) => `配置存储 ${s.kind}：备份 ${s.backups}；附件 ${s.attachments}`).join("；")}。${args.backup ? `恢复来源：${args.backup}。` : ""}${args.restart ? "完成后将启动本机服务。" : "完成后本机服务保持停止。"}`;
+    `目标：这台电脑。数据目录：${recoveryInfo.data_dir}。备份存储：${recoveryInfo.backups_dir}。${(recoveryInfo.storage_locations || []).map((s) => `配置存储 ${storageName(s.kind).trim()}：备份 ${s.backups}；附件 ${s.attachments}`).join("；")}。${args.backup ? `恢复来源：${args.backup}。` : ""}${args.restart ? "完成后将启动本机服务。" : "完成后本机服务保持停止。"}`;
   document.querySelector("#recovery-final-review").hidden = false;
   return new Promise((resolve) => {
     finishFinal = resolve;

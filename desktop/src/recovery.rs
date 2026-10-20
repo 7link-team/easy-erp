@@ -144,6 +144,16 @@ fn validate_control_paths(dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// A lock the local service already holds. Unix answers with EWOULDBLOCK, which
+/// maps to `WouldBlock`; Windows answers with ERROR_LOCK_VIOLATION (33) or
+/// ERROR_SHARING_VIOLATION (32), which map to nothing in particular — so the
+/// service holding its own data read as a lock that could not be checked, and
+/// 清空全部数据 refused to run instead of stopping the service first.
+fn lock_held(error: &std::io::Error) -> bool {
+    error.kind() == std::io::ErrorKind::WouldBlock
+        || cfg!(windows) && matches!(error.raw_os_error(), Some(32 | 33))
+}
+
 // Maintenance must also work when the database cannot start. Only ask an
 // already-running, identified local service to stop; never spawn or kill here.
 async fn stop_for_recovery(app: &tauri::AppHandle) -> Result<bool, String> {
@@ -161,7 +171,7 @@ async fn stop_for_recovery(app: &tauri::AppHandle) -> Result<bool, String> {
     };
     match lock.try_lock_exclusive() {
         Ok(()) => return Ok(false),
-        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+        Err(error) if lock_held(&error) => {}
         Err(error) => return Err(format!("无法检查本机数据锁：{error}")),
     }
     let url = url::Url::parse(LOCAL_URL).unwrap();
@@ -269,7 +279,7 @@ pub async fn recovery_execute(
 
 #[cfg(test)]
 mod tests {
-    use super::validate_control_paths;
+    use super::{lock_held, validate_control_paths};
 
     #[test]
     fn control_paths_allow_missing_and_regular_files() {
@@ -316,4 +326,18 @@ mod tests {
             "must remain untouched"
         );
     }
+
+    #[test]
+    fn a_lock_the_service_already_holds_is_recognised_on_either_system() {
+        use std::io::{Error, ErrorKind};
+        assert!(lock_held(&Error::from(ErrorKind::WouldBlock)));
+        // ERROR_LOCK_VIOLATION / ERROR_SHARING_VIOLATION: what Windows answers
+        // instead of WouldBlock, and the reason 清空全部数据 reported that the
+        // lock could not be checked rather than stopping the service first.
+        for code in [32, 33] {
+            assert_eq!(lock_held(&Error::from_raw_os_error(code)), cfg!(windows));
+        }
+        assert!(!lock_held(&Error::from(ErrorKind::PermissionDenied)));
+    }
+
 }
