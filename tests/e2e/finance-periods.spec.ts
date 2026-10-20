@@ -177,6 +177,43 @@ test("本月本季本年按单据日期统计，账户月度净收独立按现�
   expect(report.monthly.accounts[f.account.id]).toBe(1000);
   const bad = await r.get("/api/sales/finance?performance_period=invalid");
   expect(bad.status()).toBe(400);
+
+  // A named period still resolves to what it always did, and an explicit range
+  // replaces it outright rather than mixing one end of each.
+  const range = async (query: string) =>
+    (await r.get(`/api/sales/finance?entries=false&${query}`)).json();
+  const owed = (report: { performance: { due: number }[] }) =>
+    report.performance.reduce((sum, row) => sum + Number(row.due), 0);
+  const everything = owed(await range("performance_period=all"));
+  expect(everything).toBeGreaterThan(0);
+  // A range wide enough to hold every document matches the unbounded period;
+  // this fixture deliberately spreads documents across months.
+  expect(owed(await range("from=2000-01-01&to=2099-12-31"))).toBe(everything);
+  expect(owed(await range(`from=${f.today}&to=${f.today}`))).toBeLessThan(
+    everything,
+  );
+  // 上月 is the period the named ones could not express: it has an end.
+  const lastMonth = await range("performance_period=last_month");
+  expect(lastMonth.period.from < lastMonth.period.to).toBe(true);
+  expect(lastMonth.period.to < f.today).toBe(true);
+  // An end on its own used to be dropped silently, because the clause fell
+  // through whenever the start was empty.
+  expect(owed(await range("to=2000-01-01"))).toBe(0);
+  expect(owed(await range("from=2099-01-01"))).toBe(0);
+  // Business dates are days, so a time is taken off rather than refused.
+  expect(owed(await range("from=2000-01-01T00:00&to=2099-12-31T23:59"))).toBe(
+    everything,
+  );
+  // Every document, with no range at all, stays unbounded.
+  const unbounded = await range("performance_period=all");
+  expect(unbounded.period.from).toBeNull();
+  expect(unbounded.period.to).toBeNull();
+  expect(
+    (await r.get("/api/sales/finance?from=2026-12-31&to=2026-01-01")).status(),
+  ).toBe(400);
+  expect((await r.get("/api/sales/finance?from=2026/01/01")).status()).toBe(
+    400,
+  );
   const moved = await post(r, "/sales/catalog", {
     kind: "department",
     name: `${f.tag}-调任部门`,
@@ -310,10 +347,17 @@ test("可按部门和业务员查业绩，零业绩、期间切换和手机刷�
   const f = await fixture(page.request);
   await command(page.request, { action: "confirm", input: f.input });
   await page.goto("/#/performance");
-  await page
-    .getByRole("group", { name: "业绩期间" })
-    .getByRole("button", { name: "本月", exact: true })
-    .click();
+  const periods = page.getByRole("group", { name: "业绩期间" });
+  await periods.getByRole("button", { name: "本月", exact: true }).click();
+  // Choosing a range clears the named period, and vice versa, so the two can
+  // never both look selected.
+  await page.getByLabel("业绩从", { exact: false }).fill("2000-01-01");
+  await expect(
+    periods.getByRole("button", { name: "本月", exact: true }),
+  ).toHaveAttribute("aria-pressed", "false");
+  await periods.getByRole("button", { name: "上月", exact: true }).click();
+  await expect(page.getByLabel("业绩从", { exact: false })).toHaveValue("");
+  await periods.getByRole("button", { name: "本月", exact: true }).click();
   const department = page.getByRole("combobox", {
     name: "业绩部门",
     exact: false,

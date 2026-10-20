@@ -2081,8 +2081,20 @@ function FinancePanel({
     "performance_period",
     "all",
   );
+  // A named period and an explicit range are two ways to say the same thing,
+  // so choosing one clears the other; the server reads the range when it has
+  // either end, and an address saved before ranges existed still resolves.
+  const [performanceFrom, setPerformanceFrom] = useQueryValue<string>(
+    "performance_from",
+    "",
+  );
+  const [performanceTo, setPerformanceTo] = useQueryValue<string>(
+    "performance_to",
+    "",
+  );
+  const performanceRange = performanceFrom !== "" || performanceTo !== "";
   const resource = useResource<Finance>(
-    `/sales/finance?entries=false&performance_period=${encodeURIComponent(performancePeriod)}`,
+    `/sales/finance?entries=false&performance_period=${encodeURIComponent(performancePeriod)}&from=${encodeURIComponent(performanceFrom)}&to=${encodeURIComponent(performanceTo)}`,
     revision,
   );
   const [performanceDepartment, setPerformanceDepartment] =
@@ -2838,6 +2850,7 @@ function FinancePanel({
           <div className="filter-chips" role="group" aria-label="业绩期间">
             {[
               ["month", "本月"],
+              ["last_month", "上月"],
               ["quarter", "本季"],
               ["year", "本年"],
               ["all", "全部"],
@@ -2845,20 +2858,46 @@ function FinancePanel({
               <Button
                 key={value}
                 className="filter-chip"
-                aria-pressed={performancePeriod === value}
+                aria-pressed={!performanceRange && performancePeriod === value}
                 disabled={resource.loading}
-                onClick={() => setPerformancePeriod(value)}
+                onClick={() => {
+                  setPerformanceFrom("");
+                  setPerformanceTo("");
+                  setPerformancePeriod(value);
+                }}
               >
                 {label}
               </Button>
             ))}
           </div>
         </div>
+        <div className="filters">
+          <Field label="业绩从">
+            {(p) => (
+              <Input
+                {...p}
+                type="date"
+                value={performanceFrom}
+                onChange={(event) => setPerformanceFrom(event.target.value)}
+              />
+            )}
+          </Field>
+          <Field label="业绩至">
+            {(p) => (
+              <Input
+                {...p}
+                type="date"
+                value={performanceTo}
+                onChange={(event) => setPerformanceTo(event.target.value)}
+              />
+            )}
+          </Field>
+        </div>
         <p className="hint" role="status">
           {resource.loading
             ? "正在更新业绩…"
-            : data.period.from
-              ? `${data.period.from} 至 ${data.period.to} 开出的单据，截至当前的账款`
+            : data.period.from || data.period.to
+              ? `${data.period.from || "最早"} 至 ${data.period.to || "现在"} 开出的单据，截至当前的账款`
               : "全部有效单据，截至当前的账款"}
         </p>
         <div className="form-grid finance-filters">

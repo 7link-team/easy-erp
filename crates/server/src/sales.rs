@@ -139,6 +139,12 @@ fn owner(actor: &User, sale: &Sale) -> Result<()> {
     }
     Ok(())
 }
+/// A reporting period may carry a time, but a sale records only the day it
+/// happened, so the clock part is dropped rather than refused. The write path
+/// keeps using date() unchanged, which accepts a plain day and nothing else.
+fn business_day(value: &str) -> Result<String> {
+    date(value.split('T').next().unwrap_or_default())
+}
 fn date(value: &str) -> Result<String> {
     let parsed = chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")
         .map_err(|_| ApiError::bad("请选择有效业务日期。"))?;
@@ -996,10 +1002,7 @@ pub(crate) fn list_filter(
     if !["", "draft", "posted", "voided"].contains(&status.as_str()) {
         return Err(ApiError::bad("单据状态筛选无效。"));
     }
-    // A summary period may carry a time, but a sale only ever records the day
-    // it happened, so the clock part is dropped rather than refused. The write
-    // path keeps using date() unchanged, which accepts a plain day only.
-    let day = |value: String| date(value.split('T').next().unwrap_or_default());
+    let day = |value: String| business_day(&value);
     let from = filter
         .from
         .clone()
@@ -1804,7 +1807,13 @@ pub async fn cash_ledger(
 pub struct FinanceFilter {
     entries: Option<bool>,
     q: Option<String>,
+    /// A named period, kept so addresses saved before ranges existed still
+    /// resolve to what they used to mean.
     performance_period: Option<String>,
+    /// An explicit range, which wins over the named one when either end is
+    /// given. Business dates are days, so a time is dropped.
+    from: Option<String>,
+    to: Option<String>,
 }
 
 pub async fn finance(
@@ -1818,20 +1827,57 @@ pub async fn finance(
     let today = Local::now().date_naive();
     let month = today.with_day(1).unwrap();
     let period = filter.performance_period.as_deref().unwrap_or("all");
-    let from = match period {
-        "all" => None,
-        "month" => Some(month),
-        "quarter" => Some(month.with_month((today.month0() / 3) * 3 + 1).unwrap()),
-        "year" => Some(month.with_month(1).unwrap()),
+    // A named period ends today, except 上月, which ends when it ended.
+    let (named_from, named_to) = match period {
+        "all" => (None, None),
+        "month" => (Some(month), None),
+        "last_month" => {
+            let previous = month.pred_opt().unwrap_or(month);
+            (Some(previous.with_day(1).unwrap()), Some(previous))
+        }
+        "quarter" => (
+            Some(month.with_month((today.month0() / 3) * 3 + 1).unwrap()),
+            None,
+        ),
+        "year" => (Some(month.with_month(1).unwrap()), None),
         _ => {
             return Err(ApiError::bad(
-                "业绩期间无效，请选择本月、本季、本年或全部。",
+                "业绩期间无效，请选择本月、上月、本季、本年或全部。",
             ));
         }
+    };
+    let chosen = |value: &Option<String>| -> Result<Option<String>> {
+        value
+            .clone()
+            .filter(|v| !v.is_empty())
+            .map(|v| business_day(&v))
+            .transpose()
+    };
+    let explicit_from = chosen(&filter.from)?;
+    let explicit_to = chosen(&filter.to)?;
+    let explicit = explicit_from.is_some() || explicit_to.is_some();
+    // An explicit range replaces the named one outright: mixing one end of each
+    // would report a period nobody asked for.
+    let (from, until) = if explicit {
+        (explicit_from, explicit_to)
+    } else {
+        (
+            named_from.map(|day| day.to_string()),
+            named_to.map(|day| day.to_string()),
+        )
+    };
+    if let (Some(start), Some(end)) = (&from, &until) {
+        if start > end {
+            return Err(ApiError::bad("业绩期间的开始日期不能晚于结束日期。"));
+        }
     }
-    .map(|day| day.to_string());
     let as_of = today;
     let today = today.to_string();
+    // An open end means "up to now", which is what the named periods meant.
+    // A period with a start but no end runs up to now, which is what the named
+    // periods have always meant. A period with neither is every document, so it
+    // stays unbounded rather than silently excluding a future business date.
+    let until = until.or_else(|| from.as_ref().map(|_| today.clone()));
     let month = month.to_string();
     let mut monthly_departments = HashMap::<String, i64>::new();
     let mut monthly_salespeople = HashMap::<String, i64>::new();
@@ -1849,12 +1895,12 @@ SELECT 'customer' AS dimension,customer_id AS id1,'' AS id2,customer_name AS nam
  COUNT(*) AS count,SUM(due) AS due,SUM(paid) AS paid,COALESCE(MIN(CASE WHEN due>paid THEN business_date END),'') AS oldest
  FROM ledger GROUP BY customer_id
 UNION ALL SELECT 'performance',department_id,salesperson_id,department_name,salesperson_name,COUNT(*),SUM(due),SUM(paid),''
- FROM ledger WHERE billable=1 AND (?='' OR business_date BETWEEN ? AND ?) GROUP BY department_id,salesperson_id
+ FROM ledger WHERE billable=1 AND (?='' OR business_date>=?) AND (?='' OR business_date<=?) GROUP BY department_id,salesperson_id
 UNION ALL SELECT 'choices',department_id,salesperson_id,department_name,salesperson_name,0,0,0,''
  FROM ledger WHERE billable=1 GROUP BY department_id,salesperson_id
 UNION ALL SELECT 'monthly',department_id,salesperson_id,'','',0,SUM(due),0,''
  FROM ledger WHERE billable=1 AND business_date BETWEEN ? AND ? GROUP BY department_id,salesperson_id"#),
- vec![from.clone().unwrap_or_default().into(),from.clone().unwrap_or_default().into(),today.clone().into(),month.clone().into(),today.clone().into()]).await?;
+ vec![from.clone().unwrap_or_default().into(),from.clone().unwrap_or_default().into(),until.clone().unwrap_or_default().into(),until.clone().unwrap_or_default().into(),month.clone().into(),today.clone().into()]).await?;
     for row in grouped {
         let id1 = text(&row, "id1");
         let id2 = text(&row, "id2");
@@ -1981,7 +2027,7 @@ UNION ALL SELECT 'monthly',department_id,salesperson_id,'','',0,SUM(due),0,''
         monthly_accounts.insert(text(&row,"account_id"),int(&row,"amount"));
     }
     Ok(Json(
-        json!({"period":{"value":period,"from":from,"to":if period=="all" {None} else {Some(&today)}},"monthly":{"from":month,"to":today,"accounts":monthly_accounts,"departments":monthly_departments,"salespeople":monthly_salespeople,"categories":monthly_categories,"category_names":category_names,"unclassified":unclassified},"due":total,"paid":net_paid,"debt":total-net_paid,"performance_choices":performance_choices.into_values().collect::<Vec<_>>(),"performance":performance.into_values().collect::<Vec<_>>(),"customers":customers.into_values().collect::<Vec<_>>(),"accounts":accounts,"entries":entries}),
+        json!({"period":{"value":if explicit {""} else {period},"from":from,"to":until},"monthly":{"from":month,"to":today,"accounts":monthly_accounts,"departments":monthly_departments,"salespeople":monthly_salespeople,"categories":monthly_categories,"category_names":category_names,"unclassified":unclassified},"due":total,"paid":net_paid,"debt":total-net_paid,"performance_choices":performance_choices.into_values().collect::<Vec<_>>(),"performance":performance.into_values().collect::<Vec<_>>(),"customers":customers.into_values().collect::<Vec<_>>(),"accounts":accounts,"entries":entries}),
     ))
 }
 
