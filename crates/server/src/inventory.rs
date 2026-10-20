@@ -512,7 +512,9 @@ pub(crate) async fn post_movement(s: &AppState, actor: User, input: Movement) ->
     clean(&input.person, "领用人或来源去向", 100, false)?;
     // Groups describe where incoming goods were produced, so an outgoing record
     // carrying one would only make a period summary ambiguous.
-    let team = clean(&input.team, "小组", 128, false)?;
+    // 100, not 128, to match what the option list itself accepts, so an
+    // over-long name is refused as 小组 rather than as 选项名称 further down.
+    let team = clean(&input.team, "小组", 100, false)?;
     if !team.is_empty() && !kind.incoming() {
         return Err(ApiError::bad("只有入库记录可以选择小组。"));
     }
@@ -539,6 +541,11 @@ pub(crate) async fn post_movement(s: &AppState, actor: User, input: Movement) ->
         }
         return Ok(serde_json::from_str(&text(&old, "response")).unwrap());
     }
+    // A group typed into the form registers itself, the way an item's spec,
+    // kind and unit do, so the first incoming record needs no catalog visit.
+    // Inside the transaction and after the replay check: a failed or replayed
+    // submission must not leave the option behind.
+    let team = crate::options::ensure(&txn, "team", &team).await?;
     let did = id();
     // Local, like business dates and the dashboard: a UTC stamp here contradicted
     // the created_at shown beside it for the first 8 hours of every day in UTC+8.

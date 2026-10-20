@@ -1,5 +1,5 @@
 import { can } from "../api";
-import { Button, Input, Form, Select, Textarea } from "../ui";
+import { Button, ComboBox, Input, Form, Select, Textarea } from "../ui";
 import { useEffect, useRef, useState } from "react";
 import { Plus, CheckCircle2, Trash2, ArrowLeft } from "lucide-react";
 import {
@@ -353,24 +353,23 @@ export default function Movement({
                   </Select>
                 )}
               </Field>
-              {incoming && teams.length > 0 && (
+              {incoming && (
                 <Field
                   label="小组"
                   help="入库归属的生产小组或外部来源，用于按小组统计产量。"
+                  hint="可直接输入新小组，留空为不分小组。"
                 >
                   {(p) => (
-                    <Select
+                    <ComboBox
                       {...p}
+                      options={teams.map((name) => ({
+                        value: name,
+                        label: name,
+                      }))}
                       value={team}
-                      onChange={(e) => setTeam(e.target.value)}
-                    >
-                      <option value="">不分小组</option>
-                      {teams.map((name) => (
-                        <option key={name} value={name}>
-                          {name}
-                        </option>
-                      ))}
-                    </Select>
+                      onValueChange={setTeam}
+                      maxLength={100}
+                    />
                   )}
                 </Field>
               )}

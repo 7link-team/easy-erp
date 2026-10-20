@@ -488,6 +488,29 @@ function Home({
   );
 }
 
+/** Both webview engines stop showing their own download UI once the shell sets
+ *  the destination, so the archive lands silently and the button looks dead. */
+function DownloadNotice() {
+  const [state, setState] = useState<{ path?: string; success: boolean }>();
+  useEffect(() => {
+    const landed = (event: Event) =>
+      setState((event as CustomEvent<{ path?: string; success: boolean }>).detail);
+    window.addEventListener("erp:download-finished", landed);
+    return () => window.removeEventListener("erp:download-finished", landed);
+  }, []);
+  if (!state) return null;
+  return (
+    <div className="service-update" role="status">
+      <span>
+        {state.success
+          ? `下载完成，已保存到 ${state.path ?? "下载文件夹"}。`
+          : "下载失败，请确认下载文件夹可写后重试。"}
+      </span>
+      <Button onClick={() => setState(undefined)}>知道了</Button>
+    </div>
+  );
+}
+
 export default function App() {
   const dirty = useRef(false);
   return (
@@ -897,6 +920,7 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
           </div>
         </header>
         <ServiceUpdate dirty={dirty} />
+        <DownloadNotice />
         <main id="main" tabIndex={-1}>
           <Breadcrumbs
             page={page}

@@ -387,6 +387,38 @@ test("备份计划保存、模板与所有导出下载、错误导入不写入�
   ).toBe(0);
   await page.getByRole("button", { name: "立即备份全部数据" }).click();
   await expect(page.getByText("完整备份已生成。")).toBeVisible();
+  // The archive download was only ever asserted as an href, so nothing caught
+  // it arriving empty or not at all. The exports above are covered; this is
+  // the one that restores a whole ledger.
+  const archive = page.waitForEvent("download");
+  await page
+    .getByRole("link", { name: /^下载完整备份 / })
+    .first()
+    .click();
+  const file = await archive;
+  expect(await file.failure()).toBeNull();
+  expect(file.suggestedFilename()).toMatch(/\.zip$/);
+  expect(readFileSync((await file.path())!).length).toBeGreaterThan(20);
+  // In the packaged shell the engine shows nothing once the host picks the
+  // destination, so the shell reports where the file landed and the pages have
+  // to surface it; the browser never fires this, so drive it directly.
+  await page.evaluate(() =>
+    window.dispatchEvent(
+      new CustomEvent("erp:download-finished", {
+        detail: { path: "/Users/factory/Downloads/snapshot.zip", success: true },
+      }),
+    ),
+  );
+  const landed = page.getByRole("status").filter({ hasText: "下载完成" });
+  await expect(landed).toContainText("snapshot.zip");
+  await landed.getByRole("button", { name: "知道了", exact: true }).click();
+  await expect(landed).toHaveCount(0);
+  await page.evaluate(() =>
+    window.dispatchEvent(
+      new CustomEvent("erp:download-finished", { detail: { success: false } }),
+    ),
+  );
+  await expect(page.getByRole("status").filter({ hasText: "下载失败" })).toBeVisible();
   await page
     .getByRole("button", { name: /^恢复备份 / })
     .first()

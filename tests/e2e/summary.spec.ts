@@ -300,14 +300,14 @@ test("销售汇总按客户给出金额与合计，期间之外的单据不计�
   ).toBeVisible();
 });
 
-test("入库小组可在基础资料里维护，建好后入库表单与汇总筛选才出现", async ({
+test("入库小组可在基础资料里维护，汇总筛选建好后才出现，入库表单可挑选", async ({
   page,
 }) => {
   const tag = randomUUID().slice(0, 8);
   const group = `丙组-${tag}`;
   await page.goto("/#/catalog");
-  // Without a section here the whole group feature is unreachable: both the
-  // stock-in selector and the summary filter only render once a group exists.
+  // The summary filter still only renders once a group exists; the stock-in
+  // form now offers the field either way, and is covered by the case below.
   await page.getByRole("tab", { name: "入库小组", exact: true }).click();
   await page.getByRole("button", { name: "新增入库小组", exact: true }).click();
   const dialog = page.getByRole("dialog", {
@@ -333,6 +333,52 @@ test("入库小组可在基础资料里维护，建好后入库表单与汇总�
   await page.goto("/#/in");
   const selector = page.getByRole("combobox", { name: "小组", exact: false });
   await expect(selector).toBeVisible();
-  await chooseSelect(selector, group);
-  await expect(selector).toContainText(group);
+  await selector.click();
+  await page.getByRole("option", { name: group, exact: true }).click();
+  await expect(selector).toHaveValue(group);
+});
+
+test("入库表单直接输入新小组即登记，基础资料与汇总筛选随后可见", async ({
+  page,
+}) => {
+  const tag = randomUUID().slice(0, 8);
+  const group = `丁组-${tag}`;
+  const name = `登记料-${tag}`;
+  await post(page.request, "/items", {
+    name,
+    spec: `1.1×${tag}`,
+    kind: "成品",
+    unit: "个",
+    precision: 0,
+  });
+
+  // Offered even with no group on record: the first incoming record should not
+  // have to detour through the catalog, which is what hiding the field did.
+  await page.goto("/#/in");
+  const selector = page.getByRole("combobox", { name: "小组", exact: false });
+  await expect(selector).toBeVisible();
+  await selector.fill(group);
+  await page.getByRole("button", { name: "添加一行", exact: true }).click();
+  await page.getByLabel("查找要收发的物料").fill(name);
+  await page
+    .getByRole("button", { name: `选择${name}`, exact: true })
+    .click();
+  await page.getByLabel("入库数量", { exact: false }).fill("2");
+  await page.getByRole("button", { name: "确认入库", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "入库已完成" })).toBeVisible();
+
+  // Registered as a maintainable option, not just left as free text on the
+  // document: it has to reach the catalog list and the summary filter.
+  await page.goto("/#/catalog");
+  await page.getByRole("tab", { name: "入库小组", exact: true }).click();
+  await expect(
+    page.getByRole("table", { name: "入库小组列表" }).locator("tbody tr"),
+  ).toContainText([group]);
+
+  await page.goto("/#/summary");
+  await expect(
+    page
+      .getByRole("group", { name: "入库小组", exact: true })
+      .getByRole("button", { name: group, exact: true }),
+  ).toBeVisible();
 });

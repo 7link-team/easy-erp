@@ -240,10 +240,19 @@ pub(crate) async fn open_business(
                         true
                     }
                     Err(_) => {
+                        download_report(&webview, None, false);
                         eprintln!("找不到下载文件夹，已取消下载：{url}");
                         false
                     }
                 }
+            }
+            // Taking over the destination also takes over telling the user:
+            // both engines stop showing their own download UI once a host
+            // handler answers, so without this the file lands in the download
+            // folder and the button looks like it did nothing.
+            tauri::webview::DownloadEvent::Finished { path, success, .. } => {
+                download_report(&webview, path.as_deref(), success);
+                true
             }
             _ => true,
         })
@@ -267,6 +276,17 @@ pub(crate) async fn open_business(
 /// guard it lacks: a name that carries directories of its own is reduced to
 /// its last component, and a rebuilt name is numbered rather than overwriting
 /// an earlier download.
+/// Tells the business pages where a download landed. Serialised as JSON so a
+/// Windows path's backslashes survive the trip into the event detail.
+fn download_report(webview: &tauri::Webview, path: Option<&std::path::Path>, success: bool) {
+    let detail = serde_json::json!({
+        "path": path.map(|p| p.to_string_lossy().into_owned()),
+        "success": success,
+    });
+    let _ = webview.eval(format!(
+        "window.dispatchEvent(new CustomEvent('erp:download-finished',{{detail:{detail}}}))"
+    ));
+}
 fn download_destination(folder: &std::path::Path, suggested: &std::path::Path) -> PathBuf {
     if suggested.parent() == Some(folder) {
         return suggested.to_path_buf();
