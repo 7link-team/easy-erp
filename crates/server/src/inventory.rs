@@ -705,6 +705,16 @@ async fn check_return(
     }
     Ok(())
 }
+/// What each direction covers, named once so the record list and the period
+/// summary can never drift apart. Goods leaving on a sale are their own kind,
+/// not an issue, so a summary reports them separately rather than mixing cost
+/// of goods issued with revenue.
+const INCOMING: &str = " AND d.kind IN ('receipt','finished','return_in','opening')";
+const OUTGOING: &str = " AND d.kind IN ('issue','shipment','return_out','scrap')";
+const SOLD: &str = " AND d.kind='sales'";
+/// The same classification as an expression, for grouping one query by it.
+const DIRECTION: &str = "CASE WHEN d.kind IN ('receipt','finished','return_in','opening') THEN 'in' WHEN d.kind IN ('issue','shipment','return_out','scrap') THEN 'out' WHEN d.kind='sales' THEN 'sales' ELSE 'other' END";
+
 pub(crate) fn document_filter(
     filter: &Filter,
     actor: &User,
@@ -723,11 +733,11 @@ pub(crate) fn document_filter(
     }
     clause.push_str(match filter.kind.as_deref().unwrap_or("") {
         "" => "",
-        "in" => " AND d.kind IN ('receipt','finished','return_in','opening')",
-        "out" => " AND d.kind IN ('issue','shipment','return_out','scrap')",
+        "in" => INCOMING,
+        "out" => OUTGOING,
         "void" => " AND (d.kind='void' OR d.status='voided')",
         "adjustment" => " AND d.kind='adjustment'",
-        "sales" => " AND d.kind='sales'",
+        "sales" => SOLD,
         _ => return Err(ApiError::bad("记录类型筛选无效。")),
     });
     if let Some(from) = filter.from.as_deref().filter(|v| !v.is_empty()) {
@@ -750,18 +760,31 @@ pub(crate) fn document_filter(
 pub(crate) fn period_bound(value: &str, end_of_day: bool) -> Result<i64> {
     use chrono::TimeZone;
     let value = value.trim();
-    // chrono reads a two-digit year, so "26-10-01" would quietly mean year 26
-    // and return nothing at all. A date field always sends four digits.
-    let day = Some(value)
-        .filter(|value| value.len() == 10)
-        .and_then(|value| chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").ok())
-        .ok_or_else(|| ApiError::bad("日期请按 2026-10-01 的格式填写。"))?;
-    let moment = if end_of_day {
-        day.and_hms_milli_opt(23, 59, 59, 999)
-    } else {
-        day.and_hms_opt(0, 0, 0)
+    // A whole day, or a minute when the field carries a time. chrono reads a
+    // two-digit year, so "26-10-01" would quietly mean year 26 and return
+    // nothing at all; both forms are therefore length-checked first.
+    let moment = match value.len() {
+        10 => chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")
+            .ok()
+            .and_then(|day| {
+                if end_of_day {
+                    day.and_hms_milli_opt(23, 59, 59, 999)
+                } else {
+                    day.and_hms_opt(0, 0, 0)
+                }
+            }),
+        16 => chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M")
+            .ok()
+            .map(|at| {
+                if end_of_day {
+                    at + chrono::TimeDelta::milliseconds(59_999)
+                } else {
+                    at
+                }
+            }),
+        _ => None,
     }
-    .ok_or_else(|| ApiError::bad("日期无效。"))?;
+    .ok_or_else(|| ApiError::bad("日期请按 2026-10-01 或 2026-10-01T08:30 的格式填写。"))?;
     // A daylight-saving change can make local midnight missing or doubled. Take
     // the widest reading of the day so a record is never silently left out.
     Ok(match chrono::Local.from_local_datetime(&moment) {
@@ -833,13 +856,14 @@ pub async fn documents(
         json!({"items":docs,"total":int(&count,"total"),"selected_item":selected_item}),
     ))
 }
-/// Per-material totals for the filtered period, with the one grand total that
-/// means anything across different materials: the money.
+/// Per-material totals for the filtered period: how much came in and how much
+/// went out, each with its own quantity and its own money, plus the snapshot of
+/// what the stock is worth right now.
 ///
-/// Quantities and unit prices are deliberately never summed. Adding a count of
-/// one product to a count of another produces a number nobody can act on, which
-/// is exactly what the operators asked us not to print. Quantities go out as
-/// scaled integers with their precision, the same contract the record list uses.
+/// Incoming and outgoing are never added together. Line quantities are unsigned
+/// magnitudes, so one combined figure would be meaningless; reporting them as
+/// separate columns is what lets the page default to every direction at once.
+/// Quantities across different materials are never summed either — only money.
 pub async fn documents_summary(
     State(s): State<AppState>,
     headers: HeaderMap,
@@ -852,72 +876,84 @@ pub async fn documents_summary(
         spec: String,
         unit: String,
         precision: i64,
-        quantity: i64,
-        value: Option<i128>,
+        cost: Option<i64>,
+        in_quantity: i64,
+        in_value: i128,
+        out_quantity: i64,
+        out_value: i128,
     }
     let actor = current(&s, &headers).await?;
     actor.require("records.read")?;
     // The totals are money derived from the cost price, which is otherwise only
-    // readable through the material list. Without this an account allowed to
-    // read records but not materials would see valuations it can reach nowhere
-    // else.
+    // readable through the material list.
     actor.require("items.read")?;
-    // Line quantities are unsigned magnitudes, so without a direction this
-    // would add goods received to goods issued and report the sum as one
-    // number. There is no reading of that figure that helps anyone.
-    if !matches!(filter.kind.as_deref().unwrap_or(""), "in" | "out" | "sales") {
-        return Err(ApiError::bad("请选择入库、出库或销售。"));
+    let direction = filter.kind.clone().unwrap_or_default();
+    if !matches!(direction.as_str(), "" | "in" | "out" | "sales") {
+        return Err(ApiError::bad("方向只能是入库、出库或销售。"));
     }
-    let (clause, values) = document_filter(&filter, &actor)?;
-    // A cancelled record and the reversal that cancelled it would both land in
-    // the period, reporting goods that were never kept.
-    let scope = format!("{clause} AND d.status<>'voided' AND d.kind<>'void'");
-    // Grouping by material and group, and taking MIN of the descriptive columns,
-    // keeps this valid under MySQL's ONLY_FULL_GROUP_BY: those columns are fixed
-    // by the material, so the minimum is that one value.
+    // The direction is applied here rather than inside the shared filter,
+    // because an empty one means every direction reported side by side.
+    let mut scoped = filter.clone();
+    scoped.kind = None;
+    let (clause, mut values) = document_filter(&scoped, &actor)?;
+    let mut scope = format!("{clause} AND d.status<>'voided' AND d.kind<>'void'");
+    scope.push_str(match direction.as_str() {
+        "in" => INCOMING,
+        "out" => OUTGOING,
+        "sales" => SOLD,
+        _ => "",
+    });
+    // Grouping by the material, its group and its direction, with MIN over the
+    // descriptive columns, stays valid under MySQL's ONLY_FULL_GROUP_BY: those
+    // columns are fixed by the material, so the minimum is that one value.
     let rows = all(
         &s.db,
         &format!(
-            "SELECT l.item_id AS item_id,d.team AS team,MIN(l.item_name) AS item_name,MIN(l.item_code) AS item_code,MIN(l.unit) AS unit,MIN(l.precision) AS precision,MIN(COALESCE(i.spec,'')) AS spec,MIN(COALESCE(i.cost_price,-1)) AS cost_price,SUM(l.quantity) AS quantity FROM document_lines l JOIN documents d ON d.id=l.document_id LEFT JOIN items i ON i.id=l.item_id WHERE {scope} GROUP BY l.item_id,d.team"
+            "SELECT l.item_id AS item_id,d.team AS team,{DIRECTION} AS direction,MIN(l.item_name) AS item_name,MIN(l.item_code) AS item_code,MIN(l.unit) AS unit,MIN(l.precision) AS precision,MIN(COALESCE(i.spec,'')) AS spec,MIN(COALESCE(i.cost_price,-1)) AS cost_price,SUM(l.quantity) AS quantity FROM document_lines l JOIN documents d ON d.id=l.document_id LEFT JOIN items i ON i.id=l.item_id WHERE {scope} GROUP BY l.item_id,d.team,{DIRECTION}"
         ),
-        values,
+        values.clone(),
     )
     .await?;
     let mut totals: std::collections::HashMap<String, Total> = Default::default();
     let mut teams: std::collections::HashMap<String, i128> = Default::default();
-    let mut total_value = 0i128;
+    let mut incoming = 0i128;
+    let mut outgoing = 0i128;
     for row in &rows {
         let quantity = int(row, "quantity");
         // The same price and rounding as the stock list, so the two screens can
         // never disagree about what the goods are worth.
-        let value = optional_price(row, "cost_price").map(|price| stock_value(quantity, price));
-        total_value += value.unwrap_or(0);
-        *teams.entry(text(row, "team")).or_default() += value.unwrap_or(0);
+        let price = optional_price(row, "cost_price");
+        let value = price.map(|price| stock_value(quantity, price));
         let total = totals.entry(text(row, "item_id")).or_insert_with(|| Total {
             name: text(row, "item_name"),
             code: text(row, "item_code"),
             spec: text(row, "spec"),
             unit: text(row, "unit"),
             precision: int(row, "precision"),
+            cost: price,
             ..Default::default()
         });
-        total.quantity += quantity;
-        if let Some(value) = value {
-            total.value = Some(total.value.unwrap_or(0) + value);
+        match text(row, "direction").as_str() {
+            "in" => {
+                total.in_quantity += quantity;
+                total.in_value += value.unwrap_or(0);
+                incoming += value.unwrap_or(0);
+                *teams.entry(text(row, "team")).or_default() += value.unwrap_or(0);
+            }
+            "out" | "sales" => {
+                total.out_quantity += quantity;
+                total.out_value += value.unwrap_or(0);
+                outgoing += value.unwrap_or(0);
+            }
+            _ => {}
         }
     }
-    let unpriced = totals
-        .values()
-        .filter(|total| total.value.is_none() && total.quantity != 0)
-        .count();
+    let unpriced = totals.values().filter(|total| total.cost.is_none()).count();
     let mut materials = totals.into_iter().collect::<Vec<_>>();
-    // Biggest money first; an unpriced material sorts last but is still listed,
-    // with the count below telling the reader the total is missing them.
+    // Busiest material first, by the money that moved either way.
     materials.sort_by(|(left_id, left), (right_id, right)| {
-        right
-            .value
-            .unwrap_or(-1)
-            .cmp(&left.value.unwrap_or(-1))
+        (right.in_value + right.out_value)
+            .cmp(&(left.in_value + left.out_value))
             .then_with(|| left.name.cmp(&right.name))
             .then_with(|| left_id.cmp(right_id))
     });
@@ -928,6 +964,38 @@ pub async fn documents_summary(
     team_order.sort_by(|(left_name, left), (right_name, right)| {
         right.cmp(left).then_with(|| left_name.cmp(right_name))
     });
+    // What the stock is worth right now, which is a snapshot rather than
+    // anything the period decides. It follows the keyword so the figure matches
+    // the rows above it, the way the material list already behaves.
+    let keyword = clean(filter.q.as_deref().unwrap_or(""), "搜索内容", 100, false)?;
+    let pattern = format!(
+        "%{}%",
+        keyword
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_")
+    );
+    values = vec![
+        keyword.clone().into(),
+        pattern.clone().into(),
+        pattern.clone().into(),
+        pattern.into(),
+    ];
+    let stock = all(
+        &s.db,
+        "SELECT balance,cost_price FROM items WHERE active=1 AND (?='' OR UPPER(name) LIKE UPPER(?) ESCAPE '\\' OR UPPER(code) LIKE UPPER(?) ESCAPE '\\' OR UPPER(spec) LIKE UPPER(?) ESCAPE '\\')",
+        values,
+    )
+    .await?;
+    let mut stock_total = 0i128;
+    let mut stock_unpriced = 0usize;
+    for row in &stock {
+        match optional_price(row, "cost_price") {
+            Some(price) => stock_total += stock_value(int(row, "balance"), price),
+            None if int(row, "balance") > 0 => stock_unpriced += 1,
+            None => {}
+        }
+    }
     Ok(Json(json!({
         "materials": materials.iter().map(|(id, total)| json!({
             "item_id": id,
@@ -936,10 +1004,18 @@ pub async fn documents_summary(
             "spec": total.spec,
             "unit": total.unit,
             "precision": total.precision,
-            "quantity": total.quantity,
-            "value": total.value.map(value_text),
+            // Raw, with four decimals, the same contract the material list
+            // uses: money::display would be wrong by a hundred here.
+            "cost_price": total.cost,
+            "in_quantity": total.in_quantity,
+            "in_value": value_text(total.in_value),
+            "out_quantity": total.out_quantity,
+            "out_value": value_text(total.out_value),
         })).collect::<Vec<_>>(),
-        "total_value": value_text(total_value),
+        "in_value": value_text(incoming),
+        "out_value": value_text(outgoing),
+        "stock_value": value_text(stock_total),
+        "stock_unpriced": stock_unpriced,
         "unpriced_items": unpriced,
         "teams": team_order.iter().map(|(team, value)| json!({"team": team, "value": value_text(*value)})).collect::<Vec<_>>(),
     })))

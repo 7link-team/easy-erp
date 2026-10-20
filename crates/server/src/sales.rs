@@ -996,18 +996,22 @@ pub(crate) fn list_filter(
     if !["", "draft", "posted", "voided"].contains(&status.as_str()) {
         return Err(ApiError::bad("单据状态筛选无效。"));
     }
+    // A summary period may carry a time, but a sale only ever records the day
+    // it happened, so the clock part is dropped rather than refused. The write
+    // path keeps using date() unchanged, which accepts a plain day only.
+    let day = |value: String| date(value.split('T').next().unwrap_or_default());
     let from = filter
         .from
         .clone()
         .filter(|v| !v.is_empty())
-        .map(|v| date(&v))
+        .map(day)
         .transpose()?
         .unwrap_or_default();
     let to = filter
         .to
         .clone()
         .filter(|v| !v.is_empty())
-        .map(|v| date(&v))
+        .map(day)
         .transpose()?
         .unwrap_or_default();
     if !from.is_empty() && !to.is_empty() && from > to {
