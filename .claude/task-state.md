@@ -5,12 +5,42 @@
 客户需求出自 `docs/客户需求/20261019.md`（已脱敏纳管）。
 
 ## Current Phase
-DONE — v0.6.0 已发布（2026-10-20 11:52Z）。标签 a333f6b，标签构建 39412744214 全绿
-（13 作业 success，ios-device 跳过属预期），webkit 189/189（19.2m）、chromium 全绿。
+DONE — v0.7.0 已发布（2026-10-20 17:21Z，标签 1a61e00）。标签构建 39459835964
+全绿，webkit/chromium 各 190 passed（16.8m / 11.3m）。
 
 ## Current Step
-无。发布链路已走完并逐项核验：23 个资产、latest.json version=0.6.0 含 4 平台、
-GHCR v0.6.0 复用 sha-a333f6b 同一 digest e30ba9b5（amd64+arm64，不重建）。
+无。核验完成：23 个资产、latest.json version=0.7.0 含 4 平台、GHCR v0.7.0 复用
+digest c7f5566f（amd64+arm64，不重建）。本轮镜像构建由版本提交自动触发（动了
+Cargo.*/package*.json，落在 server-image.yml 的 paths 内），无需手动补。
+
+## 本轮修复（用户验收时报的四件）
+1. **入库小组消失** —— 条件是 `incoming && teams.length > 0`，一个小组都没建过时整个
+   字段隐藏，等于功能在每个新部署上都看不见。改为入库时恒显示，并换成物料表单在用的
+   ComboBox，直接输入新名字即登记（走 `options::ensure`，与 spec/kind/unit 同一条路）。
+   长度上限 128→100 对齐选项表自身上限，否则 101–128 字会过前一道被后一道拒、且报错
+   文案变成「选项名称」。**反向验证过**：撤掉后端那行，新 e2e 立刻失败。
+2. **下载完整备份「没反应」** —— 文件一直下载成功，是零反馈。根因在 wry 源码：
+   `SetHandled(true)`（WebView2）/ 宿主接管后 WKWebView 同理，引擎不再显示自己的下载
+   提示，而应用没有自己的提示。已让壳在 Finished 时 eval 出 `erp:download-finished`，
+   前端 DownloadNotice 横幅说明保存位置；失败同样会说话（原先也是静默）。
+   **另修测试缺口**：备份包下载此前只断言 href（backup-pagination.spec.ts:72），从未真
+   下载过；已在 workflows.spec.ts 补真下载断言 + 提示两个分支。
+3. **人员账号找不到改密码/删除** —— 功能一直在，按钮名「修改权限」把它藏了（弹窗里本就
+   有重置密码和停用登录）。改名「编辑账号」，弹窗标题「编辑人员账号」。
+4. **滚动条** —— 全项目原先零样式，用系统默认。改为标准 scrollbar-width/color 跟随主题；
+   刻意不直接写 ::-webkit-scrollbar（那会让 macOS 悬浮滚动条变成常驻占位槽），webkit
+   兜底只在 @supports not 里给老引擎。
+
+## 查明「不是 bug」、未改（需用户决定）
+- **启动时看不到 MySQL**：启动器 `databaseForm.hidden = configured`（app.js:10），数据库
+  表单只在尚未配置时显示，是首次运行专属选择。
+- **看不到 S3**：启动器里一处都没有，只认 `ERP_S3_*` 环境变量 —— storage.rs 开头写明
+  「凭据绝不进入业务数据和备份」。放进 UI 等于写进库再被备份带走。
+- **删除账号**：后端只有 GET/POST /api/users 与 PUT /api/users/{id}，无 DELETE。账号挂着
+  出入库与审计痕迹，有意只给停用。要做建议限制为「无业务记录才可删」。
+- **Windows 托盘不见**：代码审完是好的 —— setup() 里无条件构建、无平台 cfg 门、
+  tray.rgba 5184 字节正好 36×36×4 且自首次提交未变、近期提交未碰托盘。macOS 上无法
+  复现 Windows 行为，等用户确认是否在托盘溢出区（`^`）、以及是自启后没有还是手动打开也没有。
 
 ## 评审发现（6 条，全部自验并修复）
 1. **上一版备份全部不可恢复**（最严重，我自己没看到）：backup.rs 的 legacy 候选集合无一个
@@ -87,15 +117,13 @@ Tests: 标签构建 39406369784 —— chromium e2e PASS；webkit 188/189（已�
 Other: cargo test 11 集成 + 单测 PASS；手工 API 实测 PASS。
 
 ## Last Checkpoint
-2026-10-20 v0.6.0 已发布并逐项核验完成。
+2026-10-20 v0.7.0 已发布并逐项核验完成。
 
 ## Next Action
-本轮无待办，工作树干净，无未推送提交。下一轮可选（均未获批，不要自行开工）：
-① 把 FinancePanel ~1100 行从 Sales.tsx 拆成独立模块（纯重构，建议单独发版做）；
-② 财务三菜单是否改为三个真实页面；③ 日期控件显示顺序改 2026-10-01（需自造控件、
-会丢原生日历）；④ kind=in 是否排除 opening（现状有意保留，避免与记录列表口径分叉）。
-若 webkit 再次偶发失败：先取 e2e-webkit-evidence 的 trace 做快照对照（见下方定位方法），
-不要靠重跑判断。
+本轮无待办，工作树干净。等用户回两件：Windows 托盘的现场确认、删除账号要不要做。
+未获批不要自行开工：拆 FinancePanel（纯重构，建议单独发版）、日期控件改
+`--lang=zh-CN`（WebView2 启动参数，只能在 Windows 验，写错会导致 webview 起不来，
+必须先出单项构建给用户试装）、kind=in 是否排除 opening（口径问题）。
 
 ## update.spec.ts:335 webkit 偶发失败 —— 已定位并修复
 症状：点「刷新页面」后 `.service-update` 整个消失、断言 element not found。
