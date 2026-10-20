@@ -5,12 +5,12 @@
 客户需求出自 `docs/客户需求/20261019.md`（已脱敏纳管）。
 
 ## Current Phase
-ACCEPTANCE — v0.6.0 发版中。标签构建 39406369784 除 webkit e2e 外全绿；
-webkit 188/189（17.0m，未超时），唯一失败已定位并修复，待重跑确认后 publish-verified。
+DONE — v0.6.0 已发布（2026-10-20 11:52Z）。标签 a333f6b，标签构建 39412744214 全绿
+（13 作业 success，ios-device 跳过属预期），webkit 189/189（19.2m）、chromium 全绿。
 
 ## Current Step
-提交测试修复 → 重打 v0.6.0 标签 → 为新 SHA 手动派发镜像构建（tests/** 不在
-server-image.yml 的 paths 内）→ 等标签构建全绿 → publish-verified（仅建草稿）。
+无。发布链路已走完并逐项核验：23 个资产、latest.json version=0.6.0 含 4 平台、
+GHCR v0.6.0 复用 sha-a333f6b 同一 digest e30ba9b5（amd64+arm64，不重建）。
 
 ## 评审发现（6 条，全部自验并修复）
 1. **上一版备份全部不可恢复**（最严重，我自己没看到）：backup.rs 的 legacy 候选集合无一个
@@ -42,7 +42,7 @@ server-image.yml 的 paths 内）→ 等标签构建全绿 → publish-verified�
 - [x] 菜单：三个财务菜单原共用一个挂载实例（key 都映射成 "finance"），已改为各自独立
 - [x] 全量 e2e：chromium 全绿；webkit 188/189，唯一失败已定位并修复
 - [x] 评审发现修复 → 提交推送
-- [ ] v0.6.0 标签构建重跑全绿 → publish-verified 建草稿
+- [x] v0.6.0 标签构建全绿 → publish-verified 建草稿 → 发布 → 镜像挂 v0.6.0 标签
 
 ## 已实测（真服务端 + 真数据，非推演）
 螺丝 2+3=5 × ¥10 → value 50.00；垫片 4 × ¥2.5 → 10.00；**total_value 60.00**
@@ -87,11 +87,14 @@ Tests: 标签构建 39406369784 —— chromium e2e PASS；webkit 188/189（已�
 Other: cargo test 11 集成 + 单测 PASS；手工 API 实测 PASS。
 
 ## Last Checkpoint
-2026-10-20 webkit 失败定位完成并修复，待重打标签重跑。
+2026-10-20 v0.6.0 已发布并逐项核验完成。
 
 ## Next Action
-等 v0.6.0 标签构建（含 webkit e2e）全绿；绿则跑 publish-verified 建草稿，由用户决定发布。
-若 webkit 再次失败，先取 e2e-webkit-evidence 的 trace 做快照对照（见下方定位方法），
+本轮无待办，工作树干净，无未推送提交。下一轮可选（均未获批，不要自行开工）：
+① 把 FinancePanel ~1100 行从 Sales.tsx 拆成独立模块（纯重构，建议单独发版做）；
+② 财务三菜单是否改为三个真实页面；③ 日期控件显示顺序改 2026-10-01（需自造控件、
+会丢原生日历）；④ kind=in 是否排除 opening（现状有意保留，避免与记录列表口径分叉）。
+若 webkit 再次偶发失败：先取 e2e-webkit-evidence 的 trace 做快照对照（见下方定位方法），
 不要靠重跑判断。
 
 ## update.spec.ts:335 webkit 偶发失败 —— 已定位并修复
