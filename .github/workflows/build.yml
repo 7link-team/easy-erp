@@ -63,7 +63,13 @@ jobs:
 
   e2e:
     if: ${{ !inputs.windows_only }}
-    timeout-minutes: 30
+    # The suite runs serially because every test shares one database, and on
+    # the macOS runner it has measured 20, 24, 25 and 26 minutes across recent
+    # releases — then crossed thirty and was killed mid-run with 136 of 189
+    # passed and nothing failing. A ceiling only costs time when something is
+    # already stuck, so leave room for the suite to grow rather than re-tuning
+    # it every time a test is added.
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
