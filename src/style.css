@@ -818,3 +818,49 @@ td small {
 .system-information dt { font-weight: 600; }
 .system-information dd { margin: 6px 0 0; overflow-wrap: anywhere; }
 .summary-picture { display: block; max-width: 100%; margin-inline: auto; border: 1px solid var(--border); }
+/* Summary: separate filters, period totals and the detailed ledger. */
+.summary-page .summary-filters { padding: 20px 24px; margin-bottom: 24px; }
+.summary-page .summary-search-row { align-items: end; gap: 16px; margin-bottom: 20px; }
+.summary-search-row > .field { margin: 0; flex: 0 1 230px; }
+.summary-search-row > .search { min-width: 200px; }
+.summary-page .filter-chips { align-items: center; gap: 8px; padding: 10px 0 0; border: 0; }
+.summary-filter-label { flex: 0 0 68px; font-size: 12px; color: var(--muted); }
+.summary-page .filter-chip { min-width: 56px; justify-content: center; }
+.summary-figures { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: 16px; margin-bottom: 20px; }
+.summary-figure { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 22px 24px; border: 1px solid var(--border); border-radius: var(--r-panel); background: var(--paper-0); }
+.summary-figure > span { font-size: 13px; color: var(--ink-2); }
+.summary-figure strong { font-size: clamp(24px, 2.2vw, 32px); font-weight: 650; line-height: 1.2; font-variant-numeric: tabular-nums; letter-spacing: -0.03em; }
+.summary-figure small { font-size: 12px; color: var(--muted); }
+.summary-context { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; }
+.summary-context .hint { margin: 0; font-size: 12px; font-variant-numeric: tabular-nums; }
+.summary-team-totals { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 20px; font-size: 12px; color: var(--muted); }
+.summary-team-totals > span { display: inline-flex; gap: 10px; }
+.summary-team-totals strong { color: var(--ink-2); font-weight: 550; font-variant-numeric: tabular-nums; }
+.summary-results > .table-wrap { margin-top: 16px; background: var(--paper-0); border-radius: var(--r-panel); }
+.summary-page .summary-caption { display: flex; align-items: center; gap: 12px; margin: 0; padding: 18px 20px; font-size: 15px; font-weight: 600; color: var(--ink-1); }
+.summary-caption span { font-size: 12px; font-weight: 400; color: var(--muted); }
+.summary-table { font-variant-numeric: tabular-nums; }
+.summary-page .summary-table th { padding-block: 12px; }
+.summary-page .summary-table td { padding-block: 16px; }
+.summary-page .summary-table td, .summary-page .summary-table th { border-right: 0; }
+.summary-page .summary-table tbody tr:nth-child(even) { background: transparent; }
+.summary-page .summary-table tbody tr:hover { background: var(--paper-1); }
+.summary-table td.numeric, .summary-table th.numeric { white-space: nowrap; }
+.summary-table td:first-child strong { font-weight: 550; }
+.summary-table td:first-child small { margin-top: 4px; }
+@media (max-width: 1100px) {
+  .summary-page .summary-search-row { flex-wrap: wrap; }
+  .summary-search-row > .search { flex-basis: 100%; }
+  .summary-search-row > .field { flex: 1; }
+}
+@media (max-width: 600px) {
+  .summary-page .summary-filters { padding: 16px; }
+  .summary-page .summary-search-row { gap: 12px; }
+  .summary-search-row > .field { flex-basis: 100%; }
+  .summary-filter-label { flex-basis: 100%; }
+  .summary-page .filter-chips { padding-top: 14px; }
+  .summary-figures { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .summary-figure { padding: 16px 12px; gap: 8px; }
+  .summary-figure strong { font-size: 22px; overflow-wrap: anywhere; }
+  .summary-figure > span { font-size: 12px; }
+}

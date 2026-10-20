@@ -1,8 +1,8 @@
 import { useQueryValue } from "../navigation";
 import { can, quantity, type User } from "../api";
-import { Button, Input, Select } from "../ui";
+import { Button, Input } from "../ui";
 import { useEffect, useState } from "react";
-import { Search } from "lucide-react";
+import { Download, Search } from "lucide-react";
 import {
   Empty,
   Field,
@@ -20,12 +20,18 @@ type Material = {
   spec: string;
   unit: string;
   precision: number;
-  quantity: number;
-  value: string | null;
+  cost_price: number | null;
+  in_quantity: number;
+  in_value: string;
+  out_quantity: number;
+  out_value: string;
 };
-type Totals = {
+type Movements = {
   materials: Material[];
-  total_value: string;
+  in_value: string;
+  out_value: string;
+  stock_value: string;
+  stock_unpriced: number;
   unpriced_items: number;
   teams: { team: string; value: string }[];
 };
@@ -41,35 +47,121 @@ type Revenue = {
 };
 
 const directions = [
+  ["", "全部"],
   ["in", "入库"],
   ["out", "出库"],
   ["sales", "销售"],
 ] as const;
 
-/** One shape for the table and the picture, whichever direction is showing. */
-type Row = {
-  key: string;
-  name: string;
-  detail: string;
-  measure: string;
-  amount: string | null;
+const pad = (value: number) => String(value).padStart(2, "0");
+const stamp = (at: Date) =>
+  `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}`;
+/** The current month, which is what a month-end check actually asks for. */
+const monthStart = () => {
+  const now = new Date();
+  return stamp(new Date(now.getFullYear(), now.getMonth(), 1, 0, 0));
 };
-type View = {
-  columns: [string, string, string, string];
-  rows: Row[];
-  total: string;
-  notes: string[];
-  detailed: boolean;
+const monthEnd = () => {
+  const now = new Date();
+  return stamp(new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59));
 };
+const readable = (value: string) => value.replace("T", " ");
+/** The periods an operator actually asks for, so the dates rarely need typing. */
+const ranges: [string, () => [string, string]][] = [
+  [
+    "本月",
+    () => {
+      const now = new Date();
+      return [
+        stamp(new Date(now.getFullYear(), now.getMonth(), 1, 0, 0)),
+        stamp(new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59)),
+      ];
+    },
+  ],
+  [
+    "上月",
+    () => {
+      const now = new Date();
+      return [
+        stamp(new Date(now.getFullYear(), now.getMonth() - 1, 1, 0, 0)),
+        stamp(new Date(now.getFullYear(), now.getMonth(), 0, 23, 59)),
+      ];
+    },
+  ],
+  [
+    "近 7 天",
+    () => {
+      const now = new Date();
+      const start = new Date(now);
+      start.setDate(start.getDate() - 6);
+      return [
+        stamp(
+          new Date(
+            start.getFullYear(),
+            start.getMonth(),
+            start.getDate(),
+            0,
+            0,
+          ),
+        ),
+        stamp(now),
+      ];
+    },
+  ],
+  [
+    "近 30 天",
+    () => {
+      const now = new Date();
+      const start = new Date(now);
+      start.setDate(start.getDate() - 29);
+      return [
+        stamp(
+          new Date(
+            start.getFullYear(),
+            start.getMonth(),
+            start.getDate(),
+            0,
+            0,
+          ),
+        ),
+        stamp(now),
+      ];
+    },
+  ],
+  [
+    "今年",
+    () => {
+      const now = new Date();
+      return [
+        stamp(new Date(now.getFullYear(), 0, 1, 0, 0)),
+        stamp(new Date(now.getFullYear(), 11, 31, 23, 59)),
+      ];
+    },
+  ],
+];
+/** A cost carries four decimals but reads as money: keep at least two digits
+ *  and drop only the zeros beyond them. */
+const costText = (value: number) =>
+  (value / 10000).toFixed(4).replace(/(\.\d{2}\d*?)0+$/, "$1");
+/** A datetime field shows nothing for a date-only value, and an address may
+ *  well carry one: the server accepts both forms. */
+const forInput = (value: string, endOfDay: boolean) =>
+  /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? `${value}T${endOfDay ? "23:59" : "00:00"}`
+    : value;
 
-/** Lay a view out as a picture, so a period can be sent on as one image. */
-function picture(view: View, title: string, period: string) {
+/** Draw the figures as a picture, so a period can be sent on as one image. */
+function picture(
+  rows: Material[],
+  figures: [string, string][],
+  title: string,
+  period: string,
+) {
   const scale = 2;
-  const width = 760;
+  const width = 900;
   const step = 30;
-  const top = 104;
-  const height =
-    top + (view.rows.length + 2) * step + 28 + view.notes.length * 24;
+  const top = 116;
+  const height = top + (rows.length + 2) * step + 34 + figures.length * 25;
   const canvas = document.createElement("canvas");
   canvas.width = width * scale;
   canvas.height = height * scale;
@@ -78,12 +170,12 @@ function picture(view: View, title: string, period: string) {
   pen.scale(scale, scale);
   pen.fillStyle = "#ffffff";
   pen.fillRect(0, 0, width, height);
-  const at = [24, 300, 580, 736];
+  const at = [28, 230, 390, 500, 620, 730, 872];
+  // Each column has a width budget, or a long material name would run straight
+  // through the next one.
+  const limit = [196, 150, 100, 110, 100, 110, 130];
   const body = "15px system-ui, -apple-system, sans-serif";
   const bold = "600 15px system-ui, -apple-system, sans-serif";
-  // Each column gets a width budget: a long material name would otherwise run
-  // straight through the next column instead of being squeezed to fit.
-  const widths = [264, 268, 140, 148];
   const write = (
     value: string,
     column: number,
@@ -93,47 +185,63 @@ function picture(view: View, title: string, period: string) {
   ) => {
     pen.font = font;
     pen.textAlign = right ? "right" : "left";
-    pen.fillText(value, at[column], y, widths[column]);
+    pen.fillText(value, at[column], y, limit[column]);
   };
   pen.fillStyle = "#111827";
-  pen.font = "600 21px system-ui, -apple-system, sans-serif";
+  pen.font = "600 22px system-ui, -apple-system, sans-serif";
   pen.textAlign = "left";
-  pen.fillText(title, at[0], 44, width - 48);
+  pen.fillText(title, at[0], 46, width - 56);
   pen.fillStyle = "#6b7280";
   pen.font = body;
-  pen.fillText(period, at[0], 74, width - 48);
+  pen.fillText(period, at[0], 78, width - 56);
   pen.fillStyle = "#374151";
-  write(view.columns[0], 0, top, bold);
-  if (view.detailed) write(view.columns[1], 1, top, bold);
-  write(view.columns[2], 2, top, bold, true);
-  write(view.columns[3], 3, top, bold, true);
+  const heads = [
+    "物料",
+    "规格",
+    "成本价",
+    "入库数量",
+    "入库金额",
+    "出库数量",
+    "出库金额",
+  ];
+  heads.forEach((head, column) => write(head, column, top, bold, column >= 2));
   pen.strokeStyle = "#d1d5db";
   pen.beginPath();
-  pen.moveTo(at[0], top + 10);
-  pen.lineTo(at[3], top + 10);
+  pen.moveTo(at[0], top + 11);
+  pen.lineTo(at[6], top + 11);
   pen.stroke();
   pen.fillStyle = "#111827";
-  view.rows.forEach((row, index) => {
-    const y = top + 10 + (index + 1) * step;
+  rows.forEach((row, index) => {
+    const y = top + 11 + (index + 1) * step;
     write(row.name, 0, y, body);
-    if (view.detailed) write(row.detail, 1, y, body);
-    write(row.measure, 2, y, body, true);
-    write(row.amount ?? "未定价", 3, y, body, true);
+    write(row.spec, 1, y, body);
+    write(
+      row.cost_price === null ? "未定价" : `¥${costText(row.cost_price)}`,
+      2,
+      y,
+      body,
+      true,
+    );
+    write(quantity(row.in_quantity, row.precision), 3, y, body, true);
+    write(`¥${row.in_value}`, 4, y, body, true);
+    write(quantity(row.out_quantity, row.precision), 5, y, body, true);
+    write(`¥${row.out_value}`, 6, y, body, true);
   });
-  const end = top + 10 + (view.rows.length + 1) * step;
+  const end = top + 11 + (rows.length + 1) * step;
   pen.strokeStyle = "#9ca3af";
   pen.beginPath();
-  pen.moveTo(at[0], end - 18);
-  pen.lineTo(at[3], end - 18);
+  pen.moveTo(at[0], end - 19);
+  pen.lineTo(at[6], end - 19);
   pen.stroke();
-  write("合计金额", 0, end, bold);
-  write(`¥${view.total}`, 3, end, bold, true);
-  pen.fillStyle = "#6b7280";
-  pen.font = body;
-  pen.textAlign = "left";
-  view.notes.forEach((note, index) =>
-    pen.fillText(note, at[0], end + 26 + index * 24, width - 48),
-  );
+  pen.fillStyle = "#111827";
+  figures.forEach(([label, amount], index) => {
+    const y = end + index * 25;
+    pen.font = bold;
+    pen.textAlign = "left";
+    pen.fillText(label, at[0], y, 420);
+    pen.textAlign = "right";
+    pen.fillText(amount, at[6], y, 240);
+  });
   return canvas.toDataURL("image/png");
 }
 
@@ -144,16 +252,14 @@ export default function Summary({
   user: User;
   revision: number;
 }) {
-  // A sales-only account cannot use the stock directions, and defaulting to
-  // one left it looking at an empty page with a blank direction box.
   const stockAllowed = can(user, "records.read") && can(user, "items.read");
   const [direction, setDirection] = useQueryValue<string>(
     "summary_kind",
-    stockAllowed ? "in" : "sales",
+    stockAllowed ? "" : "sales",
   );
   const [team, setTeam] = useQueryValue<string>("summary_team", "");
-  const [from, setFrom] = useQueryValue<string>("summary_from", "");
-  const [to, setTo] = useQueryValue<string>("summary_to", "");
+  const [from, setFrom] = useQueryValue<string>("summary_from", monthStart());
+  const [to, setTo] = useQueryValue<string>("summary_to", monthEnd());
   const [search, setSearch] = useQueryValue<string>("summary_q", "");
   const [query, setQuery] = useState(search);
   const [image, setImage] = useState<string>();
@@ -162,214 +268,257 @@ export default function Summary({
     const timer = setTimeout(() => setQuery(search), 200);
     return () => clearTimeout(timer);
   }, [search]);
-  const sales = direction === "sales";
   const options = useResource<{
     items: { field: string; name: string; active?: boolean }[];
-  }>(
-    can(user, "options.read") && !sales ? "/material-options" : undefined,
-    revision,
-  );
+  }>(can(user, "options.read") ? "/material-options" : undefined, revision);
   const teams = (options.data?.items ?? [])
     .filter((option) => option.field === "team" && option.active !== false)
     .map((option) => option.name);
-  const period = `${from || "最早"} 至 ${to || "今天"}`;
   const range = `q=${encodeURIComponent(query)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
-  const stock = useResource<Totals>(
-    stockAllowed && !sales
+  // Every direction, sales included: a sales period still has to say which
+  // materials left and what they cost, not only who bought them.
+  const movements = useResource<Movements>(
+    stockAllowed
       ? `/documents/summary?kind=${encodeURIComponent(direction)}&${range}&team=${encodeURIComponent(team)}`
       : undefined,
     revision,
   );
+  // Revenue is the money a sale carries, not a cost, so it comes from its own
+  // endpoint and is reported as its own figure rather than mixed in.
   const revenue = useResource<Revenue>(
-    can(user, "sales.read") && sales ? `/sales/summary?${range}` : undefined,
+    can(user, "sales.read") && direction !== "in" && direction !== "out"
+      ? `/sales/summary?${range}`
+      : undefined,
     revision,
   );
+  const showIncoming = direction === "" || direction === "in";
   const label =
-    directions.find(([value]) => value === direction)?.[1] ?? "入库";
-  const active = sales ? revenue : stock;
-  let view: View | undefined;
-  if (sales && revenue.data) {
-    view = {
-      columns: ["客户", "", "单据数", "销售额"],
-      detailed: false,
-      rows: revenue.data.customers.map((entry) => ({
-        key: entry.customer_id,
-        name: entry.name,
-        detail: "",
-        measure: `${entry.count} 单`,
-        amount: entry.amount,
-      })),
-      total: revenue.data.total_amount,
-      notes: [`共 ${revenue.data.count} 张已过账单据。`],
-    };
-  } else if (!sales && stock.data) {
-    view = {
-      columns: ["物料", "规格", "数量", "金额"],
-      detailed: true,
-      rows: stock.data.materials.map((material) => ({
-        key: material.item_id,
-        name: material.name,
-        detail: material.spec,
-        measure: `${quantity(material.quantity, material.precision)} ${material.unit}`,
-        amount: material.value,
-      })),
-      total: stock.data.total_value,
-      notes: [
-        ...(stock.data.teams.length
-          ? [
-              stock.data.teams
-                .map((entry) => `${entry.team || "未分小组"} ¥${entry.value}`)
-                .join(" · "),
-            ]
-          : []),
-        ...(stock.data.unpriced_items > 0
-          ? [
-              `另有 ${stock.data.unpriced_items} 种物料未设置成本价，未计入合计金额。`,
-            ]
-          : []),
-      ],
-    };
-  }
+    directions.find(([value]) => value === direction)?.[1] ?? "全部";
+  const period = `${readable(from) || "最早"} 至 ${readable(to) || "现在"}`;
+  const loading = movements.loading || revenue.loading;
+  const error = movements.error || revenue.error;
+  // useResource keeps whatever it last loaded once its path becomes undefined,
+  // so sales figures lingered after switching to a stock direction. What shows
+  // follows the chosen direction, not whether data happens to be held.
+  const showSales = direction === "" || direction === "sales";
+  const showOutgoing = direction !== "in";
+  const figures: [string, string][] = [];
+  if (movements.data && showIncoming)
+    figures.push(["入库成本总额", `¥${movements.data.in_value}`]);
+  if (movements.data)
+    figures.push(["当前库存成本总额", `¥${movements.data.stock_value}`]);
+  if (movements.data && showOutgoing)
+    figures.push(["出库成本总额", `¥${movements.data.out_value}`]);
+  if (revenue.data && showSales)
+    figures.push(["销售总额", `¥${revenue.data.total_amount}`]);
+  const rows = movements.data?.materials ?? [];
   if (!stockAllowed && !can(user, "sales.read"))
     return <Empty>当前账号没有查看汇总的权限，请联系管理员。</Empty>;
   return (
-    <div>
+    <div className="summary-page">
       <div className="page-heading">
         <div>
           <h1>汇总</h1>
           <p>
-            按时间段统计入库、出库或销售，逐行列出并给出合计金额。不同物料的数量和单价不相加。
+            按时间段统计每种物料的进出数量与金额。不同物料的数量和单价不相加，只合计金额。
           </p>
         </div>
         <div className="row-actions">
           <Button
             className="button"
-            disabled={!view?.rows.length}
+            disabled={
+              !rows.length && !(showSales && revenue.data?.customers.length)
+            }
             onClick={() => {
-              if (!view) return;
-              const drawn = picture(view, `${label}汇总`, period);
-              // A browser that refuses a 2D context would otherwise leave the
-              // button looking broken.
+              const drawn = picture(rows, figures, `${label}汇总`, period);
               if (drawn) setImage(drawn);
               else setDrawFailed(true);
             }}
           >
+            <Download size={16} aria-hidden="true" />
             导出图片
           </Button>
         </div>
       </div>
-      <section className="panel">
-        <div className="filters">
+      <section className="panel summary-filters" aria-label="汇总筛选">
+        <div className="filters summary-search-row">
           <label className="search">
             <Search aria-hidden="true" size={18} />
             <Input
               aria-label="搜索汇总"
               name="summary-search"
               type="search"
-              placeholder={sales ? "客户或单号…" : "物料、规格、单号或小组…"}
+              placeholder="物料、规格、单号、客户或小组…"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
           </label>
-          <Field label="方向">
-            {(p) => (
-              <Select
-                {...p}
-                value={direction}
-                onChange={(event) => setDirection(event.target.value)}
-              >
-                {directions
-                  .filter(([value]) =>
-                    value === "sales" ? can(user, "sales.read") : stockAllowed,
-                  )
-                  .map(([value, name]) => (
-                    <option key={value} value={value}>
-                      {name}
-                    </option>
-                  ))}
-              </Select>
-            )}
-          </Field>
-          <Field label="日期从">
+          <Field label="开始时间">
             {(p) => (
               <Input
                 {...p}
-                type="date"
-                value={from}
+                type="datetime-local"
+                value={forInput(from, false)}
                 onChange={(event) => setFrom(event.target.value)}
               />
             )}
           </Field>
-          <Field label="日期到">
+          <Field label="结束时间">
             {(p) => (
               <Input
                 {...p}
-                type="date"
-                value={to}
+                type="datetime-local"
+                value={forInput(to, true)}
                 onChange={(event) => setTo(event.target.value)}
               />
             )}
           </Field>
-          {direction === "in" && teams.length > 0 && (
-            <Field label="小组">
-              {(p) => (
-                <Select
-                  {...p}
-                  value={team}
-                  onChange={(event) => setTeam(event.target.value)}
-                >
-                  <option value="">全部小组</option>
-                  {teams.map((name) => (
-                    <option key={name} value={name}>
-                      {name}
-                    </option>
-                  ))}
-                </Select>
-              )}
-            </Field>
-          )}
         </div>
-        {active.error && <Notice>{active.error}</Notice>}
-        {drawFailed && <Notice>这台设备无法生成图片，请直接截图表格。</Notice>}
-        {active.loading && <Loading />}
-        {view && !active.loading && (
-          <>
-            <p className="dictionary-feedback">
-              {label}合计金额：<strong>¥{view.total}</strong>（{period}
-              {sales ? "，按已过账单据金额" : "，按当前成本价计算"}）
-            </p>
-            {view.notes.map((note) => (
-              <p className="hint" key={note}>
-                {note}
-              </p>
+        <div className="filter-chips" role="group" aria-label="快捷时间段">
+          <span className="summary-filter-label">时间范围</span>
+          {ranges.map(([name, make]) => {
+            const [start, end] = make();
+            return (
+              <Button
+                key={name}
+                className="filter-chip"
+                aria-pressed={from === start && to === end}
+                onClick={() => {
+                  setFrom(start);
+                  setTo(end);
+                }}
+              >
+                {name}
+              </Button>
+            );
+          })}
+        </div>
+        <div className="filter-chips" role="group" aria-label="统计方向">
+          <span className="summary-filter-label">统计方向</span>
+          {directions
+            .filter(
+              ([value]) =>
+                (value !== "sales" || can(user, "sales.read")) &&
+                (value === "sales" || stockAllowed),
+            )
+            .map(([value, name]) => (
+              <Button
+                key={value || "all"}
+                className="filter-chip"
+                aria-pressed={direction === value}
+                onClick={() => setDirection(value)}
+              >
+                {name}
+              </Button>
             ))}
-            {view.rows.length === 0 ? (
-              <Empty>这个时间段没有记录，调整日期、方向或关键词再看看。</Empty>
-            ) : (
+        </div>
+        {showIncoming && teams.length > 0 && (
+          <div className="filter-chips" role="group" aria-label="入库小组">
+            <span className="summary-filter-label">入库小组</span>
+            {[
+              ["", "全部小组"] as const,
+              ...teams.map((n) => [n, n] as const),
+            ].map(([value, name]) => (
+              <Button
+                key={value || "all"}
+                className="filter-chip"
+                aria-pressed={team === value}
+                onClick={() => setTeam(value)}
+              >
+                {name}
+              </Button>
+            ))}
+          </div>
+        )}
+      </section>
+      <section className="summary-results" aria-label="统计结果">
+        {error && <Notice>{error}</Notice>}
+        {drawFailed && <Notice>这台设备无法生成图片，请直接截图表格。</Notice>}
+        {loading && <Loading />}
+        {!loading && !error && (
+          <>
+            <div className="summary-figures" aria-label="汇总金额">
+              {figures.map(([name, amount]) => (
+                <div className="summary-figure" key={name}>
+                  <span>{name}</span>
+                  <strong>{amount}</strong>
+                  <small>
+                    {name === "当前库存成本总额"
+                      ? "实时库存快照"
+                      : "所选期间累计"}
+                  </small>
+                </div>
+              ))}
+            </div>
+            <div className="summary-context">
+              <p className="hint">统计期间：{period}</p>
+              {!!movements.data?.teams.length && (
+                <div
+                  className="summary-team-totals"
+                  aria-label="各小组入库金额"
+                >
+                  <span>小组入库</span>
+                  {movements.data.teams.map((entry) => (
+                    <span key={entry.team}>
+                      {entry.team || "未分小组"}
+                      <strong>¥{entry.value}</strong>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+            {(movements.data?.unpriced_items ?? 0) > 0 && (
+              <p className="hint">
+                有 {movements.data?.unpriced_items}{" "}
+                种物料未设置成本价，它们的金额按 0 计入。
+              </p>
+            )}
+            {rows.length > 0 && (
               <TableScroll>
-                <table aria-label="汇总列表">
+                <h2 className="summary-caption">
+                  物料进出 <span>{rows.length} 种物料</span>
+                </h2>
+                <table aria-label="汇总列表" className="summary-table">
                   <thead>
                     <tr>
-                      <th>{view.columns[0]}</th>
-                      {view.detailed && <th>{view.columns[1]}</th>}
-                      <th className="numeric">{view.columns[2]}</th>
-                      <th className="numeric">{view.columns[3]}</th>
+                      <th>物料 / 规格</th>
+                      <th className="numeric">成本价（元）</th>
+                      <th className="numeric">入库数量</th>
+                      <th className="numeric">入库金额</th>
+                      <th className="numeric">出库数量</th>
+                      <th className="numeric">出库金额</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {view.rows.map((row) => (
-                      <tr key={row.key}>
-                        <td data-label={view.columns[0]}>
+                    {rows.map((row) => (
+                      <tr key={row.item_id}>
+                        <td data-label="物料 / 规格">
                           <strong>{row.name}</strong>
+                          <small>
+                            {row.spec ? `${row.spec} · ` : ""}
+                            {row.code}
+                          </small>
                         </td>
-                        {view.detailed && (
-                          <td data-label={view.columns[1]}>{row.detail}</td>
-                        )}
-                        <td className="numeric" data-label={view.columns[2]}>
-                          {row.measure}
+                        <td className="numeric" data-label="成本价（元）">
+                          {row.cost_price === null
+                            ? "未设置"
+                            : `¥${costText(row.cost_price)}`}
                         </td>
-                        <td className="numeric" data-label={view.columns[3]}>
-                          {row.amount ? `¥${row.amount}` : "未定价"}
+                        <td className="numeric" data-label="入库数量">
+                          {row.in_quantity
+                            ? `${quantity(row.in_quantity, row.precision)} ${row.unit}`
+                            : "—"}
+                        </td>
+                        <td className="numeric" data-label="入库金额">
+                          {row.in_quantity ? `¥${row.in_value}` : "—"}
+                        </td>
+                        <td className="numeric" data-label="出库数量">
+                          {row.out_quantity
+                            ? `${quantity(row.out_quantity, row.precision)} ${row.unit}`
+                            : "—"}
+                        </td>
+                        <td className="numeric" data-label="出库金额">
+                          {row.out_quantity ? `¥${row.out_value}` : "—"}
                         </td>
                       </tr>
                     ))}
@@ -377,6 +526,47 @@ export default function Summary({
                 </table>
               </TableScroll>
             )}
+            {showSales && revenue.data && revenue.data.customers.length > 0 && (
+              <TableScroll>
+                <h2 className="summary-caption">
+                  销售按客户{" "}
+                  {/* 收款 reports the same customers by what they still owe,
+                      so naming the measure keeps the two screens from looking
+                      like they disagree. */}
+                  <span>本期开单金额，不是欠款</span>
+                </h2>
+                <table aria-label="销售汇总列表" className="summary-table">
+                  <thead>
+                    <tr>
+                      <th>客户</th>
+                      <th className="numeric">单据数</th>
+                      <th className="numeric">销售额</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {revenue.data.customers.map((entry) => (
+                      <tr key={entry.customer_id}>
+                        <td data-label="客户">
+                          <strong>{entry.name}</strong>
+                        </td>
+                        <td className="numeric" data-label="单据数">
+                          {entry.count}
+                        </td>
+                        <td className="numeric" data-label="销售额">
+                          ¥{entry.amount}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </TableScroll>
+            )}
+            {rows.length === 0 &&
+              !(showSales && revenue.data?.customers.length) && (
+                <Empty>
+                  这个时间段没有记录，调整时间、方向或关键词再看看。
+                </Empty>
+              )}
           </>
         )}
       </section>
