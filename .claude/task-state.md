@@ -5,9 +5,23 @@
 客户需求出自 `docs/客户需求/20261019.md`（已脱敏纳管）。
 
 ## Current Phase
-DONE — v0.8.0 已发布（2026-10-21 02:27Z，标签 db8dc24）。标签构建 39523373792 全绿，
-webkit/chromium 各 191 passed（20.2m / 11.3m）。核验：23 资产、latest.json=0.8.0 含 4 平台、
-GHCR v0.8.0 digest ef065766（amd64+arm64，不重建）。
+IMPLEMENTATION — v0.9.0：S3 可配置 + 备份带全量配置 + 启动器步骤器。用户要求一个版本发完，
+并指定用 codex CLI + 2 个 subagent，由我做分配调度与验收（验收不外包）。
+
+## Current Step
+三路并行中，文件集互不相交：
+- **codex**（`crates/server/**`）：storage.json + GET/PUT /api/storage + 真实往返探测 +
+  OSS/MinIO/AWS 兼容 + 备份带 config/* 且旧备份仍可恢复 + 恢复预览回报目标库与桶
+- **subagent launcher**（`desktop/ui/**` + `tests/e2e/launcher.spec.ts`）：先建 Playwright
+  基座（file:// 加载启动器页 + mock `window.__TAURI__`），再改成四步步骤器
+- **subagent settings**（`src/pages/Settings.tsx` + `tests/e2e/storage-settings.spec.ts`）：
+  文件存储表单（含三种预设）+ 恢复前确认显示目标库/桶
+- **我**（`desktop/src/desktop.rs`）：命令入参扩展、托盘菜单重组、切换主机确认、集成、验收、发版
+
+## 契约缺口（我自己的，待 codex 交回后补）
+首次运行时还没有管理员，用不了需要鉴权的 PUT /api/storage。存储配置必须照
+`--configure-database` 的既有机制加一个 `--configure-storage`（服务端校验+探测+落盘）。
+我给 codex 的任务里只写了 HTTP 接口，漏了这个。**不要并发改 crates/server**，等它交回我补。
 
 ## Current Step
 无。
