@@ -142,7 +142,7 @@ fn owner(actor: &User, sale: &Sale) -> Result<()> {
 /// A reporting period may carry a time, but a sale records only the day it
 /// happened, so the clock part is dropped rather than refused. The write path
 /// keeps using date() unchanged, which accepts a plain day and nothing else.
-fn business_day(value: &str) -> Result<String> {
+pub(crate) fn business_day(value: &str) -> Result<String> {
     date(value.split('T').next().unwrap_or_default())
 }
 fn date(value: &str) -> Result<String> {
@@ -1113,8 +1113,13 @@ pub async fn summary(
     Query(filter): Query<Filter>,
 ) -> Result<Json<Value>> {
     let actor = current(&s, &headers).await?;
-    sales_access(&actor)?;
-    let (base, values, _) = list_filter(&filter, &actor)?;
+    Ok(Json(summary_data(&s, &actor, &filter).await?))
+}
+
+/// Shared revenue calculation for the summary endpoint and archived reports.
+pub(crate) async fn summary_data(s: &AppState, actor: &User, filter: &Filter) -> Result<Value> {
+    sales_access(actor)?;
+    let (base, values, _) = list_filter(filter, actor)?;
     // Only a posted document is revenue: a draft is not a sale yet, and a
     // cancelled one never was.
     let scope = format!("{base} AND status='posted'");
@@ -1143,7 +1148,7 @@ pub async fn summary(
     // match how Chinese reads.
     customers.sort_by(|left, right| right.3.cmp(&left.3).then_with(|| left.1.cmp(&right.1)));
     let total = customers.iter().map(|entry| entry.3 as i128).sum::<i128>();
-    Ok(Json(json!({
+    Ok(json!({
         "customers": customers.iter().map(|(id, name, count, amount)| json!({
             "customer_id": id,
             "name": name,
@@ -1152,7 +1157,7 @@ pub async fn summary(
         })).collect::<Vec<_>>(),
         "total_amount": crate::money::display(i64::try_from(total).unwrap_or(i64::MAX)),
         "count": customers.iter().map(|entry| entry.2).sum::<i64>(),
-    })))
+    }))
 }
 
 #[derive(Deserialize)]

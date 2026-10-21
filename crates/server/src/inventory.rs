@@ -876,6 +876,16 @@ pub async fn documents_summary(
     headers: HeaderMap,
     Query(filter): Query<Filter>,
 ) -> Result<Json<JsonValue>> {
+    let actor = current(&s, &headers).await?;
+    Ok(Json(documents_summary_data(&s, &actor, &filter).await?))
+}
+
+/// Shared by the summary endpoint and archived reports; keep one accounting path.
+pub(crate) async fn documents_summary_data(
+    s: &AppState,
+    actor: &User,
+    filter: &Filter,
+) -> Result<JsonValue> {
     #[derive(Default)]
     struct Total {
         name: String,
@@ -889,7 +899,6 @@ pub async fn documents_summary(
         out_quantity: i64,
         out_value: i128,
     }
-    let actor = current(&s, &headers).await?;
     actor.require("records.read")?;
     // The totals are money derived from the cost price, which is otherwise only
     // readable through the material list.
@@ -902,7 +911,7 @@ pub async fn documents_summary(
     // because an empty one means every direction reported side by side.
     let mut scoped = filter.clone();
     scoped.kind = None;
-    let (clause, mut values) = document_filter(&scoped, &actor)?;
+    let (clause, mut values) = document_filter(&scoped, actor)?;
     let mut scope = format!("{clause} AND d.status<>'voided' AND d.kind<>'void'");
     scope.push_str(match direction.as_str() {
         "in" => INCOMING,
@@ -1003,7 +1012,7 @@ pub async fn documents_summary(
             None => {}
         }
     }
-    Ok(Json(json!({
+    Ok(json!({
         "materials": materials.iter().map(|(id, total)| json!({
             "item_id": id,
             "name": total.name,
@@ -1025,7 +1034,7 @@ pub async fn documents_summary(
         "stock_unpriced": stock_unpriced,
         "unpriced_items": unpriced,
         "teams": team_order.iter().map(|(team, value)| json!({"team": team, "value": value_text(*value)})).collect::<Vec<_>>(),
-    })))
+    }))
 }
 pub async fn document(db: &impl ConnectionTrait, row: sea_orm::QueryResult) -> Result<JsonValue> {
     let did = text(&row, "id");

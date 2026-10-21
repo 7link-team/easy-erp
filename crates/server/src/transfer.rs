@@ -301,6 +301,38 @@ pub async fn template(
     .await
 }
 
+/// Common Excel serialization for exports and archived reports.
+pub(crate) fn excel_bytes(headers: &[String], rows: &[Vec<String>]) -> Result<Vec<u8>> {
+    let mut workbook = rust_xlsxwriter::Workbook::new();
+    let sheet = workbook.add_worksheet();
+    let columns = rows
+        .iter()
+        .map(Vec::len)
+        .max()
+        .unwrap_or(0)
+        .max(headers.len());
+    for column in 0..columns {
+        sheet
+            .set_column_width(column as u16, 20)
+            .map_err(|_| ApiError::bad("生成表格失败。"))?;
+    }
+    for (c, v) in headers.iter().enumerate() {
+        sheet
+            .write_string(0, c as u16, v)
+            .map_err(|_| ApiError::bad("生成表格失败。"))?;
+    }
+    for (r, row) in rows.iter().enumerate() {
+        for (c, v) in row.iter().enumerate() {
+            sheet
+                .write_string(r as u32 + 1, c as u16, v)
+                .map_err(|_| ApiError::bad("生成表格失败。"))?;
+        }
+    }
+    workbook
+        .save_to_buffer()
+        .map_err(|_| ApiError::bad("生成表格失败。"))
+}
+
 async fn render(table: Table, format: &str, name: &str) -> Result<Response> {
     if !["xlsx", "csv"].contains(&format) {
         return Err(ApiError::bad("请选择 Excel 或 CSV 格式。"));
@@ -309,26 +341,7 @@ async fn render(table: Table, format: &str, name: &str) -> Result<Response> {
     let signed_cash_amount = name.starts_with("cash-");
     let bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
         if excel {
-            let mut workbook = rust_xlsxwriter::Workbook::new();
-            let sheet = workbook.add_worksheet();
-            for (c, v) in table.headers.iter().enumerate() {
-                sheet
-                    .write_string(0, c as u16, v)
-                    .map_err(|_| ApiError::bad("生成表格失败。"))?;
-                sheet
-                    .set_column_width(c as u16, 20)
-                    .map_err(|_| ApiError::bad("生成表格失败。"))?;
-            }
-            for (r, row) in table.rows.iter().enumerate() {
-                for (c, v) in row.iter().enumerate() {
-                    sheet
-                        .write_string(r as u32 + 1, c as u16, v)
-                        .map_err(|_| ApiError::bad("生成表格失败。"))?;
-                }
-            }
-            workbook
-                .save_to_buffer()
-                .map_err(|_| ApiError::bad("生成表格失败。"))
+            excel_bytes(&table.headers, &table.rows)
         } else {
             let mut writer = csv::WriterBuilder::new()
                 .quote_style(if signed_cash_amount {

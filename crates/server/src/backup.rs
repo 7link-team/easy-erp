@@ -40,6 +40,14 @@ pub(crate) struct Manifest {
     photo_count: Option<u64>,
     #[serde(default)]
     config: Vec<String>,
+    #[serde(default)]
+    reports: Vec<ReportEntry>,
+}
+#[derive(Serialize, Deserialize)]
+struct ReportEntry {
+    key: String,
+    size: u64,
+    sha256: String,
 }
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Schedule {
@@ -301,6 +309,26 @@ async fn snapshot_with_storage(
     let source = source.to_string();
     let manifest_source = source.clone();
     let configs = read_configs(data_dir)?;
+    let mut reports = Vec::new();
+    let mut report_size = tokio::fs::metadata(&snapshot).await?.len();
+    for report in crate::reports::archived(files).await? {
+        let destination = stage.path().join(&report.key);
+        tokio::fs::create_dir_all(destination.parent().unwrap()).await?;
+        copy_archive(files, &report.backend, &report.key, &destination).await?;
+        let size = tokio::fs::metadata(&destination).await?.len();
+        report_size = report_size.saturating_add(size);
+        if report_size > MAX_SNAPSHOT {
+            return Err(ApiError::bad(
+                "数据库与报告归档合计超过当前 16 GiB 备份上限。",
+            ));
+        }
+        reports.push(ReportEntry {
+            key: report.key,
+            size,
+            sha256: file_hash(&destination)?,
+        });
+    }
+    let reports_stage = stage.path().to_owned();
     tokio::task::spawn_blocking(move || -> std::io::Result<()> {
         let manifest = Manifest {
             format: FORMAT,
@@ -310,6 +338,7 @@ async fn snapshot_with_storage(
             source: Some(manifest_source),
             photo_count: Some(photo_count),
             config: configs.iter().map(|(name, _)| name.clone()).collect(),
+            reports,
         };
         let output = std::fs::File::create(&temporary)?;
         let mut zip = zip::ZipWriter::new(output);
@@ -320,6 +349,16 @@ async fn snapshot_with_storage(
         for (name, bytes) in configs {
             zip.start_file(format!("config/{name}"), options.unix_permissions(0o600))?;
             zip.write_all(&bytes)?;
+        }
+        for report in &manifest.reports {
+            zip.start_file(
+                &report.key,
+                options.large_file(true).unix_permissions(0o600),
+            )?;
+            std::io::copy(
+                &mut std::fs::File::open(reports_stage.join(&report.key))?,
+                &mut zip,
+            )?;
         }
         zip.start_file("inventory.sqlite", options.large_file(true))?;
         std::io::copy(&mut std::fs::File::open(snapshot)?, &mut zip)?;
@@ -345,6 +384,9 @@ async fn snapshot_with_storage(
         backend: files.primary.into(),
         key: key.clone(),
     };
+    if info.size > MAX_SNAPSHOT + 1024 * 1024 {
+        return Err(ApiError::bad("完整备份超过当前恢复大小限制。"));
+    }
     files.put_file(files.primary, &key, &archive).await?;
     // Archive is authoritative; missing metadata must never hide a valid backup.
     // The archive is already stored durably here, so a failed sidecar must not
@@ -804,6 +846,7 @@ pub(crate) async fn prepare_restore(
             .map_err(|_| ApiError::bad("不是有效的完整备份文件。"))?;
         let manifest = read_manifest(&mut zip)?;
         extract_configs(&mut zip, &manifest, dest.parent().unwrap())?;
+        extract_reports(&mut zip, &manifest, dest.parent().unwrap())?;
         {
             let file = zip
                 .by_name("inventory.sqlite")
@@ -986,6 +1029,7 @@ pub async fn restore(
         )
         .await?;
         clear_restored_attachments(&s).await;
+        restore_reports(stage.path(), &s.files()).await?;
         restore_configs(stage.path(), &s.data_dir)?;
         return Ok(Json(
             json!({"ok":true,"message":"数据已恢复，请重新登录；备份中的连接配置将在重启服务后生效。"}),
@@ -1065,6 +1109,7 @@ pub async fn restore(
     }
     outcome?;
     clear_restored_attachments(&s).await;
+    restore_reports(stage.path(), &s.files()).await?;
     restore_configs(stage.path(), &s.data_dir)?;
     Ok(Json(
         json!({"ok":true,"message":"数据已恢复，请重新登录；备份中的连接配置将在重启服务后生效。"}),
@@ -1266,6 +1311,101 @@ fn extract_configs(
     }
     Ok(())
 }
+/// Stage only validated report entries. Missing reports in a legacy manifest is valid.
+fn extract_reports<R: Read + std::io::Seek>(
+    zip: &mut zip::ZipArchive<R>,
+    manifest: &Manifest,
+    stage: &FsPath,
+) -> Result<()> {
+    let mut names = std::collections::HashSet::new();
+    let mut total = 0u64;
+    for report in &manifest.reports {
+        crate::reports::validate_key(&report.key)?;
+        if !names.insert(report.key.as_str()) {
+            return Err(ApiError::bad("备份包含重复报告。"));
+        }
+        total = total.saturating_add(report.size);
+        if total > MAX_SNAPSHOT {
+            return Err(ApiError::bad("备份报告超过恢复大小限制。"));
+        }
+    }
+    let mut encountered = std::collections::HashSet::new();
+    for name in zip.file_names().filter(|name| name.starts_with("reports/")) {
+        if !names.contains(name) || !encountered.insert(name) {
+            return Err(ApiError::bad("备份包含未登记或重复的报告文件。"));
+        }
+    }
+    if manifest.reports.is_empty() {
+        return Ok(());
+    }
+    check_space(stage, total.saturating_add(SPACE_MARGIN))?;
+    for report in &manifest.reports {
+        let mut entry = zip
+            .by_name(&report.key)
+            .map_err(|_| ApiError::bad("备份缺少报告文件。"))?;
+        if entry.size() != report.size
+            || entry.is_dir()
+            || entry.unix_mode().is_some_and(|m| m & 0o170000 == 0o120000)
+        {
+            return Err(ApiError::bad("备份报告文件大小或类型无效。"));
+        }
+        let target = stage.join(&report.key);
+        std::fs::create_dir_all(target.parent().unwrap())?;
+        // Private staging files, like the restored connection configuration.
+        crate::storage::write_private(&target, &[])?;
+        let mut out = std::fs::OpenOptions::new().write(true).open(&target)?;
+        let copied = std::io::copy(
+            &mut (&mut entry).take(report.size.saturating_add(1)),
+            &mut out,
+        )?;
+        out.sync_all()?;
+        if copied != report.size || file_hash(&target)? != report.sha256 {
+            return Err(ApiError::bad("备份报告校验失败，文件可能已损坏。"));
+        }
+    }
+    crate::storage::write_private(
+        &stage.join("reports.json"),
+        &serde_json::to_vec(&manifest.reports).map_err(|_| ApiError::bad("报告清单无效。"))?,
+    )?;
+    Ok(())
+}
+
+/// Replayable for offline recovery; all uploads retain FileStorage's private ACL.
+pub(crate) async fn restore_reports(
+    stage: &FsPath,
+    files: &crate::storage::FileStorage,
+) -> Result<()> {
+    let index = stage.join("reports.json");
+    let bytes = match std::fs::read(&index) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e.into()),
+    };
+    let reports: Vec<ReportEntry> =
+        serde_json::from_slice(&bytes).map_err(|_| ApiError::bad("恢复报告清单无效。"))?;
+    for report in reports {
+        crate::reports::validate_key(&report.key)?;
+        let mut path = stage.to_owned();
+        for component in report.key.split('/') {
+            path.push(component);
+            if std::fs::symlink_metadata(&path)?.file_type().is_symlink() {
+                return Err(ApiError::bad("恢复报告不允许符号链接。"));
+            }
+        }
+        if std::fs::metadata(&path)?.len() != report.size || file_hash(&path)? != report.sha256 {
+            return Err(ApiError::bad("恢复报告校验失败。"));
+        }
+        files
+            .put(
+                files.primary,
+                &report.key,
+                tokio::fs::read(&path).await?.into(),
+            )
+            .await?;
+    }
+    Ok(())
+}
+
 pub(crate) fn restore_configs(stage: &FsPath, data_dir: &FsPath) -> Result<()> {
     for (name, bytes) in read_configs(&stage.join("config"))? {
         crate::storage::write_private(&data_dir.join(name), &bytes)?;
@@ -1322,7 +1462,7 @@ mod config_tests {
     use crate::migration::Migrator;
 
     #[tokio::test]
-    async fn old_archives_without_config_restore_with_legacy_schema() {
+    async fn old_archives_without_reports_or_config_restore_with_legacy_schema() {
         for steps in [None, Some(8)] {
             let source = tempfile::tempdir().unwrap();
             let snapshot = source.path().join("inventory.sqlite");
@@ -1341,7 +1481,7 @@ mod config_tests {
             let mut zip = zip::ZipWriter::new(std::fs::File::create(&archive).unwrap());
             let options = zip::write::SimpleFileOptions::default();
             zip.start_file("manifest.json", options).unwrap();
-            // Deliberately omit config and all newer optional metadata fields.
+            // Deliberately omit reports, config and all newer optional metadata fields.
             zip.write_all(&serde_json::to_vec(&json!({"format":1,"created_at":0,"sha256":file_hash(&snapshot).unwrap(),"schema":schema})).unwrap()).unwrap();
             zip.start_file("inventory.sqlite", options).unwrap();
             std::io::copy(&mut std::fs::File::open(&snapshot).unwrap(), &mut zip).unwrap();
@@ -1362,6 +1502,7 @@ mod config_tests {
                 config
             );
             assert!(!target.path().join("storage.json").exists());
+            assert!(!target.path().join("reports").exists());
             let restored = crate::database::sqlite(&target.path().join("inventory.sqlite"), true)
                 .await
                 .unwrap();
@@ -1405,6 +1546,15 @@ mod config_tests {
         storage.s3.secret_access_key = "private-secret".into();
         // Capture local destination before writing the incoming S3 configuration: no real S3 calls.
         let files = crate::storage::FileStorage::from_env(source.path()).unwrap();
+        let report_key = "reports/2026/10/日报-2026-10-21.pdf";
+        files
+            .put(
+                files.primary,
+                report_key,
+                bytes::Bytes::from_static(b"report archive bytes"),
+            )
+            .await
+            .unwrap();
         std::fs::write(source.path().join("database.json"), database).unwrap();
         let storage = serde_json::to_vec(&storage).unwrap();
         std::fs::write(source.path().join("storage.json"), &storage).unwrap();
@@ -1421,6 +1571,8 @@ mod config_tests {
         )
         .await
         .unwrap();
+        assert_eq!(manifest.reports.len(), 1);
+        assert_eq!(manifest.reports[0].key, report_key);
         assert_eq!(manifest.config, ["database.json", "storage.json"]);
         let preview = incoming_config(stage.path()).unwrap();
         assert_eq!(
@@ -1446,6 +1598,10 @@ mod config_tests {
             std::fs::read(target.path().join("storage.json")).unwrap(),
             storage
         );
+        assert_eq!(
+            std::fs::read(target.path().join(report_key)).unwrap(),
+            b"report archive bytes"
+        );
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -1461,5 +1617,143 @@ mod config_tests {
             }
         }
         db.close().await.unwrap();
+    }
+}
+
+#[cfg(test)]
+mod report_tests {
+    use super::*;
+    #[tokio::test]
+    async fn old_backup_without_reports_restores_and_preserves_existing_reports() {
+        let source = tempfile::tempdir().unwrap();
+        let db = crate::database::sqlite(&source.path().join("inventory.sqlite"), false)
+            .await
+            .unwrap();
+        crate::migration::Migrator::up(&db, None).await.unwrap();
+        execute(
+            &db,
+            "INSERT INTO settings (id,value) VALUES ('legacy-report-test','restored')",
+            vec![],
+        )
+        .await
+        .unwrap();
+        let info = snapshot(&db, source.path(), "test").await.unwrap();
+        db.close().await.unwrap();
+        let legacy = source.path().join("legacy.zip");
+        let mut original = zip::ZipArchive::new(std::fs::File::open(&info.path).unwrap()).unwrap();
+        let mut writer = zip::ZipWriter::new(std::fs::File::create(&legacy).unwrap());
+        for index in 0..original.len() {
+            let mut entry = original.by_index(index).unwrap();
+            writer
+                .start_file(entry.name(), zip::write::SimpleFileOptions::default())
+                .unwrap();
+            if entry.name() == "manifest.json" {
+                let mut manifest: Value = serde_json::from_reader(&mut entry).unwrap();
+                manifest.as_object_mut().unwrap().remove("reports");
+                writer
+                    .write_all(&serde_json::to_vec(&manifest).unwrap())
+                    .unwrap();
+            } else {
+                std::io::copy(&mut entry, &mut writer).unwrap();
+            }
+        }
+        writer.finish().unwrap();
+        let target = tempfile::tempdir().unwrap();
+        let key = "reports/2026/10/日报-2026-10-21.xlsx";
+        let files = crate::storage::FileStorage::from_env(target.path()).unwrap();
+        files
+            .put(
+                files.primary,
+                key,
+                bytes::Bytes::from_static(b"existing report"),
+            )
+            .await
+            .unwrap();
+        crate::recovery::run(
+            target.path(),
+            crate::recovery::Action::Restore,
+            Some(&legacy),
+            "恢复全部数据",
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            std::fs::read(target.path().join(key)).unwrap(),
+            b"existing report"
+        );
+        let restored = crate::database::sqlite(&target.path().join("inventory.sqlite"), true)
+            .await
+            .unwrap();
+        assert_eq!(
+            text(
+                &one(
+                    &restored,
+                    "SELECT value FROM settings WHERE id='legacy-report-test'",
+                    vec![]
+                )
+                .await
+                .unwrap()
+                .unwrap(),
+                "value"
+            ),
+            "restored"
+        );
+        restored.close().await.unwrap();
+    }
+
+    #[test]
+    fn report_restore_rejects_traversal_missing_entries_and_corruption() {
+        for (key, recorded, content, expected_size) in [
+            (
+                "reports/2026/10/../../../escape.pdf",
+                true,
+                b"correct".as_slice(),
+                7,
+            ),
+            (
+                "reports/2026/10/日报-2026-10-21.pdf",
+                false,
+                b"correct".as_slice(),
+                7,
+            ),
+            (
+                "reports/2026/10/日报-2026-10-21.pdf",
+                true,
+                b"corrupt".as_slice(),
+                7,
+            ),
+            (
+                "reports/2026/10/日报-2026-10-21.pdf",
+                true,
+                b"correct".as_slice(),
+                8,
+            ),
+        ] {
+            let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+            if recorded {
+                writer
+                    .start_file(key, zip::write::SimpleFileOptions::default())
+                    .unwrap();
+                writer.write_all(content).unwrap();
+            }
+            let mut zip = zip::ZipArchive::new(writer.finish().unwrap()).unwrap();
+            let manifest = Manifest {
+                format: FORMAT,
+                created_at: 0,
+                sha256: String::new(),
+                schema: vec![],
+                source: None,
+                photo_count: None,
+                config: vec![],
+                reports: vec![ReportEntry {
+                    key: key.into(),
+                    size: expected_size,
+                    sha256: hex::encode(Sha256::digest(b"correct")),
+                }],
+            };
+            let stage = tempfile::tempdir().unwrap();
+            assert!(extract_reports(&mut zip, &manifest, stage.path()).is_err());
+            assert!(!stage.path().join("reports.json").exists());
+        }
     }
 }

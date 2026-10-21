@@ -28,6 +28,8 @@ anyhow = "1"
 fs2 = "0.4"
 csv = "1"
 rust_xlsxwriter = "0.90"
+krilla = { version = "0.8.2", default-features = false, features = ["simple-text"] }
+ttf-parser = "0.25"
 calamine = "0.31"
 rust-embed = { version = "8", features = ["interpolate-folder-path", "debug-embed"] }
 mime_guess = "2"
@@ -39,7 +41,7 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png",
 object_store = { version = "0.12", default-features = false, features = ["aws", "fs"] }
 # object_store cannot set an object ACL, so the one request that does is signed here.
 hmac = "0.12"
-reqwest = { version = "0.12", default-features = false, features = ["json", "cookies", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "cookies", "rustls-tls", "multipart"] }
 bytes = "1"
 futures = "0.3"
 

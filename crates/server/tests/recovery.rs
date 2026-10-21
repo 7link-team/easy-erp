@@ -54,6 +54,27 @@ impl Server {
         server_mode: bool,
         storage: &[(&str, &str)],
     ) -> Self {
+        // Binding port 0, reading the number and handing it to a child process
+        // leaves a window where a sibling test takes the same port. Nothing in
+        // the harness noticed, and the server simply exited; with several tests
+        // starting servers it showed up as whichever report case happened to
+        // lose the race. Try a few ports before giving up.
+        for attempt in 1..=8 {
+            match Self::start_once(data, client.clone(), server_mode, storage).await {
+                Ok(server) => return server,
+                Err(log) if attempt < 8 && log.contains("Address already in use") => continue,
+                Err(log) => panic!("server did not start: {log}"),
+            }
+        }
+        unreachable!()
+    }
+
+    async fn start_once(
+        data: &Path,
+        client: Option<Client>,
+        server_mode: bool,
+        storage: &[(&str, &str)],
+    ) -> Result<Self, String> {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         drop(listener);
@@ -106,10 +127,10 @@ impl Server {
         };
         for _ in 0..200 {
             if let Some(status) = server.child.try_wait().unwrap() {
-                panic!(
+                return Err(format!(
                     "server exited {status}: {}",
                     fs::read_to_string(&log_path).unwrap()
-                );
+                ));
             }
             if let Ok(response) = server
                 .client
@@ -118,14 +139,11 @@ impl Server {
                 .await
                 && response.status().is_success()
             {
-                return server;
+                return Ok(server);
             }
             sleep(Duration::from_millis(50)).await;
         }
-        panic!(
-            "server did not start: {}",
-            fs::read_to_string(log_path).unwrap()
-        );
+        Err(fs::read_to_string(log_path).unwrap())
     }
 
     async fn get(&self, path: &str) -> Value {
@@ -1378,4 +1396,476 @@ async fn previous_blob_backup_restores_but_external_references_are_rejected() {
     restored.login().await;
     verify_fixture(&restored, &fixture).await;
     restored.stop().await;
+}
+
+#[tokio::test]
+async fn reports_match_summaries_and_survive_online_and_offline_restore() {
+    use calamine::{Reader, Xlsx};
+    let data = TempDir::new().unwrap();
+    let mut server = Server::start(data.path(), None).await;
+    let fixture = fixture(&server).await;
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    // Unpriced stock must be represented by both existing unpriced counters.
+    let unpriced = server
+        .post(
+            "/items",
+            json!({"name":"未定价螺母","kind":"原材料","unit":"个"}),
+        )
+        .await;
+    server.post("/movements", json!({"request_id":uuid::Uuid::new_v4().to_string(),"kind":"receipt","lines":[{"item_id":unpriced["id"],"quantity":"3"}]})).await;
+    let report = server
+        .post(
+            "/reports",
+            json!({"period":"day","date":today,"format":"xlsx"}),
+        )
+        .await;
+    assert_eq!(report["period_from"], today);
+    assert_eq!(report["period_to"], today);
+    let key = report["key"].as_str().unwrap();
+    let bytes = fs::read(data.path().join(key)).unwrap();
+    assert_eq!(report["size"], bytes.len());
+    let mut workbook: Xlsx<_> = Xlsx::new(Cursor::new(bytes.clone())).unwrap();
+    let range = workbook.worksheet_range_at(0).unwrap().unwrap();
+    let rows = range
+        .rows()
+        .map(|r| r.iter().map(ToString::to_string).collect::<Vec<_>>())
+        .collect::<Vec<_>>();
+    let stock = server
+        .get(&format!("/documents/summary?from={today}&to={today}"))
+        .await;
+    for material in stock["materials"].as_array().unwrap() {
+        let row = rows
+            .iter()
+            .find(|r| {
+                r.get(1)
+                    .is_some_and(|name| Some(name.as_str()) == material["name"].as_str())
+            })
+            .unwrap();
+        assert_eq!(row[6], material["in_value"].as_str().unwrap());
+        assert_eq!(row[8], material["out_value"].as_str().unwrap());
+        let qty = material["in_quantity"].as_i64().unwrap() as f64 / 1000.0;
+        assert_eq!(row[5].parse::<f64>().unwrap(), qty);
+        assert_eq!(
+            row[7].parse::<f64>().unwrap(),
+            material["out_quantity"].as_i64().unwrap() as f64 / 1000.0
+        );
+    }
+    for (label, field) in [
+        ("入库总额", "in_value"),
+        ("出库总额", "out_value"),
+        ("库存总成本（生成时当前库存）", "stock_value"),
+    ] {
+        assert_eq!(
+            rows.iter().find(|r| r[0] == label).unwrap()[1],
+            stock[field].as_str().unwrap()
+        );
+    }
+    assert_eq!(
+        rows.iter().find(|r| r[0] == "期间未定价物料数").unwrap()[1],
+        stock["unpriced_items"].to_string()
+    );
+    assert_eq!(
+        rows.iter()
+            .find(|r| r[0] == "当前库存未定价物料数")
+            .unwrap()[1],
+        stock["stock_unpriced"].to_string()
+    );
+    assert_eq!(
+        rows.iter()
+            .find(|r| r.get(1).is_some_and(|s| s == "恢复测试物料"))
+            .unwrap()[4],
+        "3.4567"
+    );
+    assert_eq!(
+        rows.iter()
+            .find(|r| r.get(1).is_some_and(|s| s == "未定价螺母"))
+            .unwrap()[4],
+        "未定价"
+    );
+
+    let sales = server
+        .get("/sales/summary?from=2026-10-01&to=2026-10-31")
+        .await;
+    let month = server
+        .post(
+            "/reports",
+            json!({"period":"month","date":"2026-10-09","format":"xlsx"}),
+        )
+        .await;
+    assert_eq!(month["period_from"], "2026-10-01");
+    assert_eq!(month["period_to"], "2026-10-31");
+    let mut workbook: Xlsx<_> = Xlsx::new(Cursor::new(
+        fs::read(data.path().join(month["key"].as_str().unwrap())).unwrap(),
+    ))
+    .unwrap();
+    let range = workbook.worksheet_range_at(0).unwrap().unwrap();
+    let rows = range
+        .rows()
+        .map(|r| r.iter().map(ToString::to_string).collect::<Vec<_>>())
+        .collect::<Vec<_>>();
+    for customer in sales["customers"].as_array().unwrap() {
+        assert_eq!(
+            rows.iter()
+                .find(|r| Some(r[0].as_str()) == customer["name"].as_str())
+                .unwrap()[1],
+            customer["amount"].as_str().unwrap()
+        );
+    }
+    assert_eq!(
+        rows.iter().find(|r| r[0] == "销售收入合计").unwrap()[1],
+        sales["total_amount"].as_str().unwrap()
+    );
+    let list = server.get("/reports").await;
+    let listed = list["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["key"] == key)
+        .unwrap();
+    let name = listed["name"].as_str().unwrap();
+    let response = server
+        .client
+        .get(format!("{}/api/reports/{name}", server.base))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.content_length(), Some(bytes.len() as u64));
+    assert!(
+        response.headers()["content-disposition"]
+            .to_str()
+            .unwrap()
+            .contains("filename*=UTF-8''")
+    );
+    assert_eq!(response.bytes().await.unwrap().as_ref(), bytes.as_slice());
+    let unauthenticated = Client::new();
+    assert_eq!(
+        unauthenticated
+            .get(format!("{}/api/reports", server.base))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    for name in ["日报-..pdf", "日报-%5Cfile.pdf", "日报-%0D%0A.pdf"] {
+        assert_eq!(
+            server
+                .client
+                .get(format!("{}/api/reports/{name}", server.base))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::BAD_REQUEST
+        );
+    }
+    server.post("/users",json!({"username":"reportviewer","name":"只读用户","password":PASSWORD,"role":"viewer","can_in":false,"can_out":false,"can_count":false,"active":true})).await;
+    let reader = Client::builder().cookie_store(true).build().unwrap();
+    json_response(
+        reader
+            .post(format!("{}/api/login", server.base))
+            .header("X-ERP-Request", "1")
+            .json(&json!({"username":"reportviewer","password":PASSWORD}))
+            .send()
+            .await
+            .unwrap(),
+    )
+    .await;
+    for path in ["/api/reports".to_string(), format!("/api/reports/{name}")] {
+        assert_eq!(
+            reader
+                .get(format!("{}{path}", server.base))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+    }
+    assert_eq!(
+        reader
+            .post(format!("{}/api/reports", server.base))
+            .header("X-ERP-Request", "1")
+            .json(&json!({"period":"day","date":today,"format":"xlsx"}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+
+    let backup = server.post("/backups", json!({})).await;
+    let archive = std::path::PathBuf::from(backup["path"].as_str().unwrap());
+    let mut zip = zip::ZipArchive::new(fs::File::open(&archive).unwrap()).unwrap();
+    let manifest: Value = serde_json::from_reader(zip.by_name("manifest.json").unwrap()).unwrap();
+    assert!(
+        manifest["reports"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["key"] == key)
+    );
+    let mut archived_bytes = Vec::new();
+    zip.by_name(key)
+        .unwrap()
+        .read_to_end(&mut archived_bytes)
+        .unwrap();
+    assert_eq!(archived_bytes, bytes);
+    fs::remove_dir_all(data.path().join("reports")).unwrap();
+    server
+        .post(
+            "/backups/restore",
+            json!({"name":backup["name"],"confirmation":"恢复全部数据"}),
+        )
+        .await;
+    assert_eq!(fs::read(data.path().join(key)).unwrap(), bytes);
+    server.login().await;
+    verify_fixture(&server, &fixture).await;
+    server.stop().await;
+    let target = TempDir::new().unwrap();
+    success(
+        recovery(
+            target.path(),
+            "restore",
+            Some("恢复全部数据"),
+            Some(&archive),
+        )
+        .await,
+    );
+    assert_eq!(fs::read(target.path().join(key)).unwrap(), bytes);
+}
+
+#[tokio::test]
+async fn pdf_font_failure_does_not_archive_a_broken_report() {
+    let data = TempDir::new().unwrap();
+    let mut server = Server::start_config(
+        data.path(),
+        None,
+        false,
+        &[("ERP_REPORT_FONT", "/nonexistent/chinese.ttf")],
+    )
+    .await;
+    server.setup().await;
+    let response = server
+        .client
+        .post(format!("{}/api/reports", server.base))
+        .header("X-ERP-Request", "1")
+        .json(&json!({"period":"day","date":"2026-10-21","format":"pdf"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let error: Value = response.json().await.unwrap();
+    assert!(error["error"].as_str().unwrap().contains("ERP_REPORT_FONT"));
+    assert!(error["error"].as_str().unwrap().contains("Excel"));
+    assert!(
+        server.get("/reports").await["items"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    server.stop().await;
+}
+
+#[tokio::test]
+#[ignore = "requires a runtime CJK font; run explicitly with ERP_REPORT_API_PDF_EVIDENCE"]
+async fn pdf_report_api_generates_archives_and_downloads_chinese() {
+    let data = TempDir::new().unwrap();
+    let mut server = Server::start(data.path(), None).await;
+    fixture(&server).await;
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let report = server
+        .post(
+            "/reports",
+            json!({"period":"day","date":today,"format":"pdf"}),
+        )
+        .await;
+    let key = report["key"].as_str().unwrap();
+    let stored = fs::read(data.path().join(key)).unwrap();
+    assert!(stored.starts_with(b"%PDF-"));
+    assert_eq!(report["size"], stored.len());
+    let name = key.rsplit('/').next().unwrap();
+    let download = server
+        .client
+        .get(format!("{}/api/reports/{name}", server.base))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(download.status(), StatusCode::OK);
+    assert_eq!(download.headers()["content-type"], "application/pdf");
+    assert_eq!(download.bytes().await.unwrap().as_ref(), stored.as_slice());
+    fs::write(
+        std::env::var_os("ERP_REPORT_API_PDF_EVIDENCE").expect("set an output path"),
+        stored,
+    )
+    .unwrap();
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn report_schedule_api_and_restart_delivery_are_private_and_durable() {
+    use axum::{Json, Router, extract::State, routing::post};
+    use chrono::Timelike;
+    use std::sync::{Arc, Mutex};
+    type Messages = Arc<Mutex<Vec<Value>>>;
+    async fn media() -> Json<Value> {
+        Json(json!({"errcode":0,"media_id":"local-media"}))
+    }
+    async fn message(State(messages): State<Messages>, Json(body): Json<Value>) -> Json<Value> {
+        messages.lock().unwrap().push(body);
+        Json(json!({"errcode":0}))
+    }
+    let messages: Messages = Default::default();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let webhook = format!(
+        "http://{}/cgi-bin/webhook/send?key=private-schedule-key",
+        listener.local_addr().unwrap()
+    );
+    let fake = tokio::spawn(
+        axum::serve(
+            listener,
+            Router::new()
+                .route("/cgi-bin/webhook/upload_media", post(media))
+                .route("/cgi-bin/webhook/send", post(message))
+                .with_state(messages.clone()),
+        )
+        .into_future(),
+    );
+    let data = TempDir::new().unwrap();
+    let mut server = Server::start(data.path(), None).await;
+    server.setup().await;
+    let now = chrono::Local::now();
+    let mut config = json!({"webhook":webhook,"format":"xlsx","hour":now.hour(),"minute":now.minute(),"periods":["day"]});
+    assert_eq!(
+        Client::new()
+            .get(format!("{}/api/report-schedule", server.base))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let saved = json_response(
+        server
+            .client
+            .put(format!("{}/api/report-schedule", server.base))
+            .header("X-ERP-Request", "1")
+            .json(&config)
+            .send()
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(saved["webhook_set"], true);
+    assert!(!saved.to_string().contains("private-schedule-key"));
+    assert!(
+        !server
+            .get("/report-schedule")
+            .await
+            .to_string()
+            .contains("private-schedule-key")
+    );
+    config["webhook"] = json!("****");
+    json_response(
+        server
+            .client
+            .put(format!("{}/api/report-schedule", server.base))
+            .header("X-ERP-Request", "1")
+            .json(&config)
+            .send()
+            .await
+            .unwrap(),
+    )
+    .await;
+    server.post("/users",json!({"username":"scheduleviewer","name":"Viewer","password":PASSWORD,"role":"viewer","can_in":false,"can_out":false,"can_count":false,"active":true})).await;
+    let reader = Client::builder().cookie_store(true).build().unwrap();
+    json_response(
+        reader
+            .post(format!("{}/api/login", server.base))
+            .header("X-ERP-Request", "1")
+            .json(&json!({"username":"scheduleviewer","password":PASSWORD}))
+            .send()
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(
+        reader
+            .put(format!("{}/api/report-schedule", server.base))
+            .header("X-ERP-Request", "1")
+            .json(&config)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    config["hour"] = json!(24);
+    assert_eq!(
+        server
+            .client
+            .put(format!("{}/api/report-schedule", server.base))
+            .header("X-ERP-Request", "1")
+            .json(&config)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    // Refresh time just before restart, so test setup cannot cross the configured minute.
+    let now = chrono::Local::now();
+    config["hour"] = json!(now.hour());
+    config["minute"] = json!(now.minute());
+    json_response(
+        server
+            .client
+            .put(format!("{}/api/report-schedule", server.base))
+            .header("X-ERP-Request", "1")
+            .json(&config)
+            .send()
+            .await
+            .unwrap(),
+    )
+    .await;
+    server.stop().await;
+    let mut server = Server::start(data.path(), None).await;
+    server.login().await;
+    timeout(Duration::from_secs(15), async {
+        loop {
+            if messages.lock().unwrap().len() == 2 {
+                break;
+            }
+            sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let sent = messages.lock().unwrap().clone();
+    assert_eq!(sent[0]["msgtype"], "text");
+    for label in ["入库总额", "出库总额", "销售合计"] {
+        assert!(sent[0]["text"]["content"].as_str().unwrap().contains(label));
+    }
+    assert_eq!(sent[1]["file"]["media_id"], "local-media");
+    assert_eq!(
+        server.get("/reports").await["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(server.get("/report-schedule").await["last_error"], "");
+    server.stop().await;
+    let mut server = Server::start(data.path(), None).await;
+    server.login().await;
+    sleep(Duration::from_millis(300)).await;
+    assert_eq!(messages.lock().unwrap().len(), 2);
+    assert!(
+        !fs::read_to_string(data.path().join("test-server.log"))
+            .unwrap()
+            .contains("private-schedule-key")
+    );
+    server.stop().await;
+    fake.abort();
 }

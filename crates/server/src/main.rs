@@ -15,6 +15,9 @@ mod mysql;
 mod network;
 mod options;
 mod recovery;
+mod report_schedule;
+mod reports;
+mod reports_pdf;
 mod roles;
 mod sales;
 mod state;
@@ -184,7 +187,7 @@ async fn main() -> anyhow::Result<()> {
         );
         return Ok(());
     }
-    recovery::finish_pending(&cfg.data_dir)?;
+    recovery::finish_pending(&cfg.data_dir).await?;
     if cfg.backup_only || cfg.migrate_data_to.is_some() {
         let path = cfg.data_dir.canonicalize()?.join("inventory.sqlite");
         let mut options = ConnectOptions::new("sqlite://inventory");
@@ -280,6 +283,7 @@ async fn main() -> anyhow::Result<()> {
     let hosts = Arc::new(hosts);
     let maintenance_state = s.clone();
     let scheduler = tokio::spawn(backup::scheduler(s.clone()));
+    let report_scheduler = tokio::spawn(report_schedule::scheduler(s.clone()));
     let static_files = if let Some(path) = cfg.web_dir {
         Router::new().fallback_service(
             ServeDir::new(&path).not_found_service(ServeFile::new(path.join("index.html"))),
@@ -377,6 +381,12 @@ async fn main() -> anyhow::Result<()> {
             "/api/storage",
             get(storage::get_settings).put(storage::put_settings),
         )
+        .route(
+            "/api/report-schedule",
+            get(report_schedule::get).put(report_schedule::put),
+        )
+        .route("/api/reports", get(reports::list).post(reports::create))
+        .route("/api/reports/{name}", get(reports::download))
         .route("/api/backups", get(backup::list).post(backup::manual))
         .route("/api/backups/schedule", put(backup::update_schedule))
         .route(
@@ -443,7 +453,9 @@ async fn main() -> anyhow::Result<()> {
     })
     .await?;
     scheduler.abort();
+    report_scheduler.abort();
     let _ = scheduler.await;
+    let _ = report_scheduler.await;
     s.db.clone().close().await?;
     drop(lock);
     Ok(())

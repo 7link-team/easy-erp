@@ -72,7 +72,7 @@ fn sync_dir(path: &Path) -> Result<()> {
 
 /// Finish an interrupted, already confirmed replacement before opening SQLite.
 /// The new database is validated and synced before the journal is published.
-pub fn finish_pending(data_dir: &Path) -> Result<()> {
+pub async fn finish_pending(data_dir: &Path) -> Result<()> {
     let pending = data_dir.join(PENDING);
     if !directory_or_absent(&pending)? {
         return Ok(());
@@ -117,6 +117,18 @@ pub fn finish_pending(data_dir: &Path) -> Result<()> {
             regular_or_absent(&data_dir.join("inventory.sqlite"))?,
             "维护未完成，缺少新数据库。请保留现场并联系管理员。"
         );
+    }
+    // Replay reports before applying incoming connection settings, using the destination's
+    // configured storage. Keep the journal until every private upload succeeds.
+    if regular_or_absent(&pending.join("reports.json"))? {
+        let storage = crate::storage::FileStorage::from_env(data_dir)?;
+        backup::restore_reports(&pending, &storage)
+            .await
+            .map_err(|e| anyhow::anyhow!(e.1))?;
+        fs::remove_file(pending.join("reports.json"))?;
+    }
+    if directory_or_absent(&pending.join("reports"))? {
+        fs::remove_dir_all(pending.join("reports"))?;
     }
     // Replay private configuration separately; reset never stages this directory.
     backup::restore_configs(&pending, data_dir).map_err(|e| anyhow::anyhow!(e.1))?;
@@ -178,7 +190,7 @@ pub async fn run(
     ensure!(confirmation == required, "请输入“{required}”确认操作。");
     directory_or_absent(data_dir)?;
     directory_or_absent(&data_dir.join("backups"))?;
-    finish_pending(data_dir)?;
+    finish_pending(data_dir).await?;
     if action == Action::ClearBackups {
         let count = backup::clear_in(data_dir)
             .await
@@ -284,7 +296,7 @@ pub async fn run(
     }
     fs::rename(stage.path(), &pending)?;
     sync_dir(data_dir)?;
-    finish_pending(data_dir)?;
+    finish_pending(data_dir).await?;
     if action == Action::Reset {
         let storage = crate::storage::FileStorage::from_env(data_dir)?;
         storage.clear_attachments().await.map_err(|e| {
@@ -328,8 +340,8 @@ pub async fn run(
 mod tests {
     use super::*;
 
-    #[test]
-    fn interrupted_replacement_finishes_without_touching_backups() {
+    #[tokio::test]
+    async fn interrupted_replacement_finishes_without_touching_backups() {
         for moved in 0..=2 {
             let dir = tempfile::tempdir().unwrap();
             let root = dir.path();
@@ -354,7 +366,7 @@ mod tests {
                 fs::write(target, b"old bytes").unwrap();
             }
             fs::write(pending.join("new.sqlite"), b"validated replacement").unwrap();
-            finish_pending(root).unwrap();
+            finish_pending(root).await.unwrap();
             assert_eq!(
                 fs::read(root.join("inventory.sqlite")).unwrap(),
                 b"validated replacement"
@@ -368,8 +380,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn interrupted_post_commit_cleanup_keeps_new_database() {
+    #[tokio::test]
+    async fn interrupted_post_commit_cleanup_keeps_new_database() {
         for (journal_present, old_present) in [(true, true), (false, true), (true, false)] {
             let dir = tempfile::tempdir().unwrap();
             let pending = dir.path().join(PENDING);
@@ -384,7 +396,7 @@ mod tests {
                 }
             }
             fs::write(dir.path().join("inventory.sqlite"), b"new").unwrap();
-            finish_pending(dir.path()).unwrap();
+            finish_pending(dir.path()).await.unwrap();
             assert_eq!(
                 fs::read(dir.path().join("inventory.sqlite")).unwrap(),
                 b"new"
@@ -393,15 +405,15 @@ mod tests {
         }
     }
 
-    #[test]
-    fn invalid_journal_cannot_remove_other_files() {
+    #[tokio::test]
+    async fn invalid_journal_cannot_remove_other_files() {
         let dir = tempfile::tempdir().unwrap();
         let pending = dir.path().join(PENDING);
         fs::create_dir_all(pending.join("old")).unwrap();
         fs::write(pending.join("files.json"), br#"["../outside"]"#).unwrap();
         fs::write(pending.join("new.sqlite"), b"new").unwrap();
         fs::write(dir.path().join("inventory.sqlite"), b"untouched").unwrap();
-        assert!(finish_pending(dir.path()).is_err());
+        assert!(finish_pending(dir.path()).await.is_err());
         assert_eq!(
             fs::read(dir.path().join("inventory.sqlite")).unwrap(),
             b"untouched"
