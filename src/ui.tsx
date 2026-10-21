@@ -15,6 +15,7 @@ import {
   type FormHTMLAttributes,
   type ReactNode,
   type ComponentProps,
+  type RefObject,
 } from "react";
 import * as SelectPrimitive from "@radix-ui/react-select";
 import * as CheckboxPrimitive from "@radix-ui/react-checkbox";
@@ -55,7 +56,7 @@ export function Button({
   className = "button",
   type = "button",
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement>) {
+}: ComponentProps<"button">) {
   return <button {...props} type={type} className={`ui-button ${className}`} />;
 }
 
@@ -281,11 +282,17 @@ export function Modal({
   children,
   onClose,
   variant,
+  returnFocusTo,
 }: {
   title: string;
   children: ReactNode;
   onClose: () => void;
   variant?: "print";
+  /// Where focus goes when the dialog closes. document.activeElement is the
+  /// usual answer, but clicking a button does not focus it on macOS, so a
+  /// WebKit build captures the body and restores nothing — a caller whose
+  /// trigger is a button should name it.
+  returnFocusTo?: RefObject<HTMLElement | null>;
 }) {
   const opener = useRef(document.activeElement);
   return (
@@ -311,7 +318,7 @@ export function Modal({
           onPointerDownOutside={(e) => e.preventDefault()}
           onCloseAutoFocus={(e) => {
             e.preventDefault();
-            const target = opener.current;
+            const target = returnFocusTo?.current ?? opener.current;
             if (target instanceof HTMLElement && target.isConnected)
               target.focus();
           }}

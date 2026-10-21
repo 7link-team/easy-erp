@@ -544,6 +544,9 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
   const display = useDisplaySettings();
   useVisualViewport();
   const [moreOpen, setMoreOpen] = useState(false);
+  // Named explicitly: clicking a button does not focus it on macOS, so the
+  // dialog cannot learn its trigger from document.activeElement there.
+  const moreTrigger = useRef<HTMLButtonElement>(null);
   const logout = useAction();
   const [revision, setRevision] = useState(0);
   const refresh = () => setRevision((n) => n + 1);
@@ -812,6 +815,7 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
               </div>
             ))}
           <Button
+            ref={moreTrigger}
             className={`nav-item mobile-more ${moreOpen || secondary.includes(activePage) || page === "updates" ? "active" : ""}`}
             aria-haspopup="dialog"
             aria-expanded={moreOpen}
@@ -1089,7 +1093,11 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
         </main>
       </div>
       {moreOpen && (
-        <Modal title="更多与账户" onClose={() => setMoreOpen(false)}>
+        <Modal
+          title="更多与账户"
+          onClose={() => setMoreOpen(false)}
+          returnFocusTo={moreTrigger}
+        >
           <div className="mobile-account">
             <span className="user-avatar">{user.name.slice(0, 1)}</span>
             <div>
