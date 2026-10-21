@@ -2099,7 +2099,9 @@ pub async fn upload(
     }
     let aid = id();
     let storage_key = format!("attachments/{aid}");
-    s.files().put(s.files().primary, &storage_key, bytes).await?;
+    s.files()
+        .put(s.files().primary, &storage_key, bytes)
+        .await?;
     let result: Result<()> = async {
         let sql = "INSERT INTO sales_attachments (id,sale_id,mime,active,actor_name,created_at,data,storage_backend,storage_key) VALUES (?,?,?,?,?,?,?,?,?)";
         execute(&txn, sql, vec![

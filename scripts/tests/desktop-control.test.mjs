@@ -204,7 +204,13 @@ test(
         (
           await fetch(base + "/api/backups", { headers: { Cookie: cookie } })
         ).json();
-      assert.deepEqual((await getBackups()).schedule, { keep_days: 7 });
+      // A full replacement: omitting the newer fields restores their
+      // defaults rather than leaving the previous values in place.
+      assert.deepEqual((await getBackups()).schedule, {
+        keep_days: 7,
+        automatic: true,
+        interval_hours: 1,
+      });
       const saveRetention = (keep_days) =>
         fetch(base + "/api/backups/schedule", {
           method: "PUT",
@@ -232,7 +238,11 @@ test(
       await assert.rejects(readFile(oldFile), { code: "ENOENT" });
       assert.ok((await readFile(recentFile)).length);
       assert.equal((await saveRetention(1)).status, 200);
-      assert.deepEqual((await getBackups()).schedule, { keep_days: 1 });
+      assert.deepEqual((await getBackups()).schedule, {
+        keep_days: 1,
+        automatic: true,
+        interval_hours: 1,
+      });
       assert.equal(
         (await post("/api/backups", {}, { Cookie: cookie })).status,
         200,

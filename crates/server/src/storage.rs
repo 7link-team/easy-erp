@@ -564,7 +564,9 @@ pub async fn configure_cli(dir: &Path) -> anyhow::Result<()> {
         "当前由环境变量配置存储，请先移除存储环境变量。"
     );
     let mut bytes = Vec::new();
-    std::io::stdin().take(16 * 1024 + 1).read_to_end(&mut bytes)?;
+    std::io::stdin()
+        .take(16 * 1024 + 1)
+        .read_to_end(&mut bytes)?;
     anyhow::ensure!(bytes.len() <= 16 * 1024, "存储配置过大。");
     let settings: Settings =
         serde_json::from_slice(&bytes).map_err(|_| anyhow::anyhow!("存储配置格式无效。"))?;

@@ -373,10 +373,16 @@ async fn main() -> anyhow::Result<()> {
         )
         .route("/api/stocktakes/{id}/counts", put(stocktake::count))
         .route("/api/stocktakes/{id}/finish", post(stocktake::finish))
-        .route("/api/storage", get(storage::get_settings).put(storage::put_settings))
+        .route(
+            "/api/storage",
+            get(storage::get_settings).put(storage::put_settings),
+        )
         .route("/api/backups", get(backup::list).post(backup::manual))
         .route("/api/backups/schedule", put(backup::update_schedule))
-        .route("/api/backups/restore/preview", post(backup::restore_preview))
+        .route(
+            "/api/backups/restore/preview",
+            post(backup::restore_preview),
+        )
         .route("/api/backups/restore", post(backup::restore))
         .route("/api/backups/{name}", get(backup::download))
         .route("/api/templates/{mode}", get(transfer::template))
