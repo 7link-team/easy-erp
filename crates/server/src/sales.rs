@@ -2099,20 +2099,20 @@ pub async fn upload(
     }
     let aid = id();
     let storage_key = format!("attachments/{aid}");
-    s.files.put(s.files.primary, &storage_key, bytes).await?;
+    s.files().put(s.files().primary, &storage_key, bytes).await?;
     let result: Result<()> = async {
         let sql = "INSERT INTO sales_attachments (id,sale_id,mime,active,actor_name,created_at,data,storage_backend,storage_key) VALUES (?,?,?,?,?,?,?,?,?)";
         execute(&txn, sql, vec![
             aid.clone().into(), sid.clone().into(), mime.into(), 1.into(),
             actor.name.clone().into(), now().into(), Vec::<u8>::new().into(),
-            s.files.primary.into(), storage_key.clone().into(),
+            s.files().primary.into(), storage_key.clone().into(),
         ]).await?;
         audit(&txn, &actor, "上传销售凭证", &sid, json!({"attachment_id":aid})).await?;
         Ok(())
     }.await;
     if let Err(error) = result {
         let _ = txn.rollback().await;
-        let _ = s.files.delete(s.files.primary, &storage_key).await;
+        let _ = s.files().delete(s.files().primary, &storage_key).await;
         return Err(error);
     }
     // A connection failure during COMMIT can have an uncertain outcome. Keep
@@ -2142,7 +2142,7 @@ pub async fn attachment(
         row.try_get("", "data")
             .map_err(|_| ApiError::bad("图片数据损坏。"))?
     } else {
-        s.files
+        s.files()
             .attachment(&backend, &text(&row, "storage_key"))
             .await?
             .to_vec()

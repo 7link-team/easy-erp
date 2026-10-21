@@ -47,6 +47,9 @@ struct Config {
     /// Configure an unused data directory from JSON on stdin, without exposing passwords in argv.
     #[arg(long, conflicts_with_all = ["recovery_action", "backup_only", "migrate_data_to"])]
     configure_database: bool,
+    /// Configure file storage from JSON on stdin, for a first run that has no administrator yet.
+    #[arg(long, conflicts_with_all = ["recovery_action", "backup_only", "migrate_data_to"])]
+    configure_storage: bool,
     /// Maintain local data without starting HTTP, even if the database is broken.
     #[arg(long, conflicts_with_all = ["backup_only", "migrate_data_to"])]
     recovery_action: Option<recovery::Action>,
@@ -147,6 +150,16 @@ async fn main() -> anyhow::Result<()> {
         .open(cfg.data_dir.join("server.lock"))?;
     lock.try_lock_exclusive()
         .map_err(|_| anyhow::anyhow!("该数据目录已有服务运行，不能重复启动。"))?;
+    if cfg.configure_storage {
+        match storage::configure_cli(&cfg.data_dir).await {
+            Ok(()) => println!("{}", serde_json::json!({"ok": true})),
+            Err(error) => {
+                println!("{}", serde_json::json!({"error": error.to_string()}));
+                std::process::exit(1);
+            }
+        }
+        return Ok(());
+    }
     if cfg.configure_database {
         let result = database::configure_cli(&cfg.data_dir).await;
         match result {
@@ -243,7 +256,7 @@ async fn main() -> anyhow::Result<()> {
     let s = Arc::new(state::State {
         database_info: database::diagnostics(&cfg),
         db,
-        files,
+        files: std::sync::RwLock::new(Arc::new(files)),
         setup_token,
         server_mode: cfg.server_mode,
         writes: Mutex::new(()),
@@ -360,8 +373,10 @@ async fn main() -> anyhow::Result<()> {
         )
         .route("/api/stocktakes/{id}/counts", put(stocktake::count))
         .route("/api/stocktakes/{id}/finish", post(stocktake::finish))
+        .route("/api/storage", get(storage::get_settings).put(storage::put_settings))
         .route("/api/backups", get(backup::list).post(backup::manual))
         .route("/api/backups/schedule", put(backup::update_schedule))
+        .route("/api/backups/restore/preview", post(backup::restore_preview))
         .route("/api/backups/restore", post(backup::restore))
         .route("/api/backups/{name}", get(backup::download))
         .route("/api/templates/{mode}", get(transfer::template))
@@ -387,6 +402,7 @@ async fn main() -> anyhow::Result<()> {
                 if matches!(
                     req.uri().path(),
                     "/api/backups/restore"
+                        | "/api/storage"
                         | "/api/desktop/prepare-update"
                         | "/api/desktop/prepare-recovery"
                 ) {

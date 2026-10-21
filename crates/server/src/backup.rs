@@ -38,16 +38,37 @@ pub(crate) struct Manifest {
     source: Option<String>,
     #[serde(default)]
     photo_count: Option<u64>,
+    #[serde(default)]
+    config: Vec<String>,
 }
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Schedule {
     // Read older saved settings without keeping their obsolete scheduling options.
     #[serde(alias = "keep_daily")]
     pub keep_days: usize,
+    /// Scheduled backups at all. Off means the operator takes them by hand —
+    /// retention still applies to whatever is there.
+    #[serde(default = "scheduled")]
+    pub automatic: bool,
+    /// Hours between scheduled backups. Every run rewrites a whole archive and,
+    /// on object storage, downloads every attachment into it, so an hourly
+    /// schedule against S3 re-fetches the bucket 24 times a day.
+    #[serde(default = "hourly")]
+    pub interval_hours: u32,
+}
+fn scheduled() -> bool {
+    true
+}
+fn hourly() -> u32 {
+    1
 }
 impl Default for Schedule {
     fn default() -> Self {
-        Self { keep_days: 7 }
+        Self {
+            keep_days: 7,
+            automatic: scheduled(),
+            interval_hours: hourly(),
+        }
     }
 }
 #[derive(Serialize, Deserialize)]
@@ -136,7 +157,7 @@ fn check_space(path: &FsPath, required: u64) -> Result<()> {
 }
 pub async fn create(s: &AppState, actor: &User, source: &str) -> Result<BackupInfo> {
     let _backup = s.backup_lock.lock().await;
-    let info = snapshot_with_storage(&s.db, &s.data_dir, source, &s.files).await?;
+    let info = snapshot_with_storage(&s.db, &s.data_dir, source, &s.files()).await?;
     // These are live-database writes, and they are the only ones in this module
     // that did not take the mutex every other writer holds. Without it a backup
     // can commit between a request transaction's read snapshot and its write,
@@ -165,9 +186,9 @@ pub async fn create(s: &AppState, actor: &User, source: &str) -> Result<BackupIn
         // policy and prune as before.
         Policy::Valid(_) | Policy::Absent => {
             let policy = settings(s).await?;
-            s.files
+            s.files()
                 .put(
-                    s.files.primary,
+                    s.files().primary,
                     "backups/policy.json",
                     serde_json::to_vec(&policy).unwrap().into(),
                 )
@@ -279,6 +300,7 @@ async fn snapshot_with_storage(
     let path = files.label(files.primary, &key);
     let source = source.to_string();
     let manifest_source = source.clone();
+    let configs = read_configs(data_dir)?;
     tokio::task::spawn_blocking(move || -> std::io::Result<()> {
         let manifest = Manifest {
             format: FORMAT,
@@ -287,6 +309,7 @@ async fn snapshot_with_storage(
             schema,
             source: Some(manifest_source),
             photo_count: Some(photo_count),
+            config: configs.iter().map(|(name, _)| name.clone()).collect(),
         };
         let output = std::fs::File::create(&temporary)?;
         let mut zip = zip::ZipWriter::new(output);
@@ -294,6 +317,10 @@ async fn snapshot_with_storage(
             .compression_method(zip::CompressionMethod::Stored);
         zip.start_file("manifest.json", options)?;
         zip.write_all(&serde_json::to_vec(&manifest)?)?;
+        for (name, bytes) in configs {
+            zip.start_file(format!("config/{name}"), options.unix_permissions(0o600))?;
+            zip.write_all(&bytes)?;
+        }
         zip.start_file("inventory.sqlite", options.large_file(true))?;
         std::io::copy(&mut std::fs::File::open(snapshot)?, &mut zip)?;
         zip.finish()?.sync_all()?;
@@ -432,8 +459,8 @@ enum Policy {
 }
 async fn stored_policy(s: &AppState) -> Result<Policy> {
     match s
-        .files
-        .read(s.files.primary, "backups/policy.json", 65536)
+        .files()
+        .read(s.files().primary, "backups/policy.json", 65536)
         .await
     {
         Ok(bytes) => Ok(match serde_json::from_slice::<Schedule>(&bytes) {
@@ -506,11 +533,16 @@ pub async fn update_schedule(
     if !(1..=365).contains(&input.keep_days) {
         return Err(ApiError::bad("备份保留天数须为 1–365 的整数。"));
     }
+    // Only while it means something: rejecting an interval the operator just
+    // switched off would answer a question they did not ask.
+    if input.automatic && !(1..=168).contains(&input.interval_hours) {
+        return Err(ApiError::bad("自动备份间隔须为 1–168 小时。"));
+    }
     let _backup = s.backup_lock.lock().await;
     let _lock = s.writes.lock().await;
-    s.files
+    s.files()
         .put(
-            s.files.primary,
+            s.files().primary,
             "backups/policy.json",
             serde_json::to_vec(&input).unwrap().into(),
         )
@@ -539,7 +571,7 @@ fn read_manifest(zip: &mut zip::ZipArchive<std::fs::File>) -> Result<Manifest> {
 }
 
 async fn files(s: &AppState, details: bool) -> Result<Vec<BackupInfo>> {
-    stored_files(&s.files, &s.data_dir, details).await
+    stored_files(&s.files(), &s.data_dir, details).await
 }
 pub(crate) async fn files_in(data_dir: &FsPath, details: bool) -> Result<Vec<BackupInfo>> {
     let storage = crate::storage::FileStorage::from_env(data_dir)
@@ -725,7 +757,7 @@ async fn prune(s: &AppState) -> Result<()> {
     // create() calls this only after a complete, validated ZIP has been saved.
     for f in files.into_iter().skip(1) {
         if f.created_at < cutoff {
-            remove_archive(&s.files, &f).await?;
+            remove_archive(&s.files(), &f).await?;
         }
     }
     Ok(())
@@ -739,7 +771,7 @@ pub async fn download(
     local(peer, s.server_mode)?;
     current(&s, &headers).await?.admin()?;
     let f = locate(&s, &name).await?;
-    let object = s.files.get(&f.backend, &f.key).await?;
+    let object = s.files().get(&f.backend, &f.key).await?;
     // Without a length the response is chunked, so a stream that breaks midway
     // looks like a finished download and the short file is only caught by the
     // checksum at restore time.
@@ -771,6 +803,7 @@ pub(crate) async fn prepare_restore(
         let mut zip = zip::ZipArchive::new(std::fs::File::open(original)?)
             .map_err(|_| ApiError::bad("不是有效的完整备份文件。"))?;
         let manifest = read_manifest(&mut zip)?;
+        extract_configs(&mut zip, &manifest, dest.parent().unwrap())?;
         {
             let file = zip
                 .by_name("inventory.sqlite")
@@ -922,7 +955,7 @@ pub async fn restore(
     let snapshot = stage.path().join("restore.sqlite");
     let f = locate(&s, &input.name).await?;
     let archive = stage.path().join("restore.zip");
-    copy_archive(&s.files, &f.backend, &f.key, &archive).await?;
+    copy_archive(&s.files(), &f.backend, &f.key, &archive).await?;
     let manifest = prepare_restore(
         archive,
         snapshot.clone(),
@@ -937,7 +970,7 @@ pub async fn restore(
     // uploads take fresh ids. The data is already in place by the time this runs,
     // so a cleanup failure must not report the finished restore as failed.
     async fn clear_restored_attachments(s: &AppState) {
-        if let Err(error) = s.files.clear_attachments().await {
+        if let Err(error) = s.files().clear_attachments().await {
             tracing::warn!(%error, "数据已恢复，但外置图片清理未完成");
         }
     }
@@ -953,8 +986,9 @@ pub async fn restore(
         )
         .await?;
         clear_restored_attachments(&s).await;
+        restore_configs(stage.path(), &s.data_dir)?;
         return Ok(Json(
-            json!({"ok":true,"message":"数据已恢复，请重新登录。"}),
+            json!({"ok":true,"message":"数据已恢复，请重新登录；备份中的连接配置将在重启服务后生效。"}),
         ));
     }
     let mut connection =
@@ -1031,12 +1065,15 @@ pub async fn restore(
     }
     outcome?;
     clear_restored_attachments(&s).await;
+    restore_configs(stage.path(), &s.data_dir)?;
     Ok(Json(
-        json!({"ok":true,"message":"数据已恢复，请重新登录。"}),
+        json!({"ok":true,"message":"数据已恢复，请重新登录；备份中的连接配置将在重启服务后生效。"}),
     ))
 }
-fn backup_due(last_success: i64, current_time: i64) -> bool {
-    current_time.saturating_sub(last_success) >= 3_600_000
+fn backup_due(schedule: &Schedule, last_success: i64, current_time: i64) -> bool {
+    schedule.automatic
+        && current_time.saturating_sub(last_success)
+            >= i64::from(schedule.interval_hours.max(1)) * 3_600_000
 }
 
 pub async fn scheduler(s: AppState) {
@@ -1058,7 +1095,7 @@ pub async fn scheduler(s: AppState) {
                 .await?
                 .parse::<i64>()
                 .unwrap_or(0);
-            if backup_due(last, now()) {
+            if backup_due(&settings(&s).await?, last, now()) {
                 let system = User {
                     id: "system".into(),
                     username: "system".into(),
@@ -1092,10 +1129,55 @@ mod tests {
 
     #[test]
     fn hourly_schedule_handles_restart_and_clock_rollback() {
-        assert!(!backup_due(1_000, 3_600_999));
-        assert!(backup_due(1_000, 3_601_000));
-        assert!(backup_due(1_000, 9_000_000));
-        assert!(!backup_due(9_000_000, 1_000));
+        let hourly = Schedule::default();
+        assert!(!backup_due(&hourly, 1_000, 3_600_999));
+        assert!(backup_due(&hourly, 1_000, 3_601_000));
+        assert!(backup_due(&hourly, 1_000, 9_000_000));
+        assert!(!backup_due(&hourly, 9_000_000, 1_000));
+    }
+
+    #[test]
+    fn an_interval_is_only_checked_while_automatic_is_on() {
+        // Clearing the box and switching the feature off in one save sends a
+        // zero. backup_due never reads it once automatic is false, so the save
+        // must not fail over a number that no longer applies.
+        let off = Schedule {
+            automatic: false,
+            interval_hours: 0,
+            ..Schedule::default()
+        };
+        assert!(!backup_due(&off, 1_000, 9_000_000_000));
+        // And a zero that does apply still falls back to an hour rather than
+        // firing on every tick.
+        let broken = Schedule {
+            interval_hours: 0,
+            ..Schedule::default()
+        };
+        assert!(!backup_due(&broken, 1_000, 3_600_999));
+        assert!(backup_due(&broken, 1_000, 3_601_000));
+    }
+
+    #[test]
+    fn a_longer_interval_waits_and_switching_automatic_off_never_runs() {
+        // Every run rewrites a whole archive and pulls every attachment into
+        // it, so an operator on object storage can ask for daily instead of
+        // hourly, or take backups by hand only.
+        let daily = Schedule {
+            interval_hours: 24,
+            ..Schedule::default()
+        };
+        assert!(!backup_due(&daily, 1_000, 3_601_000));
+        assert!(backup_due(&daily, 1_000, 86_401_000));
+        let manual = Schedule {
+            automatic: false,
+            ..Schedule::default()
+        };
+        assert!(!backup_due(&manual, 1_000, 9_000_000_000));
+        // Settings saved before these fields existed stay hourly and automatic.
+        let legacy: Schedule = serde_json::from_str(r#"{"keep_days":7}"#).unwrap();
+        assert!(legacy.automatic);
+        assert_eq!(legacy.interval_hours, 1);
+        assert!(backup_due(&legacy, 1_000, 3_601_000));
     }
 
     #[test]
@@ -1105,10 +1187,279 @@ mod tests {
             "keep_daily": 14, "keep_weekly": 4
         }))
         .unwrap();
+        // The obsolete keys stay dropped, and the old `enabled` must not be
+        // read as the new `automatic`: a saved false would otherwise switch
+        // scheduled backups off for everyone who still has that file.
         assert_eq!(
             serde_json::to_value(schedule).unwrap(),
-            json!({"keep_days": 14})
+            json!({"keep_days": 14, "automatic": true, "interval_hours": 1})
         );
         assert_eq!(Schedule::default().keep_days, 7);
+    }
+}
+
+const CONFIG_FILES: &[&str] = &["database.json", "storage.json"];
+const MAX_CONFIG: u64 = 128 * 1024;
+fn validate_config(name: &str, bytes: &[u8]) -> Result<()> {
+    if bytes.len() as u64 > MAX_CONFIG {
+        return Err(ApiError::bad("备份配置文件超过大小限制。"));
+    }
+    let invalid = || ApiError::bad("备份连接配置格式无效，请检查 database.json 或 storage.json。");
+    match name {
+        "database.json" => {
+            serde_json::from_slice::<crate::database::Settings>(bytes).map_err(|_| invalid())?;
+        }
+        "storage.json" => {
+            let settings: crate::storage::Settings =
+                serde_json::from_slice(bytes).map_err(|_| invalid())?;
+            settings.validate().map_err(|_| invalid())?;
+        }
+        _ => return Err(invalid()),
+    }
+    Ok(())
+}
+fn read_configs(dir: &FsPath) -> Result<Vec<(String, Vec<u8>)>> {
+    let mut result = Vec::new();
+    for name in CONFIG_FILES {
+        match std::fs::File::open(dir.join(name)) {
+            Ok(file) => {
+                let mut bytes = Vec::new();
+                file.take(MAX_CONFIG + 1).read_to_end(&mut bytes)?;
+                validate_config(name, &bytes)?;
+                result.push(((*name).to_string(), bytes));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e.into()),
+        }
+    }
+    Ok(result)
+}
+fn extract_configs(
+    zip: &mut zip::ZipArchive<std::fs::File>,
+    manifest: &Manifest,
+    stage: &FsPath,
+) -> Result<()> {
+    if manifest
+        .config
+        .iter()
+        .any(|name| !CONFIG_FILES.contains(&name.as_str()))
+    {
+        return Err(ApiError::bad("备份包含不支持的配置文件。"));
+    }
+    for name in CONFIG_FILES {
+        let path = format!("config/{name}");
+        let file = match zip.by_name(&path) {
+            Ok(file) => file,
+            Err(zip::result::ZipError::FileNotFound)
+                if !manifest.config.iter().any(|v| v == name) =>
+            {
+                continue;
+            }
+            Err(_) => return Err(ApiError::bad("备份缺少配置文件或配置文件损坏。")),
+        };
+        let mut bytes = Vec::new();
+        file.take(MAX_CONFIG + 1).read_to_end(&mut bytes)?;
+        validate_config(name, &bytes)?;
+        let dir = stage.join("config");
+        std::fs::create_dir_all(&dir)?;
+        crate::storage::write_private(&dir.join(name), &bytes)?;
+    }
+    Ok(())
+}
+pub(crate) fn restore_configs(stage: &FsPath, data_dir: &FsPath) -> Result<()> {
+    for (name, bytes) in read_configs(&stage.join("config"))? {
+        crate::storage::write_private(&data_dir.join(name), &bytes)?;
+    }
+    Ok(())
+}
+fn incoming_config(stage: &FsPath) -> Result<Value> {
+    let mut host = String::new();
+    let mut bucket = String::new();
+    for (name, bytes) in read_configs(&stage.join("config"))? {
+        let value: Value =
+            serde_json::from_slice(&bytes).map_err(|_| ApiError::bad("备份配置格式无效。"))?;
+        if name == "database.json" {
+            host = value["host"].as_str().unwrap_or_default().into();
+        } else if value["backend"] == "s3" {
+            bucket = value["s3"]["bucket"].as_str().unwrap_or_default().into();
+        }
+    }
+    Ok(json!({"incoming_database_host":host,"incoming_bucket":bucket}))
+}
+#[derive(Deserialize)]
+pub struct RestorePreview {
+    name: String,
+}
+pub async fn restore_preview(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Json(input): Json<RestorePreview>,
+) -> Result<Json<Value>> {
+    local(peer, s.server_mode)?;
+    let actor = current(&s, &headers).await?;
+    actor.admin()?;
+    let stage = tempfile::tempdir_in(&s.data_dir)?;
+    let f = locate(&s, &input.name).await?;
+    let archive = stage.path().join("restore.zip");
+    copy_archive(&s.files(), &f.backend, &f.key, &archive).await?;
+    // Only the two small configuration entries, not a full prepare_restore:
+    // this runs every time the confirmation dialog opens, and validating the
+    // database and extracting the snapshot to answer two strings made a large
+    // backup take as long to look at as to restore.
+    let stage_configs = stage.path().join("config");
+    std::fs::create_dir_all(&stage_configs)?;
+    let mut zip = zip::ZipArchive::new(std::fs::File::open(&archive)?)
+        .map_err(|_| ApiError::bad("备份文件无法读取。"))?;
+    let manifest = read_manifest(&mut zip)?;
+    extract_configs(&mut zip, &manifest, stage.path())?;
+    Ok(Json(incoming_config(stage.path())?))
+}
+
+#[cfg(test)]
+mod config_tests {
+    use super::*;
+    use crate::migration::Migrator;
+
+    #[tokio::test]
+    async fn old_archives_without_config_restore_with_legacy_schema() {
+        for steps in [None, Some(8)] {
+            let source = tempfile::tempdir().unwrap();
+            let snapshot = source.path().join("inventory.sqlite");
+            let db = crate::database::sqlite(&snapshot, false).await.unwrap();
+            Migrator::up(&db, steps).await.unwrap();
+            execute(
+                &db,
+                "INSERT INTO settings (id,value) VALUES ('legacy-marker','preserved')",
+                vec![],
+            )
+            .await
+            .unwrap();
+            let schema = schemas(&db).await.unwrap();
+            db.close().await.unwrap();
+            let archive = source.path().join("old.zip");
+            let mut zip = zip::ZipWriter::new(std::fs::File::create(&archive).unwrap());
+            let options = zip::write::SimpleFileOptions::default();
+            zip.start_file("manifest.json", options).unwrap();
+            // Deliberately omit config and all newer optional metadata fields.
+            zip.write_all(&serde_json::to_vec(&json!({"format":1,"created_at":0,"sha256":file_hash(&snapshot).unwrap(),"schema":schema})).unwrap()).unwrap();
+            zip.start_file("inventory.sqlite", options).unwrap();
+            std::io::copy(&mut std::fs::File::open(&snapshot).unwrap(), &mut zip).unwrap();
+            zip.finish().unwrap();
+            let target = tempfile::tempdir().unwrap();
+            let config = b"{\"kind\":\"sqlite\"}";
+            crate::storage::write_private(&target.path().join("database.json"), config).unwrap();
+            crate::recovery::run(
+                target.path(),
+                crate::recovery::Action::Restore,
+                Some(&archive),
+                "恢复全部数据",
+            )
+            .await
+            .unwrap();
+            assert_eq!(
+                std::fs::read(target.path().join("database.json")).unwrap(),
+                config
+            );
+            assert!(!target.path().join("storage.json").exists());
+            let restored = crate::database::sqlite(&target.path().join("inventory.sqlite"), true)
+                .await
+                .unwrap();
+            assert_eq!(
+                text(
+                    &one(
+                        &restored,
+                        "SELECT value FROM settings WHERE id='legacy-marker'",
+                        vec![]
+                    )
+                    .await
+                    .unwrap()
+                    .unwrap(),
+                    "value"
+                ),
+                "preserved"
+            );
+            let current: Vec<_> = Migrator::migrations()
+                .iter()
+                .map(|m| m.name().to_string())
+                .filter(|n| !["session_idle_v1", "query_indexes_v1"].contains(&n.as_str()))
+                .collect();
+            assert_eq!(schemas(&restored).await.unwrap().len(), current.len());
+            restored.close().await.unwrap();
+        }
+    }
+    #[tokio::test]
+    async fn full_backup_includes_credentials_preview_and_private_restore() {
+        let source = tempfile::tempdir().unwrap();
+        let db = crate::database::sqlite(&source.path().join("inventory.sqlite"), false)
+            .await
+            .unwrap();
+        Migrator::up(&db, None).await.unwrap();
+        let database = br#"{"kind":"mysql","host":"incoming-db","port":3306,"database":"inventory","username":"tester","password":"private-db-password","tls":true}"#;
+        let mut storage = crate::storage::Settings::default();
+        storage.backend = "s3".into();
+        storage.s3.bucket = "incoming-bucket".into();
+        storage.s3.region = "oss-cn-hangzhou".into();
+        storage.s3.endpoint = "https://oss-cn-hangzhou.aliyuncs.com".into();
+        storage.s3.access_key_id = "private-key".into();
+        storage.s3.secret_access_key = "private-secret".into();
+        // Capture local destination before writing the incoming S3 configuration: no real S3 calls.
+        let files = crate::storage::FileStorage::from_env(source.path()).unwrap();
+        std::fs::write(source.path().join("database.json"), database).unwrap();
+        let storage = serde_json::to_vec(&storage).unwrap();
+        std::fs::write(source.path().join("storage.json"), &storage).unwrap();
+        let info = snapshot_with_storage(&db, source.path(), "test", &files)
+            .await
+            .unwrap();
+        let stage = tempfile::tempdir().unwrap();
+        let manifest = prepare_restore(
+            PathBuf::from(&info.path),
+            stage.path().join("restore.sqlite"),
+            stage.path().into(),
+            0,
+            schemas(&db).await.unwrap(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(manifest.config, ["database.json", "storage.json"]);
+        let preview = incoming_config(stage.path()).unwrap();
+        assert_eq!(
+            preview,
+            json!({"incoming_database_host":"incoming-db","incoming_bucket":"incoming-bucket"})
+        );
+        assert!(!preview.to_string().contains("private"));
+        let target = tempfile::tempdir().unwrap();
+        // Exercise the durable offline restoration path, including private config publication.
+        crate::recovery::run(
+            target.path(),
+            crate::recovery::Action::Restore,
+            Some(FsPath::new(&info.path)),
+            "恢复全部数据",
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            std::fs::read(target.path().join("database.json")).unwrap(),
+            database
+        );
+        assert_eq!(
+            std::fs::read(target.path().join("storage.json")).unwrap(),
+            storage
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            for name in CONFIG_FILES {
+                assert_eq!(
+                    std::fs::metadata(target.path().join(name))
+                        .unwrap()
+                        .permissions()
+                        .mode()
+                        & 0o777,
+                    0o600
+                );
+            }
+        }
+        db.close().await.unwrap();
     }
 }

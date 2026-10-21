@@ -5,7 +5,7 @@ use tokio::sync::{Mutex, RwLock};
 pub struct State {
     pub db: DatabaseConnection,
     pub database_info: serde_json::Value,
-    pub files: crate::storage::FileStorage,
+    pub files: std::sync::RwLock<Arc<crate::storage::FileStorage>>,
     pub server_mode: bool,
     pub setup_token: Option<String>,
     pub writes: Mutex<()>,
@@ -23,3 +23,9 @@ pub struct State {
     pub shutdown: tokio::sync::Notify,
 }
 pub type AppState = Arc<State>;
+
+impl State {
+    pub fn files(&self) -> Arc<crate::storage::FileStorage> {
+        self.files.read().unwrap().clone()
+    }
+}

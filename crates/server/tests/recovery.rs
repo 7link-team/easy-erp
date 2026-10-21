@@ -573,7 +573,9 @@ async fn complete_backup_reset_restore_and_clear_preserve_their_respective_data(
             ("nested.zip/keep.zip".to_owned(), b"nested file".to_vec()),
             (
                 "policy.json".to_owned(),
-                serde_json::to_vec(&json!({"keep_days":19})).unwrap()
+                // Declaration order, as the struct serialises it; json!() would
+                // sort the keys and never match the stored bytes.
+                br#"{"keep_days":19,"automatic":true,"interval_hours":1}"#.to_vec()
             ),
         ])
     );

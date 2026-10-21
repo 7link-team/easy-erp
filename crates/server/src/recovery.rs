@@ -118,6 +118,11 @@ pub fn finish_pending(data_dir: &Path) -> Result<()> {
             "维护未完成，缺少新数据库。请保留现场并联系管理员。"
         );
     }
+    // Replay private configuration separately; reset never stages this directory.
+    backup::restore_configs(&pending, data_dir).map_err(|e| anyhow::anyhow!(e.1))?;
+    if directory_or_absent(&pending.join("config"))? {
+        fs::remove_dir_all(pending.join("config"))?;
+    }
     // The committed database is in place. Backups are never in this allowlist.
     for name in &files {
         let path = old.join(name);
@@ -187,6 +192,11 @@ pub async fn run(
         .prefix(".recovery-stage-")
         .tempdir_in(data_dir)?;
     let new_db = stage.path().join("new.sqlite");
+    let previous_storage = if action == Action::Restore {
+        Some(crate::storage::FileStorage::from_env(data_dir)?)
+    } else {
+        None
+    };
     if action == Action::Restore {
         let source = source.context("请选择要恢复的完整备份文件。")?;
         let remote = stage.path().join("source.zip");
@@ -304,7 +314,7 @@ pub async fn run(
         // path, this one takes no pre-restore snapshot, so there is no safety
         // copy of those objects — but the database that referenced them is
         // already gone. A cleanup failure must not report the restore as failed.
-        let storage = crate::storage::FileStorage::from_env(data_dir)?;
+        let storage = previous_storage.as_ref().expect("restore storage");
         if let Err(e) = storage.clear_attachments().await {
             eprintln!("备份已恢复，但外置图片清理未完成：{}", e.1);
         }
