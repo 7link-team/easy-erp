@@ -5,18 +5,45 @@
 客户需求出自 `docs/客户需求/20261019.md`（已脱敏纳管）。
 
 ## Current Phase
-IMPLEMENTATION — v0.9.0：S3 可配置 + 备份带全量配置 + 启动器步骤器。用户要求一个版本发完，
-并指定用 codex CLI + 2 个 subagent，由我做分配调度与验收（验收不外包）。
+REVIEW — v0.9.0 待发。提交 bac7e29 / 6964b54 / 5df66d4 / 3d334e6 已推送，
+全量构建 39557378217：checks 两平台、webkit + chromium e2e、四平台桌面包全绿，
+仅 ios-simulator 收尾中。
 
 ## Current Step
-三路并行中，文件集互不相交：
-- **codex**（`crates/server/**`）：storage.json + GET/PUT /api/storage + 真实往返探测 +
-  OSS/MinIO/AWS 兼容 + 备份带 config/* 且旧备份仍可恢复 + 恢复预览回报目标库与桶
-- **subagent launcher**（`desktop/ui/**` + `tests/e2e/launcher.spec.ts`）：先建 Playwright
-  基座（file:// 加载启动器页 + mock `window.__TAURI__`），再改成四步步骤器
-- **subagent settings**（`src/pages/Settings.tsx` + `tests/e2e/storage-settings.spec.ts`）：
-  文件存储表单（含三种预设）+ 恢复前确认显示目标库/桶
-- **我**（`desktop/src/desktop.rs`）：命令入参扩展、托盘菜单重组、切换主机确认、集成、验收、发版
+等全量绿 → 版本提交 0.9.0 → 标签 → publish-verified → 发布 → 核验资产/latest.json/GHCR。
+
+## v0.9.0 已完成（均已独立验收，非 worker 自述）
+- 存储可配置：storage.json（0600、不进备份、环境变量优先）、保存前真实往返探测、
+  OSS/MinIO/AWS 预设与中文错配提示、子目录强制（纯空格/斜杠也算空）、留空密钥沿用已存值
+- **逐对象私有化**：自签 SigV4 `PUT ?acl`，不引 OSS SDK（走 S3 兼容接口，三家都覆盖）。
+  **在用户真桶上双向验证**：带 ACL 匿名读被拒；改成空操作后匿名读成功
+- **公开桶拒绝保存**：匿名试读探测。用户生产桶 sevenlink 实测是公开可读的，已被挡住
+- 备份带全量配置（含凭据，用户决定，见 decisions.md）、恢复前显示目标库/桶、
+  **旧备份仍可恢复**（去掉 `#[serde(default)]` 反向验证过 —— 与上一版事故同一机制）
+- 备份可降频/可关：1–168 小时或仅手动；间隔校验只在 automatic 为真时生效（根因侧）
+- 启动器四步步骤器 + launcher.spec.ts（9 例）；替换 desktop-recovery 的 2 个旧用例，
+  等价覆盖逐条核对后才删
+- 清点真 bug：确认前先保存屏幕上的数量（反向验证过）
+- restore_preview 不再整包预处理
+
+## 血的教训（会再犯，记下来）
+1. `with_default_headers` 加的头在**签名之后**，OSS 以 `HeadersNotSigned` 403。
+   本地假端点不校验签名 → **任何测试都抓不到**。真桶验证救回一次会上线的事故。
+2. 凭据门控的测试必须**显式打印跳过原因**，否则 CI 里永远 ok 却什么都没测。
+3. 推送前要跑 `checks` 作业的**每一步**（`cargo fmt --check` / node 测试），不是只跑 cargo test。
+4. 检查脚本本身会骗人，今天三次：`grep` 不加 `-a` 读二进制全 0；把 `tail` 的退出码当 cargo 的；
+   `grep` 无匹配 + `pipefail` 被当成测试失败。**先验证过滤器**。
+5. `page.request` 与页面共用 cookie 罐：用它登录别的账号会顶掉页面会话。
+
+## 待用户决定（未获批不要做）
+- **C 方案附件那半**：C″（已做：降频+可关）还是 C′（每小时但附件本地缓存）。默认停在 C″。
+  注意：`validate_database` 拒收仍指向外部的归档，所以"小时包只备数据库"会不可恢复。
+- **托盘切换主机加确认框**：我提过建议，用户未选，**不得自行实现**。
+- 定时通知报告（调度 + PDF/Excel + 企业微信/钉钉 + 报告归档进备份）→ 已定拆 v0.10.0。
+
+## 提醒用户的安全事项
+用户在对话里贴过真实 OSS 生产密钥（已用于验证，未写入任何文件/夹具/提交/日志）。
+**需轮换**；桶 sevenlink **需设为私有**（逐对象 ACL 只保护本应用写入的文件）。
 
 ## 更正：启动器并非零覆盖（我判断错过，已向用户更正）
 `tests/e2e/desktop-recovery.spec.ts:11` 用 `page.route("http://desktop.test/**")` 加载
@@ -163,7 +190,7 @@ Tests: 标签构建 39406369784 —— chromium e2e PASS；webkit 188/189（已�
 Other: cargo test 11 集成 + 单测 PASS；手工 API 实测 PASS。
 
 ## Last Checkpoint
-2026-10-21 v0.8.0 已发布并逐项核验完成。
+2026-10-21 v0.9.0 四组提交已推送，全量构建 39557378217 待绿。
 
 ## Next Action
 本轮无待办，工作树干净。等用户回两件：Windows 托盘的现场确认、删除账号要不要做。
