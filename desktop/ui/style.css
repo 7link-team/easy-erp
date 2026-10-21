@@ -287,3 +287,135 @@ dialog span,
 [hidden] {
   display: none !important;
 }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.setup {
+  display: grid;
+  grid-template-columns: minmax(140px, 180px) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.setup nav ol {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.setup nav button {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 12px;
+  background: transparent;
+  color: #526672;
+  text-align: left;
+  font-size: 14px;
+}
+.setup nav button[aria-current="step"] {
+  background: #dceee4;
+  color: #286450;
+  font-weight: 600;
+}
+.setup nav button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.setup-body {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.setup .step,
+.setup .sub {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.setup .step > legend {
+  padding: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+.setup .sub {
+  margin-top: 12px;
+}
+.setup label {
+  display: block;
+  margin-top: 10px;
+  font-size: 14px;
+}
+.setup select {
+  display: block;
+  width: 100%;
+  min-height: 46px;
+  margin: 6px 0 4px;
+  padding: 8px;
+  border: 1px solid #8796a0;
+  border-radius: 6px;
+  background: white;
+  color: inherit;
+  font: inherit;
+}
+.setup input:not([type="checkbox"]):not([type="radio"]) {
+  margin: 6px 0 4px;
+}
+.setup .choices {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  margin: 12px 0;
+}
+.setup .choices input {
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  min-width: 0;
+  margin: 4px 0 0;
+}
+.setup .choices label {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+}
+.setup .choices small {
+  color: #627986;
+  font-size: 12px;
+}
+.setup .check label {
+  margin: 0;
+}
+#setup-summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px 16px;
+  margin: 12px 0 0;
+  font-size: 14px;
+}
+#setup-summary dt {
+  color: #627986;
+}
+#setup-summary dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+@media (max-width: 520px) {
+  .setup {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

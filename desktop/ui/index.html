@@ -28,64 +28,235 @@
         <p>选择一次，下次直接进入库存管理。</p>
         <span id="saved-mode" class="saved-mode" hidden></span>
       </header>
-      <section class="local-card">
-        <div class="choice-heading">
-          <h2>由这台电脑提供库存服务</h2>
-          <span class="recommended">独立使用 / 保存库存，供同事连接</span>
-        </div>
-        <p>使用本地 SQLite，或连接 MySQL 数据库。</p>
-        <form id="database-form" hidden>
-          <label for="database-kind">数据库类型</label>
-          <select id="database-kind">
-            <option value="sqlite">本地 SQLite</option>
-            <option value="mysql">MySQL</option>
-          </select>
-          <div id="mysql-fields" hidden>
-            <label for="mysql-host">MySQL 主机</label
-            ><input id="mysql-host" autocomplete="off" />
-            <label for="mysql-port">MySQL 端口</label
-            ><input
-              id="mysql-port"
-              type="number"
-              min="1"
-              max="65535"
-              value="3306"
-            />
-            <label for="mysql-database">数据库名称</label
-            ><input id="mysql-database" autocomplete="off" />
-            <label for="mysql-username">数据库用户名</label
-            ><input id="mysql-username" autocomplete="off" />
-            <label for="mysql-password">数据库密码</label
-            ><input
-              id="mysql-password"
-              type="password"
-              autocomplete="new-password"
-            />
-            <label class="check"
-              ><input id="mysql-tls" type="checkbox" />使用 TLS 加密连接</label
-            >
+      <section id="setup" class="setup" hidden>
+        <nav aria-label="初始化步骤">
+          <ol id="step-list"></ol>
+        </nav>
+        <form id="setup-form" class="setup-body">
+          <fieldset class="step" data-step="mode">
+            <legend>运行模式</legend>
+            <p>这台电脑怎么使用库存管理。</p>
+            <div class="choices">
+              <input
+                type="radio"
+                id="mode-local"
+                name="mode"
+                value="local"
+                checked
+              />
+              <label for="mode-local"
+                >本机提供库存服务<small
+                  >保存库存数据，可供同事连接</small
+                ></label
+              >
+              <input type="radio" id="mode-client" name="mode" value="client" />
+              <label for="mode-client"
+                >仅作为客户端<small>连接同事已有的库存电脑</small></label
+              >
+              <input
+                type="radio"
+                id="mode-recovery"
+                name="mode"
+                value="recovery"
+              />
+              <label for="mode-recovery"
+                >从备份恢复<small
+                  >用备份文件重建本机数据，完成后重启</small
+                ></label
+              >
+            </div>
+            <fieldset id="client-fields" class="sub" disabled hidden>
+              <legend class="sr-only">客户端设置</legend>
+              <label for="setup-address">库存电脑地址</label>
+              <input
+                id="setup-address"
+                type="url"
+                required
+                placeholder="例如 http://192.168.1.20:4280"
+              />
+            </fieldset>
+            <fieldset id="restore-fields" class="sub" disabled hidden>
+              <legend class="sr-only">恢复设置</legend>
+              <button type="button" id="setup-pick-backup" class="secondary">
+                选择备份文件（ZIP / 旧版）
+              </button>
+              <p id="setup-backup" class="hint">尚未选择备份文件。</p>
+            </fieldset>
+          </fieldset>
+          <fieldset class="step" data-step="database" disabled hidden>
+            <legend>数据库</legend>
+            <p>库存数据保存在哪里。不确定就用本地 SQLite。</p>
+            <label for="setup-database-kind">数据库类型</label>
+            <select id="setup-database-kind">
+              <option value="sqlite">本地 SQLite</option>
+              <option value="mysql">MySQL</option>
+            </select>
+            <fieldset id="setup-mysql" class="sub" disabled hidden>
+              <legend class="sr-only">MySQL 连接信息</legend>
+              <label for="setup-mysql-host">MySQL 主机</label>
+              <input id="setup-mysql-host" required autocomplete="off" />
+              <label for="setup-mysql-port">MySQL 端口</label>
+              <input
+                id="setup-mysql-port"
+                type="number"
+                min="1"
+                max="65535"
+                value="3306"
+                required
+              />
+              <label for="setup-mysql-database">数据库名称</label>
+              <input id="setup-mysql-database" required autocomplete="off" />
+              <label for="setup-mysql-username">数据库用户名</label>
+              <input id="setup-mysql-username" required autocomplete="off" />
+              <label for="setup-mysql-password">数据库密码</label>
+              <input
+                id="setup-mysql-password"
+                type="password"
+                autocomplete="new-password"
+              />
+              <div class="check">
+                <input id="setup-mysql-tls" type="checkbox" />
+                <label for="setup-mysql-tls">使用 TLS 加密连接</label>
+              </div>
+            </fieldset>
+          </fieldset>
+          <fieldset class="step" data-step="storage" disabled hidden>
+            <legend>文件存储</legend>
+            <p>图片和备份保存在哪里。</p>
+            <label for="setup-storage-backend">存储方式</label>
+            <select id="setup-storage-backend">
+              <option value="local">本地目录</option>
+              <option value="s3">S3 对象存储</option>
+            </select>
+            <fieldset id="setup-s3" class="sub" disabled hidden>
+              <legend class="sr-only">S3 连接信息</legend>
+              <p class="hint">
+                附件与备份都会以私有对象写入这个存储桶，不会公开可读。
+              </p>
+              <div class="choices">
+                <input
+                  type="radio"
+                  id="s3-preset-aliyun"
+                  name="s3-preset"
+                  value="aliyun"
+                />
+                <label for="s3-preset-aliyun">阿里云 OSS</label>
+                <input
+                  type="radio"
+                  id="s3-preset-minio"
+                  name="s3-preset"
+                  value="minio"
+                />
+                <label for="s3-preset-minio">MinIO / 自建</label>
+                <input
+                  type="radio"
+                  id="s3-preset-aws"
+                  name="s3-preset"
+                  value="aws"
+                />
+                <label for="s3-preset-aws">AWS S3</label>
+              </div>
+              <label for="setup-s3-bucket">存储桶 Bucket</label>
+              <input id="setup-s3-bucket" required autocomplete="off" />
+              <label for="setup-s3-region">区域 Region</label>
+              <input id="setup-s3-region" autocomplete="off" />
+              <label for="setup-s3-endpoint">访问地址 Endpoint</label>
+              <input id="setup-s3-endpoint" autocomplete="off" />
+              <label for="setup-s3-prefix">路径前缀</label>
+              <input id="setup-s3-prefix" value="easy-erp" autocomplete="off" />
+              <label for="setup-s3-access-key-id">Access Key ID</label>
+              <input id="setup-s3-access-key-id" required autocomplete="off" />
+              <label for="setup-s3-secret-access-key">Secret Access Key</label>
+              <input
+                id="setup-s3-secret-access-key"
+                type="password"
+                required
+                autocomplete="new-password"
+              />
+              <div class="check">
+                <input id="setup-s3-path-style" type="checkbox" />
+                <label for="setup-s3-path-style">使用路径寻址 Path Style</label>
+              </div>
+              <div class="check">
+                <input id="setup-s3-allow-http" type="checkbox" />
+                <label for="setup-s3-allow-http">允许明文 HTTP 连接</label>
+              </div>
+            </fieldset>
+          </fieldset>
+          <fieldset class="step" data-step="confirm" disabled hidden>
+            <legend>确认</legend>
+            <p>核对以下选择，点“完成配置”后才会写入本机。</p>
+            <dl id="setup-summary"></dl>
+          </fieldset>
+          <div class="setup-actions">
+            <button type="button" id="setup-back" class="secondary">
+              上一步
+            </button>
+            <button type="submit" id="setup-next">下一步</button>
           </div>
         </form>
-        <p id="database-saved" class="hint" hidden>
-          已配置数据库，启动时继续使用原配置和数据。
-        </p>
-        <button id="local">
-          使用本机并进入库存管理 <span aria-hidden="true">→</span>
-        </button>
       </section>
-      <section>
-        <h2>连接已有库存电脑</h2>
-        <p>多人共用一本库存账，填写管理员提供的地址。</p>
-        <label for="address">库存电脑地址</label
-        ><input
-          id="address"
-          type="url"
-          placeholder="例如 http://192.168.1.20:4280"
-        />
-        <button id="connect" class="secondary">
-          保存连接并进入 <span aria-hidden="true">→</span>
-        </button>
-      </section>
+      <div id="direct-entry" hidden>
+        <section class="local-card">
+          <div class="choice-heading">
+            <h2>由这台电脑提供库存服务</h2>
+            <span class="recommended">独立使用 / 保存库存，供同事连接</span>
+          </div>
+          <p>使用本地 SQLite，或连接 MySQL 数据库。</p>
+          <form id="database-form" hidden>
+            <label for="database-kind">数据库类型</label>
+            <select id="database-kind">
+              <option value="sqlite">本地 SQLite</option>
+              <option value="mysql">MySQL</option>
+            </select>
+            <div id="mysql-fields" hidden>
+              <label for="mysql-host">MySQL 主机</label
+              ><input id="mysql-host" autocomplete="off" />
+              <label for="mysql-port">MySQL 端口</label
+              ><input
+                id="mysql-port"
+                type="number"
+                min="1"
+                max="65535"
+                value="3306"
+              />
+              <label for="mysql-database">数据库名称</label
+              ><input id="mysql-database" autocomplete="off" />
+              <label for="mysql-username">数据库用户名</label
+              ><input id="mysql-username" autocomplete="off" />
+              <label for="mysql-password">数据库密码</label
+              ><input
+                id="mysql-password"
+                type="password"
+                autocomplete="new-password"
+              />
+              <label class="check"
+                ><input id="mysql-tls" type="checkbox" />使用 TLS
+                加密连接</label
+              >
+            </div>
+          </form>
+          <p id="database-saved" class="hint" hidden>
+            已配置数据库，启动时继续使用原配置和数据。
+          </p>
+          <button id="local">
+            使用本机并进入库存管理 <span aria-hidden="true">→</span>
+          </button>
+        </section>
+        <section>
+          <h2>连接已有库存电脑</h2>
+          <p>多人共用一本库存账，填写管理员提供的地址。</p>
+          <label for="address">库存电脑地址</label
+          ><input
+            id="address"
+            type="url"
+            placeholder="例如 http://192.168.1.20:4280"
+          />
+          <button id="connect" class="secondary">
+            保存连接并进入 <span aria-hidden="true">→</span>
+          </button>
+        </section>
+      </div>
       <div id="saved-actions" class="saved-actions" hidden>
         <button id="retry" class="secondary">进入已保存的库存电脑</button
         ><button id="browser" class="text-button">在浏览器中打开 ↗</button>

@@ -427,54 +427,77 @@ pub(crate) async fn ensure_local(app: &tauri::AppHandle) -> Result<url::Url, Str
     Ok(url)
 }
 
+/// Runs the inventory server once to write a configuration file, passing the
+/// JSON on stdin so passwords never appear in argv. The first run has no
+/// administrator yet, so the HTTP endpoints cannot be used for this.
+fn configure_once(
+    binary: PathBuf,
+    dir: PathBuf,
+    flag: &'static str,
+    payload: serde_json::Value,
+    fallback: &'static str,
+) -> Result<(), String> {
+    use std::io::Write;
+    let mut command = Command::new(binary);
+    command
+        .arg("--data-dir")
+        .arg(dir)
+        .arg(flag)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    let mut child = command.spawn().map_err(|_| "无法启动初始化程序。".to_owned())?;
+    child
+        .stdin
+        .take()
+        .ok_or("无法传入配置。")?
+        .write_all(&serde_json::to_vec(&payload).map_err(|_| "配置格式无效。")?)
+        .map_err(|_| "无法传入配置。")?;
+    let output = child
+        .wait_with_output()
+        .map_err(|_| "初始化程序未正常结束。")?;
+    if !output.status.success() {
+        let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_default();
+        return Err(result["error"].as_str().unwrap_or(fallback).to_owned());
+    }
+    Ok(())
+}
+
 #[tauri::command]
 async fn start_local(
     window: tauri::WebviewWindow,
     app: tauri::AppHandle,
     database: Option<serde_json::Value>,
+    storage: Option<serde_json::Value>,
 ) -> Result<(), String> {
     trusted(&window)?;
     let runtime = app.state::<Runtime>();
     let _connection = runtime.connection_lock.lock().await;
-    if let Some(database) = database {
+    // Storage first: it is the step that can fail on a typo after a round trip
+    // to the object store, and failing before the database is created leaves
+    // the directory reusable instead of half initialised.
+    for (flag, payload, fallback) in [
+        (
+            "--configure-storage",
+            storage,
+            "文件存储初始化失败，请检查桶名、endpoint、凭据及本机服务日志。",
+        ),
+        (
+            "--configure-database",
+            database,
+            "数据库初始化失败，请检查连接信息及本机服务日志。",
+        ),
+    ] {
+        let Some(payload) = payload else { continue };
         let dir = data_dir(&app)?;
         let binary = server_binary()?;
         tauri::async_runtime::spawn_blocking(move || {
-            use std::io::Write;
-            let mut command = Command::new(binary);
-            command
-                .arg("--data-dir")
-                .arg(dir)
-                .arg("--configure-database")
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped());
-            #[cfg(windows)]
-            {
-                use std::os::windows::process::CommandExt;
-                command.creation_flags(0x08000000);
-            }
-            let mut child = command
-                .spawn()
-                .map_err(|_| "无法启动数据库初始化程序。".to_owned())?;
-            child
-                .stdin
-                .take()
-                .ok_or("无法传入数据库配置。")?
-                .write_all(&serde_json::to_vec(&database).map_err(|_| "数据库配置格式无效。")?)
-                .map_err(|_| "无法传入数据库配置。")?;
-            let output = child
-                .wait_with_output()
-                .map_err(|_| "数据库初始化程序未正常结束。")?;
-            if !output.status.success() {
-                let result: serde_json::Value =
-                    serde_json::from_slice(&output.stdout).unwrap_or_default();
-                return Err(result["error"]
-                    .as_str()
-                    .unwrap_or("数据库初始化失败，请检查连接信息及本机服务日志。")
-                    .to_owned());
-            }
-            Ok(())
+            configure_once(binary, dir, flag, payload, fallback)
         })
         .await
         .map_err(|error| error.to_string())??;

@@ -11,7 +11,29 @@ function showDatabaseState(configured) {
   databaseConfigured = configured;
   databaseForm.hidden = configured;
   document.querySelector("#database-saved").hidden = !configured;
-  if (configured) document.querySelector("#mysql-password").value = "";
+  // Before anything is configured the stepper owns the window; afterwards the
+  // launcher is just the entry point for an already configured machine.
+  document.querySelector("#setup").hidden = configured;
+  document.querySelector("#direct-entry").hidden = !configured;
+  if (configured)
+    for (const secret of [
+      "#mysql-password",
+      "#setup-mysql-password",
+      "#setup-s3-secret-access-key",
+    ])
+      document.querySelector(secret).value = "";
+}
+async function startLocal(args) {
+  try {
+    await invoke("start_local", args);
+  } catch (error) {
+    // Configuration can be saved before the service fails to start. Keeping
+    // that state means a retry reuses it instead of asking for it all again.
+    const preferences = await invoke("connection_settings").catch(() => null);
+    if (preferences?.database_configured === true) showDatabaseState(true);
+    throw error;
+  }
+  showDatabaseState(true);
 }
 databaseKind.addEventListener("change", () => {
   const mysql = databaseKind.value === "mysql";
@@ -56,17 +78,7 @@ document.querySelector("#local").addEventListener("click", () => {
           password: document.querySelector("#mysql-password").value,
           tls: document.querySelector("#mysql-tls").checked,
         };
-  run(async () => {
-    try {
-      await invoke("start_local", { database });
-    } catch (error) {
-      // Configuration may have succeeded before starting the service failed.
-      const preferences = await invoke("connection_settings").catch(() => null);
-      if (preferences?.database_configured === true) showDatabaseState(true);
-      throw error;
-    }
-    showDatabaseState(true);
-  });
+  run(() => startLocal({ database }));
 });
 databaseForm.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -457,3 +469,222 @@ document
       setRecoveryBusy(false);
     }
   });
+
+// Initial setup stepper. Every choice is held in the form until the last step
+// submits it in one call; nothing is written to disk before that.
+const setupForm = document.querySelector("#setup-form");
+const stepList = document.querySelector("#step-list");
+const stepTitles = {
+  mode: "运行模式",
+  database: "数据库",
+  storage: "文件存储",
+  confirm: "确认",
+};
+const stepPanels = Object.fromEntries(
+  [...setupForm.querySelectorAll(".step")].map((step) => [
+    step.dataset.step,
+    step,
+  ]),
+);
+const modeNames = {
+  local: "本机提供库存服务",
+  client: "仅作为客户端",
+  recovery: "从备份恢复",
+};
+const s3Presets = {
+  aliyun: {
+    endpoint: "https://oss-cn-hangzhou.aliyuncs.com",
+    region: "oss-cn-hangzhou",
+    path_style: false,
+    allow_http: false,
+  },
+  minio: {
+    endpoint: "http://192.168.1.20:9000",
+    region: "us-east-1",
+    path_style: true,
+    allow_http: true,
+  },
+  aws: {
+    endpoint: "",
+    region: "us-east-1",
+    path_style: false,
+    allow_http: false,
+  },
+};
+let stepIndex = 0;
+let restoreBackup = "";
+
+const field = (selector) => document.querySelector(selector);
+const value = (selector) => field(selector).value.trim();
+const checked = (selector) => field(selector).checked;
+const setupMode = () =>
+  setupForm.querySelector("input[name='mode']:checked").value;
+const stepOrder = () =>
+  setupMode() === "local"
+    ? ["mode", "database", "storage", "confirm"]
+    : ["mode", "confirm"];
+// A disabled fieldset is skipped by native validation, so hiding a branch also
+// stops it from blocking the step the user is actually on.
+function enable(fieldset, active) {
+  fieldset.hidden = !active;
+  fieldset.disabled = !active;
+}
+function renderSteps(order) {
+  stepList.replaceChildren(
+    ...order.map((name, index) => {
+      const item = document.createElement("li");
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = `${index + 1}. ${stepTitles[name]}`;
+      // Earlier steps stay reachable; later ones need this one filled in first.
+      button.disabled = index > stepIndex;
+      if (index === stepIndex) button.setAttribute("aria-current", "step");
+      button.addEventListener("click", () => {
+        stepIndex = index;
+        showStep();
+      });
+      item.append(button);
+      return item;
+    }),
+  );
+}
+function summarize(list, term, detail) {
+  const name = document.createElement("dt");
+  name.textContent = term;
+  const description = document.createElement("dd");
+  description.textContent = detail;
+  list.append(name, description);
+}
+function renderSummary() {
+  const list = field("#setup-summary");
+  list.replaceChildren();
+  const mode = setupMode();
+  summarize(list, "运行模式", modeNames[mode]);
+  if (mode === "client")
+    summarize(list, "库存电脑地址", value("#setup-address"));
+  if (mode === "recovery")
+    summarize(list, "备份文件", restoreBackup || "尚未选择备份文件");
+  if (mode !== "local") return;
+  summarize(
+    list,
+    "数据库",
+    value("#setup-database-kind") === "sqlite"
+      ? "本地 SQLite"
+      : `MySQL · ${value("#setup-mysql-host")}:${value("#setup-mysql-port")}/${value("#setup-mysql-database")} · 用户 ${value("#setup-mysql-username")} · ${checked("#setup-mysql-tls") ? "TLS 加密" : "未加密"}`,
+  );
+  summarize(
+    list,
+    "文件存储",
+    value("#setup-storage-backend") === "local"
+      ? "本地目录"
+      : `S3 · 桶 ${value("#setup-s3-bucket")} · 区域 ${value("#setup-s3-region") || "未填"} · 地址 ${value("#setup-s3-endpoint") || "默认"} · 前缀 ${value("#setup-s3-prefix") || "无"} · ${checked("#setup-s3-path-style") ? "路径寻址" : "虚拟主机寻址"}${checked("#setup-s3-allow-http") ? " · 允许 HTTP" : ""}`,
+  );
+}
+function showStep() {
+  const order = stepOrder();
+  stepIndex = Math.min(stepIndex, order.length - 1);
+  for (const [name, panel] of Object.entries(stepPanels))
+    enable(panel, name === order[stepIndex]);
+  const last = stepIndex === order.length - 1;
+  field("#setup-back").hidden = stepIndex === 0;
+  field("#setup-next").textContent = last ? "完成配置" : "下一步";
+  if (last) renderSummary();
+  renderSteps(order);
+}
+for (const mode of setupForm.querySelectorAll("input[name='mode']"))
+  mode.addEventListener("change", () => {
+    enable(field("#client-fields"), setupMode() === "client");
+    enable(field("#restore-fields"), setupMode() === "recovery");
+    showStep();
+  });
+field("#setup-database-kind").addEventListener("change", (event) =>
+  enable(field("#setup-mysql"), event.target.value === "mysql"),
+);
+field("#setup-storage-backend").addEventListener("change", (event) =>
+  enable(field("#setup-s3"), event.target.value === "s3"),
+);
+for (const preset of setupForm.querySelectorAll("input[name='s3-preset']"))
+  preset.addEventListener("change", (event) => {
+    const values = s3Presets[event.target.value];
+    field("#setup-s3-endpoint").value = values.endpoint;
+    field("#setup-s3-region").value = values.region;
+    field("#setup-s3-path-style").checked = values.path_style;
+    field("#setup-s3-allow-http").checked = values.allow_http;
+  });
+field("#setup-back").addEventListener("click", () => {
+  stepIndex = Math.max(0, stepIndex - 1);
+  showStep();
+});
+field("#setup-pick-backup").addEventListener("click", async () => {
+  if (busy) return;
+  try {
+    const path = await invoke("recovery_select_backup");
+    if (!path) return;
+    restoreBackup = path;
+    field("#setup-backup").textContent = `已选择：${path}`;
+  } catch (error) {
+    status.textContent = String(error);
+  }
+});
+setupForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const order = stepOrder();
+  if (stepIndex < order.length - 1) {
+    stepIndex += 1;
+    showStep();
+    return;
+  }
+  const mode = setupMode();
+  if (mode === "client")
+    return run(() =>
+      invoke("connect_host", { address: value("#setup-address") }),
+    );
+  if (mode === "recovery") {
+    if (!restoreBackup) {
+      status.textContent = "请先选择备份文件。";
+      stepIndex = 0;
+      showStep();
+      return;
+    }
+    return run(() =>
+      invoke("recovery_execute", {
+        action: "restore",
+        confirmation: recoveryActions.restore.phrase,
+        backup: restoreBackup,
+        restart: true,
+      }),
+    );
+  }
+  const kind = value("#setup-database-kind");
+  const database =
+    kind === "sqlite"
+      ? { kind }
+      : {
+          kind,
+          host: value("#setup-mysql-host"),
+          port: Number(value("#setup-mysql-port")),
+          database: value("#setup-mysql-database"),
+          username: value("#setup-mysql-username"),
+          password: field("#setup-mysql-password").value,
+          tls: checked("#setup-mysql-tls"),
+        };
+  const backend = value("#setup-storage-backend");
+  const storage = {
+    backend,
+    s3:
+      backend === "s3"
+        ? {
+            bucket: value("#setup-s3-bucket"),
+            region: value("#setup-s3-region"),
+            endpoint: value("#setup-s3-endpoint"),
+            prefix: value("#setup-s3-prefix"),
+            access_key_id: value("#setup-s3-access-key-id"),
+            secret_access_key: field("#setup-s3-secret-access-key").value,
+            path_style: checked("#setup-s3-path-style"),
+            allow_http: checked("#setup-s3-allow-http"),
+          }
+        : null,
+  };
+  run(() => startLocal({ database, storage }));
+});
+showStep();

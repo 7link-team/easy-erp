@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-test("自动备份仅配置保留天数，支持手机并保存验证结果", async ({ page }) => {
+test("自动备份可开关、可改间隔并配置保留天数，支持手机并保存验证结果", async ({ page }) => {
   const headers = { "X-ERP-Request": "1" };
   const credentials = { username: "manager", password: "Factory-test-2026" };
   if (!(await (await page.request.get("/api/status")).json()).initialized) {
@@ -10,12 +10,38 @@ test("自动备份仅配置保留天数，支持手机并保存验证结果", as
   await page.goto("/#/settings");
   await expect(page.getByRole("heading", { name: "备份", exact: true })).toBeVisible();
   const section = page.locator("section").filter({ has: page.getByRole("heading", { name: "自动备份", exact: true }) });
-  await expect(section.locator("input")).toHaveCount(1);
+  // Retention, the interval, and the checkbox's own hidden bubble input: the
+  // section used to hold retention alone, because the frequency was fixed.
+  await expect(section.locator("input")).toHaveCount(3);
   await expect(section.getByRole("combobox")).toHaveCount(0);
-  await expect(section.getByRole("checkbox")).toHaveCount(0);
+  await expect(section.getByRole("checkbox")).toHaveCount(1);
   const days = section.getByLabel("保留天数");
   await expect(days).toHaveValue("7");
   await expect(section).toContainText("每小时自动备份一次");
+  // Every run rewrites a whole archive and pulls every attachment into it, so
+  // the interval is worth changing on object storage — and switching it off
+  // entirely leaves manual backups, which retention still applies to.
+  const automatic = section.getByRole("checkbox");
+  await expect(automatic).toBeChecked();
+  const interval = section.getByLabel("自动备份间隔", { exact: false });
+  await expect(interval).toHaveValue("1");
+  await interval.fill("24");
+  await section.getByRole("button", { name: "保存设置" }).click();
+  await expect(page.getByText("备份设置已保存。", { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(interval).toHaveValue("24");
+  await expect(section).toContainText("每 24 小时自动备份一次");
+  await automatic.uncheck();
+  await section.getByRole("button", { name: "保存设置" }).click();
+  await page.reload();
+  await expect(automatic).not.toBeChecked();
+  await automatic.check();
+  await section.getByRole("button", { name: "保存设置" }).click();
+  await page.reload();
+  await expect(automatic).toBeChecked();
+  await interval.fill("1");
+  await section.getByRole("button", { name: "保存设置" }).click();
+  await page.reload();
   for (const value of ["0", "366", "1.5"]) {
     await days.fill(value);
     await section.getByRole("button", { name: "保存设置" }).click();
@@ -23,7 +49,7 @@ test("自动备份仅配置保留天数，支持手机并保存验证结果", as
   }
   await days.fill("14");
   await section.getByRole("button", { name: "保存设置" }).click();
-  await expect(page.getByText("备份保留天数已保存。", { exact: true })).toBeVisible();
+  await expect(page.getByText("备份设置已保存。", { exact: true })).toBeVisible();
   await page.reload();
   await expect(days).toHaveValue("14");
   for (const viewport of [{ width: 375, height: 812 }, { width: 812, height: 375 }, { width: 1440, height: 900 }]) {
