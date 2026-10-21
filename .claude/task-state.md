@@ -5,12 +5,12 @@
 客户需求出自 `docs/客户需求/20261019.md`（已脱敏纳管）。
 
 ## Current Phase
-REVIEW — v0.9.0 待发。提交 bac7e29 / 6964b54 / 5df66d4 / 3d334e6 已推送，
-全量构建 39557378217：checks 两平台、webkit + chromium e2e、四平台桌面包全绿，
-仅 ios-simulator 收尾中。
+DONE — v0.9.0 已发布（2026-10-21 08:11Z，标签 bfebb51）。标签构建 39562184938 全绿，
+webkit 209 passed（19.9m）、chromium 全绿。核验：23 资产、latest.json=0.9.0 含 4 平台、
+GHCR v0.9.0 digest 22783653（amd64+arm64，不重建）。
 
 ## Current Step
-等全量绿 → 版本提交 0.9.0 → 标签 → publish-verified → 发布 → 核验资产/latest.json/GHCR。
+无。
 
 ## v0.9.0 已完成（均已独立验收，非 worker 自述）
 - 存储可配置：storage.json（0600、不进备份、环境变量优先）、保存前真实往返探测、
@@ -190,7 +190,7 @@ Tests: 标签构建 39406369784 —— chromium e2e PASS；webkit 188/189（已�
 Other: cargo test 11 集成 + 单测 PASS；手工 API 实测 PASS。
 
 ## Last Checkpoint
-2026-10-21 v0.9.0 四组提交已推送，全量构建 39557378217 待绿。
+2026-10-21 v0.9.0 已发布并逐项核验完成。
 
 ## Next Action
 本轮无待办，工作树干净。等用户回两件：Windows 托盘的现场确认、删除账号要不要做。
