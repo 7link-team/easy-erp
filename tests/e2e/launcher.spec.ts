@@ -340,3 +340,85 @@ test("连接已有库存电脑会带着填写的地址调用 connect_host", asyn
     { command: "connect_host", args: { address: "http://192.168.1.20:4280" } },
   ]);
 });
+
+const REMOTE = "http://192.168.1.20:4280";
+
+test("重进当前的本机不弹确认，一次点击就进入", async ({ page }) => {
+  await start(page, { mode: "local", databaseConfigured: true });
+  await page.locator("#local").click();
+  await expect(page.locator("#switch")).toBeHidden();
+  expect(await calls(page, "start_local")).toHaveLength(1);
+});
+
+test("重进当前的远程主机不弹确认", async ({ page }) => {
+  await start(page, {
+    mode: "remote",
+    serverUrl: REMOTE,
+    databaseConfigured: true,
+  });
+  await expect(
+    page.locator("#direct-entry").getByLabel("库存电脑地址"),
+  ).toHaveValue(REMOTE);
+  await page.getByRole("button", { name: "保存连接并进入" }).click();
+  await expect(page.locator("#switch")).toBeHidden();
+  expect(await calls(page, "connect_host")).toHaveLength(1);
+});
+
+test("从本机切到远程要确认，文案写明两端，取消不发任何调用", async ({
+  page,
+}) => {
+  await start(page, { mode: "local", databaseConfigured: true });
+  await page.locator("#direct-entry").getByLabel("库存电脑地址").fill(REMOTE);
+  await page.getByRole("button", { name: "保存连接并进入" }).click();
+
+  const dialog = page.locator("#switch");
+  await expect(dialog).toBeVisible();
+  await expect(page.locator("#switch-detail")).toHaveText(
+    `当前连接：本机 → 将要连接：${REMOTE}`,
+  );
+  await expect(dialog).toContainText("录入的单据会进那一台的账本");
+  await expect(page.locator("#switch-cancel")).toBeFocused();
+  expect(await calls(page, "connect_host")).toHaveLength(0);
+
+  await page.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.locator("#direct-entry")).toBeVisible();
+  expect(await calls(page, "connect_host")).toHaveLength(0);
+
+  await page.getByRole("button", { name: "保存连接并进入" }).click();
+  await page.getByRole("button", { name: "确认切换" }).click();
+  expect(await calls(page, "connect_host")).toEqual([
+    { command: "connect_host", args: { address: REMOTE } },
+  ]);
+});
+
+test("从远程切回本机要确认，文案里的本机一端不是空字符串", async ({ page }) => {
+  await start(page, {
+    mode: "remote",
+    serverUrl: REMOTE,
+    databaseConfigured: true,
+  });
+  await page.locator("#local").click();
+  await expect(page.locator("#switch")).toBeVisible();
+  await expect(page.locator("#switch-detail")).toHaveText(
+    `当前连接：${REMOTE} → 将要连接：本机`,
+  );
+  expect(await calls(page, "start_local")).toHaveLength(0);
+
+  // Escape is the same answer as 取消.
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#switch")).toBeHidden();
+  expect(await calls(page, "start_local")).toHaveLength(0);
+
+  await page.locator("#local").click();
+  await page.getByRole("button", { name: "确认切换" }).click();
+  expect(await calls(page, "start_local")).toHaveLength(1);
+});
+
+test("首次运行的步骤器不弹切换确认", async ({ page }) => {
+  await start(page, { databaseConfigured: false });
+  for (const name of ["下一步", "下一步", "下一步", "完成配置"])
+    await page.getByRole("button", { name, exact: true }).click();
+  await expect(page.locator("#switch")).toBeHidden();
+  expect(await calls(page, "start_local")).toHaveLength(1);
+});

@@ -3,6 +3,7 @@ const status = document.querySelector("#status");
 const address = document.querySelector("#address");
 let busy = false;
 let databaseConfigured = true;
+let connection = { mode: "", server_url: "" };
 const storageNames = { local: "本地文件", s3: "S3 对象存储", legacy: "旧数据目录" };
 const storageName = (kind) => (storageNames[kind] ? `${storageNames[kind]} ` : "");
 const databaseForm = document.querySelector("#database-form");
@@ -62,7 +63,40 @@ async function run(task) {
     });
   }
 }
-document.querySelector("#local").addEventListener("click", () => {
+const switchDialog = document.querySelector("#switch");
+let finishSwitch;
+function closeSwitch(confirmed) {
+  switchDialog.close();
+  finishSwitch?.(confirmed);
+  finishSwitch = undefined;
+}
+switchDialog.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  closeSwitch(false);
+});
+document
+  .querySelector("#switch-cancel")
+  .addEventListener("click", () => closeSwitch(false));
+document
+  .querySelector("#switch-confirm")
+  .addEventListener("click", () => closeSwitch(true));
+const hostName = (mode, url) =>
+  mode === "local" ? "本机" : url.trim() || "未填写的地址";
+// Re-entering the same host is the daily path and must stay a single click;
+// only a different host is worth interrupting, because the two look alike.
+function confirmSwitch(target) {
+  const current = hostName(connection.mode, connection.server_url);
+  if (!connection.mode || current === target) return Promise.resolve(true);
+  document.querySelector("#switch-detail").textContent =
+    `当前连接：${current} → 将要连接：${target}`;
+  return new Promise((resolve) => {
+    finishSwitch = resolve;
+    switchDialog.showModal();
+    document.querySelector("#switch-cancel").focus();
+  });
+}
+document.querySelector("#local").addEventListener("click", async () => {
+  if (busy) return;
   if (!databaseConfigured && !databaseForm.reportValidity()) return;
   const kind = databaseKind.value;
   const database = databaseConfigured
@@ -78,17 +112,25 @@ document.querySelector("#local").addEventListener("click", () => {
           password: document.querySelector("#mysql-password").value,
           tls: document.querySelector("#mysql-tls").checked,
         };
-  run(() => startLocal({ database }));
+  if (!(await confirmSwitch("本机"))) return;
+  run(async () => {
+    await startLocal({ database });
+    connection = { ...connection, mode: "local" };
+  });
 });
 databaseForm.addEventListener("submit", (event) => {
   event.preventDefault();
   document.querySelector("#local").click();
 });
-document
-  .querySelector("#connect")
-  .addEventListener("click", () =>
-    run(() => invoke("connect_host", { address: address.value })),
-  );
+document.querySelector("#connect").addEventListener("click", async () => {
+  if (busy) return;
+  const target = hostName("remote", address.value);
+  if (!(await confirmSwitch(target))) return;
+  run(async () => {
+    await invoke("connect_host", { address: address.value });
+    connection = { mode: "remote", server_url: address.value };
+  });
+});
 document
   .querySelector("#retry")
   .addEventListener("click", () => run(() => invoke("resume_last")));
@@ -114,6 +156,10 @@ window.__TAURI__.event.listen("startup-error", (event) => {
 async function initialize() {
   try {
     const preferences = await invoke("connection_settings");
+    connection = {
+      mode: preferences.mode,
+      server_url: preferences.server_url,
+    };
     showDatabaseState(preferences.database_configured !== false);
     address.value = preferences.server_url;
     document.querySelector("#autostart").checked = preferences.autostart;

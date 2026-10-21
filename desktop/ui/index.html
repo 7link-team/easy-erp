@@ -351,6 +351,21 @@
           </button>
         </div>
       </dialog>
+      <dialog
+        id="switch"
+        aria-labelledby="switch-title"
+        aria-describedby="switch-detail switch-risk"
+      >
+        <h2 id="switch-title">切换库存主机</h2>
+        <p id="switch-detail" class="danger-warning"></p>
+        <p id="switch-risk">
+          两台主机的界面完全一样。连到另一台后录入的单据会进那一台的账本，不会进现在这本。
+        </p>
+        <div class="recovery-actions">
+          <button id="switch-cancel" class="secondary" autofocus>取消</button>
+          <button id="switch-confirm" class="danger">确认切换</button>
+        </div>
+      </dialog>
     </main>
     <script src="app.js"></script>
   </body>

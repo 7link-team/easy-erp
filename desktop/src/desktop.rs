@@ -970,6 +970,30 @@ fn menu_action(app: &tauri::AppHandle, id: &str) {
         "quit-all" => {
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
+                // This one stops the service other machines are using, from a
+                // menu item one click away from 仅退出界面. Nothing else on the
+                // tray reaches past this computer.
+                let confirmed = {
+                    let app = app.clone();
+                    tauri::async_runtime::spawn_blocking(move || {
+                        use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
+                        app.dialog()
+                            .message(
+                                "本机正在为其他设备提供库存服务，全部退出会让它们立刻无法使用。\n仅退出界面可以让共享继续。",
+                            )
+                            .title("停止本机共享？")
+                            .buttons(MessageDialogButtons::OkCancelCustom(
+                                "停止共享并全部退出".into(),
+                                "取消".into(),
+                            ))
+                            .blocking_show()
+                    })
+                    .await
+                    .unwrap_or(false)
+                };
+                if !confirmed {
+                    return;
+                }
                 if let Err(error) = updates::quit_all(&app).await {
                     if let Some(window) = app.get_webview_window("launcher") {
                         let _ = window.show();
