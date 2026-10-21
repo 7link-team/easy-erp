@@ -1102,25 +1102,66 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
             <SizeSwitch size={display.size} onChange={display.setSize} />
           </div>
           <nav className="more-menu" aria-label="更多功能">
-            {nav
-              .filter((item) => secondary.includes(item.id))
-              .map(({ id, label, icon: Icon }) => (
-                <PageLink
-                  className="more-menu-item"
-                  key={id}
-                  page={id as Page}
-                  resetDetails
-                  navigate={navigate}
-                  onClick={() => setMoreOpen(false)}
+            {[
+              { label: "销售", domain: "sales", ids: ["sales", "customers"] },
+              {
+                label: "库存",
+                domain: "stock",
+                ids: ["movement", "stocktakes", "records", "summary"],
+              },
+              {
+                label: "财务",
+                domain: "money",
+                ids: ["finance", "accounts", "performance"],
+              },
+              {
+                label: "设置",
+                domain: "admin",
+                ids: ["catalog", "users", "settings"],
+              },
+            ]
+              .filter((group) =>
+                nav.some(
+                  ({ id }) => secondary.includes(id) && group.ids.includes(id),
+                ),
+              )
+              .map((group) => (
+                <div
+                  className="nav-group"
+                  role="group"
+                  data-domain={group.domain}
+                  aria-label={group.label}
+                  key={group.label}
                 >
-                  <Icon aria-hidden="true" size={22} />
-                  <span>{label}</span>
-                  <ChevronRight aria-hidden="true" size={18} />
-                </PageLink>
+                  <p className="nav-group-title" aria-hidden="true">
+                    {group.label}
+                  </p>
+                  {nav
+                    .filter(
+                      ({ id }) =>
+                        secondary.includes(id) && group.ids.includes(id),
+                    )
+                    .map(({ id, label, icon: Icon }) => (
+                      <PageLink
+                        className={`nav-item more-menu-item${activePage === id ? " active" : ""}`}
+                        aria-current={activePage === id ? "page" : undefined}
+                        key={id}
+                        page={id as Page}
+                        resetDetails
+                        navigate={navigate}
+                        onClick={() => setMoreOpen(false)}
+                      >
+                        <Icon aria-hidden="true" size={22} />
+                        <span>{label}</span>
+                        <ChevronRight aria-hidden="true" size={18} />
+                      </PageLink>
+                    ))}
+                </div>
               ))}
           </nav>
           <PageLink
-            className="button"
+            className={`button mobile-about${page === "updates" ? " active" : ""}`}
+            aria-current={page === "updates" ? "page" : undefined}
             page="updates"
             navigate={navigate}
             onClick={() => setMoreOpen(false)}

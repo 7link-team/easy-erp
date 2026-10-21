@@ -932,24 +932,26 @@ button { transition: background-color var(--dur-1) var(--ease), border-color var
 /* ── 手机「更多」面板 ───────────────────────────────────────────── */
 .mobile-account { display: flex; align-items: center; gap: var(--s-3); padding-bottom: var(--s-5); }
 .mobile-account .user-avatar { display: grid; width: 44px; height: 44px; font-size: var(--t-16); }
-.more-menu { display: grid; }
-.more-menu button {
+.more-menu { display: grid; gap: var(--s-4); margin-bottom: var(--s-4); }
+.more-menu .nav-group { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-2); margin: 0; }
+.more-menu .nav-group-title { grid-column: 1 / -1; display: block; margin: 0; padding: 0 var(--s-3); font-size: var(--t-13); color: var(--ink-2); }
+.more-menu .more-menu-item {
   display: flex;
   align-items: center;
   gap: var(--s-3);
-  min-height: 54px;
-  padding: var(--s-3) var(--s-1);
-  border-bottom: 1px solid var(--line-1);
-  background: var(--paper-0);
-  color: var(--ink-1);
-  text-align: left;
+  min-height: var(--h-row);
+  padding: var(--s-2) var(--s-3);
+  font-size: var(--t-16);
 }
-.more-menu button span { flex: 1; }
-.more-menu button svg { color: var(--ink-3); }
-.mobile-signout { width: 100%; margin-top: var(--s-5); }
-
-.mobile-display-settings { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); padding-bottom: var(--s-4); }
-.mobile-display-settings .size-switch .ui-button { width: 44px; height: 44px; }
+.more-menu-item span { flex: 1; min-width: 0; }
+.more-menu-item svg { flex-shrink: 0; }
+.more-menu-item > svg:last-child { display: none; }
+.mobile-about, .mobile-signout { width: 100%; min-height: var(--h-row); font-size: var(--t-16); }
+.mobile-signout { margin-top: var(--s-3); }
+.mobile-about.active { color: var(--brand-ink); background: var(--brand-soft); border-color: var(--brand); }
+.mobile-display-settings { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-3); padding-bottom: var(--s-4); }
+.mobile-display-settings .size-switch .ui-button { width: var(--h-control); height: var(--h-control); }
+.ui-dialog:has(.more-menu) .modal-heading .icon-button { min-width: var(--h-control); min-height: var(--h-control); }
 
 .panel > :first-child { margin-top: 0; }
 .panel > :last-child { margin-bottom: 0; }
@@ -1425,3 +1427,25 @@ button { transition: background-color var(--dur-1) var(--ease), border-color var
   .inventory-table td:last-child { grid-row: auto; }
 }
 @media print { .breadcrumbs { display: none; } }
+
+/* Keep catalog settings aligned with the ledger heading, without nested frames. */
+.catalog-settings-form { padding: var(--s-4); }
+.catalog-settings-form fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.catalog-settings-form .catalog-print-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-4);
+  margin-top: var(--s-5);
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--line-1);
+}
+.catalog-print-fields legend { padding: 0 var(--s-2) 0 0; font-size: var(--t-16); font-weight: var(--w-semi); }
+.catalog-print-fields > p { grid-column: 1 / -1; margin: 0; }
+.catalog-print-fields .field { margin: 0; }
+.catalog-settings-form .form-footer { position: static; margin-inline: calc(-1 * var(--s-4)); padding-inline: var(--s-4); }
+@media (max-width: 760px) {
+  .catalog-page > .page-heading { display: grid; grid-template-rows: auto minmax(calc(var(--h-control) + var(--s-4)), auto); }
+  .catalog-page > .page-heading > .row-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: stretch; gap: var(--s-2); }
+  .catalog-page > .page-heading > .row-actions .button { min-width: 0; padding: var(--s-2); white-space: normal; text-align: center; font-size: var(--t-12); }
+  .catalog-settings-form .catalog-print-fields { grid-template-columns: minmax(0, 1fr); }
+}

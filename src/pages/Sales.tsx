@@ -367,6 +367,7 @@ function SalesSettings({
         </p>
       </div>
       <Form
+        className="catalog-settings-form"
         onSubmit={(e) =>
           form(e, () => {
             if (!editable) return;
@@ -411,7 +412,7 @@ function SalesSettings({
               </Select>
             )}
           </Field>
-          <fieldset>
+          <fieldset className="catalog-print-fields">
             <legend>打印显示设置</legend>
             <p className="muted">仅影响打印内容，不改变单据金额和客户资料。</p>
             {printAmountFields.map(({ key, label }) => (
@@ -3520,7 +3521,7 @@ export default function Sales({
       setLocal((n) => n + 1);
     });
   return (
-    <div className="sales-page">
+    <div className={`sales-page${view === "catalog" ? " catalog-page" : ""}`}>
       <div className="page-heading">
         <div>
           <h1>
