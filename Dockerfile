@@ -30,6 +30,7 @@ COPY --from=web /build/dist /web
 
 FROM ${BASE_REGISTRY}/debian:bookworm-slim AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
+      fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 inventory \
     && useradd --uid 10001 --gid inventory --no-create-home inventory \
