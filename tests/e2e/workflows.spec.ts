@@ -522,3 +522,115 @@ test("查看员权限、角色更改、停用、重置密码与退出登录", as
     await context.close();
   }
 });
+
+test("未经办过业务的账号可删除，有记录的只能停用，管理员两者都不行", async ({
+  page,
+  browser,
+}) => {
+  // Creating accounts through the form is covered above; this case is about
+  // what may be deleted, so the fixtures go in through the API.
+  const create = async (name: string, username: string, canIn: boolean) =>
+    page.request.post("/api/users", {
+      headers,
+      data: { username, name, password, role: "worker", can_in: canIn },
+    });
+  expect((await create("建错的账号", "ui_spare", false)).status()).toBe(200);
+  expect((await create("经办过的账号", "ui_worked", true)).status()).toBe(200);
+
+  const item = await page.request.post("/api/items", {
+    headers,
+    data: { name: "删除验收料", kind: "原材料", unit: "个", precision: 0 },
+  });
+  // Its own context: page.request shares the page's cookie jar, so logging in
+  // as the worker here would sign the administrator out of the page under test.
+  const worked = await browser.newContext();
+  try {
+    expect(
+      (
+        await worked.request.post("/api/login", {
+          headers,
+          data: { username: "ui_worked", password },
+        })
+      ).status(),
+    ).toBe(200);
+    expect(
+      (
+        await worked.request.post("/api/movements", {
+          headers,
+          data: {
+            request_id: crypto.randomUUID(),
+            kind: "receipt",
+            lines: [{ item_id: (await item.json()).id, quantity: "1" }],
+          },
+        })
+      ).status(),
+    ).toBe(200);
+  } finally {
+    await worked.close();
+  }
+
+  await navigate(page, "人员");
+  const confirm = page.getByRole("dialog", {
+    name: "删除人员账号",
+    exact: true,
+  });
+
+  // Never worked: the row goes, and the login goes with it.
+  const spare = page.getByRole("row").filter({ hasText: "ui_spare" });
+  await spare.getByRole("button", { name: /^删除账号：/ }).click();
+  await confirm.getByRole("button", { name: "删除账号", exact: true }).click();
+  await expect(spare).toHaveCount(0);
+  expect(
+    (
+      await page.request.post("/api/login", {
+        headers,
+        data: { username: "ui_spare", password },
+      })
+    ).status(),
+  ).toBe(401);
+
+  // Worked: refused with the reason, and the account stays as it was.
+  const worker = page.getByRole("row").filter({ hasText: "ui_worked" });
+  await worker.getByRole("button", { name: /^删除账号：/ }).click();
+  await confirm.getByRole("button", { name: "删除账号", exact: true }).click();
+  await expect(confirm).toContainText("已有出入库记录");
+  await expect(confirm).toContainText("请改用停用登录");
+  await confirm.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(worker).toBeVisible();
+  // Isolated for the same reason: a successful login through page.request
+  // would replace the administrator's session on the page under test.
+  const still = await browser.newContext();
+  try {
+    expect(
+      (
+        await still.request.post("/api/login", {
+          headers,
+          data: { username: "ui_worked", password },
+        })
+      ).status(),
+    ).toBe(200);
+  } finally {
+    await still.close();
+  }
+
+  // The administrator is offered neither route, and the endpoint says so too.
+  const list = await page.request.get("/api/users");
+  expect(list.status(), await list.text()).toBe(200);
+  const accounts = (await list.json()) as {
+    id: string;
+    username: string;
+    role: string;
+  }[];
+  const admin = accounts.find((u) => u.role === "admin")!;
+  const refused = await page.request.delete(`/api/users/${admin.id}`, {
+    headers,
+  });
+  expect(refused.status()).toBe(400);
+  expect(await refused.text()).toContain("管理员账号不能删除");
+  await expect(
+    page
+      .getByRole("row")
+      .filter({ hasText: admin.username })
+      .getByRole("button", { name: /^删除账号：/ }),
+  ).toHaveCount(0);
+});

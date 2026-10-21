@@ -159,6 +159,7 @@ export default function Users({
   const [editing, setEditing] = useState<User | "new">();
   const [roleEditing, setRoleEditing] = useState<Role | "new">();
   const [deleting, setDeleting] = useState<Role>();
+  const [removingUser, setRemovingUser] = useState<User>();
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -224,6 +225,18 @@ export default function Users({
                     <Button className="button small" onClick={() => open(user)}>
                       编辑账号
                     </Button>
+                    {user.role !== "admin" && (
+                      <Button
+                        className="button small"
+                        aria-label={`删除账号：${user.name}`}
+                        onClick={() => {
+                          remove.setError("");
+                          setRemovingUser(user);
+                        }}
+                      >
+                        删除
+                      </Button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -471,6 +484,42 @@ export default function Users({
             refresh();
           }}
         />
+      )}
+      {removingUser && (
+        <Modal
+          title="删除人员账号"
+          onClose={() => setRemovingUser(undefined)}
+        >
+          <Form
+            onSubmit={(e) =>
+              form(e, () =>
+                remove.run(async () => {
+                  await send(`/users/${removingUser.id}`, {}, "DELETE");
+                  setRemovingUser(undefined);
+                  refresh();
+                }),
+              )
+            }
+          >
+            <p>
+              确定删除“{removingUser.name}”（{removingUser.username}）？
+            </p>
+            <p className="hint">
+              只有从未留下出入库、销售或清点记录的账号可以删除。已经办过业务的
+              账号请改用停用登录，历史记录和经办人都会保留。
+            </p>
+            {remove.error && <Notice>{remove.error}</Notice>}
+            <div className="form-actions form-footer">
+              <Button
+                className="button"
+                onClick={() => setRemovingUser(undefined)}
+              >
+                取消
+              </Button>
+              <Submit busy={remove.busy}>删除账号</Submit>
+            </div>
+          </Form>
+        </Modal>
       )}
       {deleting && (
         <Modal title="删除角色" onClose={() => setDeleting(undefined)}>

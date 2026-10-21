@@ -768,6 +768,75 @@ pub async fn update_user(
     Ok(Json(json!({"ok":true})))
 }
 
+/// An account that has worked keeps 停用 instead. Its records stay readable
+/// either way — the actor's name is stored beside them — but deleting the row
+/// leaves nothing to filter or re-attribute them by, so only an account that
+/// never recorded anything can go. An administrator cannot be deleted for the
+/// same reason it cannot be deactivated.
+pub async fn delete_user(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Path(uid): Path<String>,
+) -> Result<Json<serde_json::Value>> {
+    let actor = current(&s, &headers).await?;
+    actor.admin()?;
+    let _lock = s.writes.lock().await;
+    let old = one(
+        &s.db,
+        "SELECT * FROM users WHERE id=?",
+        vec![uid.clone().into()],
+    )
+    .await?
+    .ok_or_else(ApiError::missing)?;
+    if text(&old, "role") == "admin" {
+        return Err(ApiError::bad("管理员账号不能删除。"));
+    }
+    // Table names are literals here, never input.
+    for (table, what) in [
+        ("documents", "出入库记录"),
+        ("sales", "销售单据"),
+        ("stocktakes", "库存清点"),
+    ] {
+        if one(
+            &s.db,
+            &format!("SELECT 1 AS used FROM {table} WHERE actor_id=? LIMIT 1"),
+            vec![uid.clone().into()],
+        )
+        .await?
+        .is_some()
+        {
+            return Err(ApiError::bad(format!(
+                "该账号已有{what}，不能删除。请改用停用登录，历史记录和经办人都会保留。"
+            )));
+        }
+    }
+    let txn = s.db.begin().await?;
+    execute(
+        &txn,
+        "DELETE FROM sessions WHERE user_id=?",
+        vec![uid.clone().into()],
+    )
+    .await?;
+    execute(
+        &txn,
+        "DELETE FROM users WHERE id=?",
+        vec![uid.clone().into()],
+    )
+    .await?;
+    // The audit rows stay behind on purpose: each carries the actor's name, so
+    // the trail outlives the account it describes.
+    audit(
+        &txn,
+        &actor,
+        "删除账号",
+        &uid,
+        json!({"username": text(&old, "username"), "name": text(&old, "name")}),
+    )
+    .await?;
+    txn.commit().await?;
+    Ok(Json(json!({"ok":true})))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

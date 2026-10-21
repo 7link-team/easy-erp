@@ -296,7 +296,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/me", get(auth::me))
         .route("/api/system-info", get(auth::system_info))
         .route("/api/users", get(auth::users).post(auth::create_user))
-        .route("/api/users/{id}", put(auth::update_user))
+        .route(
+            "/api/users/{id}",
+            put(auth::update_user).delete(auth::delete_user),
+        )
         .route("/api/roles", get(roles::list).post(roles::save))
         .route("/api/roles/{id}", axum::routing::delete(roles::remove))
         .route(

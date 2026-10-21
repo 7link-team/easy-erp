@@ -495,6 +495,13 @@ async fn resume_last(window: tauri::WebviewWindow, app: tauri::AppHandle) -> Res
     let _connection = runtime.connection_lock.lock().await;
     let prefs = Preferences::load(&config_path(&app)?)?;
     let url = match prefs.mode {
+        // A saved local connection means this machine served its own data at
+        // least once, so a data directory that is now gone was removed from
+        // outside the application. Resuming would quietly start a new, empty
+        // ledger behind a login screen; show the launcher and let the operator
+        // decide instead. data_dir only resolves the path — ensure_local is
+        // what would create it.
+        Some(Mode::Local) if !data_dir(&app)?.exists() => return Ok(false),
         Some(Mode::Local) => ensure_local(&app).await?,
         Some(Mode::Remote) => {
             let url = preferences::server_url(&prefs.server_url)?;
