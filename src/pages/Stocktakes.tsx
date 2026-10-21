@@ -59,6 +59,19 @@ export default function Stocktakes({
   const available = materials.error
     ? []
     : materials.data?.items.filter((i) => !i.counting) || [];
+  const saveCounts = async () => {
+    if (!editing) return;
+    await send(
+      `/stocktakes/${editing.id}/counts`,
+      {
+        lines: editing.lines.map((l) => ({
+          item_id: l.item_id,
+          quantity: values[l.item_id],
+        })),
+      },
+      "PUT",
+    );
+  };
   const open = (count: Stocktake) => {
     setEditing(count);
     setValues(
@@ -282,16 +295,7 @@ export default function Stocktakes({
             onSubmit={(e) =>
               form(e, () =>
                 action.run(async () => {
-                  await send(
-                    `/stocktakes/${editing.id}/counts`,
-                    {
-                      lines: editing.lines.map((l) => ({
-                        item_id: l.item_id,
-                        quantity: values[l.item_id],
-                      })),
-                    },
-                    "PUT",
-                  );
+                  await saveCounts();
                   setEditing(undefined);
                   refresh();
                 }),
@@ -374,6 +378,13 @@ export default function Stocktakes({
                       disabled={action.busy}
                       onClick={() =>
                         action.run(async () => {
+                          // Confirming has to store what is on screen first.
+                          // The quantities only reached the server through the
+                          // 保存清点数量 submit, so filling them in and
+                          // confirming straight away finished a count the
+                          // server still saw as empty, and it answered 还有物料
+                          // 未填写实盘数量 about numbers the operator could see.
+                          await saveCounts();
                           await send(`/stocktakes/${editing.id}/finish`, {
                             confirm: true,
                             reason,

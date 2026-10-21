@@ -342,6 +342,42 @@ test("清点锁定阻止收发，取消后恢复收发", async ({ page }) => {
   ).toBeTruthy();
 });
 
+test("填好实盘数量直接确认即可完成清点，不必先点保存", async ({ page }) => {
+  const response = await page.request.post("/api/items", {
+    headers,
+    data: { name: "清点直确认验收", kind: "其他", unit: "个", precision: 0 },
+  });
+  const { id } = await response.json();
+  await page.request.post("/api/movements", {
+    headers,
+    data: {
+      request_id: crypto.randomUUID(),
+      kind: "receipt",
+      lines: [{ item_id: id, quantity: "10" }],
+    },
+  });
+  await navigate(page, "清点");
+  await page.getByRole("button", { name: "开始清点", exact: true }).click();
+  await page.getByRole("checkbox", { name: /清点直确认验收/ }).check();
+  await page.getByRole("button", { name: "开始清点 1 种物料" }).click();
+  await page.getByRole("button", { name: /正在清点.*清点直确认验收/ }).click();
+  await page.getByLabel(/清点直确认验收 · 实际数量/).fill("8");
+  await page.getByLabel("差异原因", { exact: false }).fill("现场少两个");
+  // No 保存清点数量 in between: the quantities were only ever sent by that
+  // submit, so confirming straight after typing finished a count the server
+  // still saw as empty and refused with 还有物料未填写实盘数量.
+  await page.getByRole("button", { name: "确认并更新库存" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: /已完成.*清点直确认验收/ }),
+  ).toBeVisible();
+  const items = await (
+    await page.request.get(`/api/items?q=${encodeURIComponent("清点直确认验收")}`)
+  ).json();
+  // Quantities are fixed point, ×1000: eight units.
+  expect(items.items[0].balance).toBe(8000);
+});
+
 test("备份计划保存、模板与所有导出下载、错误导入不写入、恢复取消", async ({
   page,
 }) => {
@@ -352,7 +388,7 @@ test("备份计划保存、模板与所有导出下载、错误导入不写入�
   await page.getByLabel("保留天数", { exact: false }).fill("14");
   await page.getByRole("button", { name: "保存设置", exact: true }).click();
   await expect(
-    page.getByText("备份保留天数已保存。", { exact: true }),
+    page.getByText("备份设置已保存。", { exact: true }),
   ).toBeVisible();
   await page.reload();
   await expect(page.getByLabel("保留天数", { exact: false })).toHaveValue("14");
