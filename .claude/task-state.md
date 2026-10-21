@@ -18,10 +18,24 @@ IMPLEMENTATION — v0.9.0：S3 可配置 + 备份带全量配置 + 启动器步�
   文件存储表单（含三种预设）+ 恢复前确认显示目标库/桶
 - **我**（`desktop/src/desktop.rs`）：命令入参扩展、托盘菜单重组、切换主机确认、集成、验收、发版
 
+## 更正：启动器并非零覆盖（我判断错过，已向用户更正）
+`tests/e2e/desktop-recovery.spec.ts:11` 用 `page.route("http://desktop.test/**")` 加载
+`desktop/ui/{index.html,app.js,style.css}`，339 行起有 3 个用例断言初始化路径的 DOM。
+我两次说过「启动器零自动化覆盖」，是错的。步骤器会打破这 3 个用例 —— 处理方式：
+launcher worker 先在 launcher.spec.ts 里补齐**等价行为**覆盖（不是旧 DOM id），
+我逐条对照后**由我**删除 desktop-recovery.spec.ts 里那 3 个；少一条就不删对应的旧用例。
+删测试这道闸归我，不外包。
+
 ## 契约缺口（我自己的，待 codex 交回后补）
 首次运行时还没有管理员，用不了需要鉴权的 PUT /api/storage。存储配置必须照
 `--configure-database` 的既有机制加一个 `--configure-storage`（服务端校验+探测+落盘）。
 我给 codex 的任务里只写了 HTTP 接口，漏了这个。**不要并发改 crates/server**，等它交回我补。
+
+**第二个缺口：对象 ACL 必须私有**（用户要求，备份也要能存 S3/OSS）。object_store 0.12 的
+aws 后端不暴露 per-object ACL，但 `ClientOptions::with_default_headers`
+（client/mod.rs:432）可以给所有请求挂 `x-amz-acl: private`，阿里云 OSS 同样认这个头。
+另外在 PUT 的往返探测里加一步：对探针对象做一次**匿名** GET，若返回 200 说明桶是公开可读的，
+必须拒绝并提示用户把桶改成私有 —— 单靠请求头保证不了一个本来就公开的桶。
 
 ## Current Step
 无。
