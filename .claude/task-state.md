@@ -5,13 +5,31 @@
 客户需求出自 `docs/客户需求/20261019.md`（已脱敏纳管）。
 
 ## Current Phase
-DONE — v0.7.0 已发布（2026-10-20 17:21Z，标签 1a61e00）。标签构建 39459835964
-全绿，webkit/chromium 各 190 passed（16.8m / 11.3m）。
+DONE — v0.8.0 已发布（2026-10-21 02:27Z，标签 db8dc24）。标签构建 39523373792 全绿，
+webkit/chromium 各 191 passed（20.2m / 11.3m）。核验：23 资产、latest.json=0.8.0 含 4 平台、
+GHCR v0.8.0 digest ef065766（amd64+arm64，不重建）。
 
 ## Current Step
-无。核验完成：23 个资产、latest.json version=0.7.0 含 4 平台、GHCR v0.7.0 复用
-digest c7f5566f（amd64+arm64，不重建）。本轮镜像构建由版本提交自动触发（动了
-Cargo.*/package*.json，落在 server-image.yml 的 paths 内），无需手动补。
+无。
+
+## v0.8.0 本轮（用户验收时报的）
+1. **删除人员账号**（用户批准的规则）：仅无 documents/sales/stocktakes 记录的账号可删；
+   有记录的拒绝并提示改用停用；管理员一律拒绝（与「不能停用管理员」同理，顺带使锁死不可能）。
+   审计行保留（各自存有 actor_name，历史可追溯），删除本身进审计，会话随账号删除。
+   **反向验证过**：撤掉业务记录守卫，新 e2e 立刻失败。
+   注意 FK：库里**没有任何 FK 声明**且 foreign_keys=off，规则必须在应用层强制。
+2. **清空全部数据 os error 33**：Windows 把已被占用报成 ERROR_LOCK_VIOLATION(33)/
+   SHARING_VIOLATION(32)，Rust 不映射成 WouldBlock → 落兜底分支误报「无法检查本机数据锁」。
+   这个检查恰恰在唯一需要它的平台上是坏的。已修 + 单测（desktop 29/29）。
+3. **「local 附件位置」**：app.js 把 storage.kind 当文案渲染，改为本地文件/S3 对象存储/旧数据目录。
+4. **删掉数据目录却直接进登录**：resume_last 在 Local 模式下若数据目录已不存在则显示启动器，
+   不再静默新建空账。**此路径无自动化覆盖**（e2e 跑浏览器，碰不到 Tauri 启动器窗口）。
+   只删 .sqlite 但留着目录的情况未处理（MySQL 部署本就没有该文件，不能拿它当判据）。
+
+## 测试踩坑（会再犯，记下来）
+`page.request` 与页面**共用 cookie 罐**：用它成功登录别的账号会顶掉页面的管理员会话，
+页面随即显示「当前账号没有此操作权限」。需要别的身份就开 `browser.newContext()`。
+按钮若有 aria-label，可及名来自 aria-label 而非文字（`删除` 匹配不到 `删除账号：张三`）。
 
 ## 本轮修复（用户验收时报的四件）
 1. **入库小组消失** —— 条件是 `incoming && teams.length > 0`，一个小组都没建过时整个
@@ -117,7 +135,7 @@ Tests: 标签构建 39406369784 —— chromium e2e PASS；webkit 188/189（已�
 Other: cargo test 11 集成 + 单测 PASS；手工 API 实测 PASS。
 
 ## Last Checkpoint
-2026-10-20 v0.7.0 已发布并逐项核验完成。
+2026-10-21 v0.8.0 已发布并逐项核验完成。
 
 ## Next Action
 本轮无待办，工作树干净。等用户回两件：Windows 托盘的现场确认、删除账号要不要做。
