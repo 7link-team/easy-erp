@@ -1,12 +1,15 @@
 {
   "name": "easy-erp",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "private": true,
   "repository": {
     "type": "git",
     "url": "https://github.com/7link-team/easy-erp"
   },
   "homepage": "https://github.com/7link-team/easy-erp/releases",
+  "bugs": {
+    "url": "https://github.com/7link-team/easy-erp/issues"
+  },
   "type": "module",
   "scripts": {
     "tauri": "cd desktop && tauri",

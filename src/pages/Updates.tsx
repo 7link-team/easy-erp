@@ -6,12 +6,13 @@ import {
   PackageCheck,
   Code2,
   ExternalLink,
+  MessageSquare,
 } from "lucide-react";
 import { useAppUpdates, UpdateRoutes, UpdateChannel } from "../NativeTools";
 import { Notice, useResource } from "../components";
 import { Button } from "../ui";
 import { nativeBrowser } from "../browserLogin";
-import { repository, homepage } from "../../package.json";
+import { repository, homepage, bugs } from "../../package.json";
 import "./updates.css";
 
 export default function Updates() {
@@ -92,12 +93,15 @@ export default function Updates() {
         aria-labelledby="project-links-title"
       >
         <h2 id="project-links-title">项目地址</h2>
-        <p className="muted">查看源码、更新说明和各平台安装包。</p>
+        <p className="muted">
+          查看源码、更新说明和各平台安装包。用着不顺手或发现问题，也可以在这里反馈。
+        </p>
         {linkError && <Notice>{linkError}</Notice>}
         <div className="update-project-links">
           {[
             { label: "源码仓库", url: repository.url, Icon: Code2 },
             { label: "版本发布（Release）", url: homepage, Icon: Download },
+            { label: "反馈问题或提建议", url: bugs.url, Icon: MessageSquare },
           ].map(({ label, url, Icon }) => (
             <a
               key={url}
