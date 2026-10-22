@@ -68,9 +68,22 @@ test("备份翻页、末页恢复选择、生成后回首页和列表收缩均�
   await pager.getByRole("button", { name: "下一页" }).click();
   await expect(rows).toHaveCount(3);
   await expect(pager.getByRole("button", { name: "下一页" })).toBeDisabled();
-  await expect(
-    rows.last().getByRole("link", { name: "下载完整备份 snapshot-22.zip" }),
-  ).toHaveAttribute("href", "/api/backups/snapshot-22.zip");
+  // The row's own archive, not whichever one the page happened to list first:
+  // this used to assert an href, and the download is now fetched and saved so
+  // that a refusal can be shown, so assert what it actually requests.
+  const asked: string[] = [];
+  await page.route("**/api/backups/snapshot-22.zip", (route) => {
+    asked.push(new URL(route.request().url()).pathname);
+    return route.fulfill({ status: 200, body: "archive" });
+  });
+  const saved = page.waitForEvent("download");
+  await rows
+    .last()
+    .getByRole("button", { name: "下载完整备份 snapshot-22.zip" })
+    .click();
+  expect((await saved).suggestedFilename()).toBe("snapshot-22.zip");
+  expect(asked).toEqual(["/api/backups/snapshot-22.zip"]);
+  await page.unroute("**/api/backups/snapshot-22.zip");
   await rows
     .last()
     .getByRole("button", { name: "恢复备份 snapshot-22.zip" })
