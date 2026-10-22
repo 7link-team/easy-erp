@@ -40,9 +40,15 @@ test("误建物料删除确认、保留审计；历史库存和普通账号不�
   await row.getByRole("button", { name: "删除", exact: true }).click();
   await dialog.getByRole("button", { name: "确认删除", exact: true }).click();
   await expect(row).toHaveCount(0);
-  const audit = await (await page.request.get("/api/audit")).json();
+  // Ask for this item's entries rather than reading the first page: the suite
+  // shares one database, and in a longer run the entry had simply been pushed
+  // past the first fifty rows.
+  const audit = await (
+    await page.request.get(`/api/audit?q=${encodeURIComponent(id)}`)
+  ).json();
   expect(
     audit.items.some((a: any) => a.action === "删除物料" && a.object_id === id),
+    JSON.stringify(audit.items?.slice(0, 3) ?? audit),
   ).toBeTruthy();
 
   const historical = await create("历史不可删除验收");

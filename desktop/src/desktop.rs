@@ -953,6 +953,19 @@ fn menu_action(app: &tauri::AppHandle, id: &str) {
             }
         }
         "open" => show_app(app),
+        // The version page lives in the business window, and its route is a
+        // hash, so the shell can simply ask for it rather than teaching the
+        // application another event. Without a business window there is
+        // nothing connected yet, and the launcher is the honest answer.
+        "updates" => {
+            if let Some(window) = app.get_webview_window("inventory") {
+                show_app(app);
+                let _ = window.eval("location.hash = '#/updates'");
+            } else if let Some(window) = app.get_webview_window("launcher") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }
         "connection" => {
             if let Some(w) = app.get_webview_window("launcher") {
                 let _ = w.show();
@@ -1080,15 +1093,20 @@ pub fn run() {
                 None::<&str>,
             )?;
             let browser = MenuItem::with_id(app, "browser", "在浏览器中打开", true, None::<&str>)?;
+            let updates = MenuItem::with_id(app, "updates", "版本更新", true, None::<&str>)?;
             let menu = Menu::with_items(
                 app,
-                &[&open, &browser, &connection, &recovery, &quit, &quit_all],
+                &[
+                    &open, &browser, &updates, &connection, &recovery, &quit, &quit_all,
+                ],
             )?;
             let application_menu = Submenu::with_items(
                 app,
                 "库存管理",
                 true,
-                &[&open, &browser, &connection, &recovery, &quit, &quit_all],
+                &[
+                    &open, &browser, &updates, &connection, &recovery, &quit, &quit_all,
+                ],
             )?;
             let edit = Submenu::with_items(
                 app,
