@@ -22,12 +22,17 @@ v0.11.1 把备份下载改成取回再保存，**只在失败时**说话；成�
 其余导出链接（模板/导出 CSV/Excel，6 处 `<a download>`）**没动**：只有 backup.rs 的路由带
 host-only 守卫，导出端点不会出现"看不见的 403"，浏览器和外壳各自会提示。
 
-## 阻塞：v0.11.1 没有容器镜像
-`server-image.yml` 在 35d11c1 上跑了两次（release + dispatch），两次都是 `sqlite` 作业挂在
-`delete-items.spec.ts:3`：删除后按 `q=<物料id>` 查审计，只返回「新增物料」那条，
-**没有「删除物料」**。同一 SHA 的 `build.yml` 是绿的，所以是那条作业特有的顺序/环境问题。
-`delete_item` 的审计写在同一事务里（inventory.rs:399），不是提交竞态 —— 还没查清。
-下一个镜像构建会再撞上它，发 v0.11.2 之前要先定这个。
+## v0.11.1 没有容器镜像：同一个坑第三次
+根因还是教训 1：35d11c1 只改 `tests/**`，不在 `server-image.yml` 的 paths 过滤里，
+**push 没有构建 `sha-35d11c1`**。release 事件下只跑 `version` 作业（它只给已有镜像打标签，
+不构建），所以 `sha-35d11c1...: not found` 直接失败。
+修法两步：① 以 `--ref v0.11.1` dispatch（不传 release_tag）构建 `sha-35d11c1`；
+② 再 dispatch 并传 `release_tag=v0.11.1` 打版本标签。①已发起：run 39765477760。
+
+## delete-items 是偶发，不是阻塞（已重新分类）
+第一次 dispatch（39744936814）挂在 `delete-items.spec.ts:3`：删除后按 `q=<物料id>` 查审计
+只返回「新增物料」。但 6196650 上同一作业**绿**，`delete_item` 的审计写在同一事务里
+（inventory.rs:399）不是提交竞态。归入观察名单，同一位置再现才是信号。
 
 ## v0.10.0（2026-10-22 00:08Z，标签 72b0281）
 周期汇总报告：日/周/月/季/年在期间最后一天按设定时刻生成 Excel 或 PDF，归档到与备份
