@@ -1192,8 +1192,20 @@ test("筛选取消读取响应正文或收到无效JSON时不污染列表，后�
   await page.goto("/#/sales");
   const search = page.getByLabel("搜索销售单", { exact: true });
   const table = page.getByRole("table", { name: "销售单据列表" });
+  // Type the query instead of assigning it. A programmatic fill races React
+  // restoring its controlled value; when it loses, the box is empty, no request
+  // carries this query, and the hook below is never installed — the failure then
+  // lands on a 90s timeout far from the cause. This file already types into this
+  // same box for that reason. Proven, not guessed: the webkit failure's own page
+  // snapshot shows the search box empty and active.
+  const typeQuery = async (value: string) => {
+    await search.click();
+    await search.clear();
+    await search.pressSequentially(value);
+    await expect(search).toHaveValue(value);
+  };
   for (const q of ["cancelled-body", "late-body"]) {
-    await search.fill(q);
+    await typeQuery(q);
     await page.waitForFunction(
       (query) =>
         typeof (window as unknown as Record<string, unknown>)[
@@ -1205,7 +1217,7 @@ test("筛选取消读取响应正文或收到无效JSON时不污染列表，后�
       const url = new URL(response.url());
       return url.pathname === "/api/sales" && url.searchParams.get("q") === tag;
     });
-    await search.fill(tag);
+    await typeQuery(tag);
     await refreshed;
     await expect(table.locator("tbody tr")).toHaveCount(1);
     await expect(table).toContainText(sale.number);
@@ -1232,14 +1244,14 @@ test("筛选取消读取响应正文或收到无效JSON时不污染列表，后�
       });
     else await route.continue();
   });
-  await search.fill("invalid-json");
+  await typeQuery("invalid-json");
   await expect(page.getByRole("alert")).toContainText(
     "服务暂时无法完成操作，请稍后重试。",
   );
   await expect(
     page.getByRole("button", { name: "重新打开", exact: true }),
   ).toHaveCount(0);
-  await search.fill(tag);
+  await typeQuery(tag);
   await expect(table).toContainText(sale.number);
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
