@@ -2,7 +2,7 @@ import TableImport from "../TableImport";
 import { Disclosure, useConfirm } from "../ui";
 import { Form, Input, Button, Select, Checkbox } from "../ui";
 import { useEffect, useRef, useState } from "react";
-import { api, send, dateTime, errorText } from "../api";
+import { api, send, dateTime, errorText, saveFile } from "../api";
 import { nativeBrowser } from "../browserLogin";
 import { useAppUpdates } from "../NativeTools";
 import {
@@ -191,34 +191,6 @@ export default function Settings({
   }
   const [message, setMessage] = useState("");
   const downloading = useAction();
-  /// A plain <a download> gives nothing at all when the server refuses: the
-  /// browser and the packaged webview both drop an error response silently, so
-  /// a 403 looked exactly like a dead button. Fetch it, show what the server
-  /// said when it says no, and save the bytes when it says yes — the same way
-  /// the table exports on this page already work.
-  const saveArchive = async (name: string) => {
-    const response = await fetch(`/api/backups/${encodeURIComponent(name)}`, {
-      headers: { "X-ERP-Request": "1" },
-    });
-    if (!response.ok) {
-      const body = await response.text();
-      let detail = body;
-      try {
-        detail = JSON.parse(body).error ?? body;
-      } catch {
-        /* a non-JSON body is shown as it came */
-      }
-      throw new Error(detail || `下载失败（${response.status}）。`);
-    }
-    const url = URL.createObjectURL(await response.blob());
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = name;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  };
 
   const [restoring, setRestoring] = useState<Backup>();
   const [confirmation, setConfirmation] = useState("");
@@ -526,7 +498,14 @@ export default function Settings({
                             aria-label={`下载完整备份 ${b.name}`}
                             disabled={downloading.busy}
                             onClick={() =>
-                              downloading.run(() => saveArchive(b.name))
+                              downloading.run(async () => {
+                                setMessage("");
+                                await saveFile(
+                                  `/backups/${encodeURIComponent(b.name)}`,
+                                  b.name,
+                                );
+                                setMessage(`已下载 ${b.name}。`);
+                              })
                             }
                           >
                             下载完整备份

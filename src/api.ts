@@ -47,6 +47,39 @@ export async function api<T>(
 
 export const send = <T>(path: string, body: unknown, method = "POST") =>
   api<T>(path, { method, body: JSON.stringify(body) });
+/// Fetches a file and saves it, returning the name it was saved under.
+///
+/// A plain `<a download>` drops an error response without a word — in a
+/// browser and in the packaged webview alike — so a refusal looked exactly
+/// like a button that did nothing. Fetching first means the server's own
+/// sentence can be shown. Saying so on success is the other half: the engines
+/// stop showing their own download indicator once the shell sets a
+/// destination, so without a word from the application a finished download
+/// also looks like nothing happened.
+export async function saveFile(path: string, name: string): Promise<string> {
+  const response = await fetch(`/api${path}`, {
+    headers: { "X-ERP-Request": "1" },
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    let detail = body;
+    try {
+      detail = JSON.parse(body).error ?? body;
+    } catch {
+      /* a body that is not JSON is shown as it arrived */
+    }
+    throw new Error(detail || `下载失败（${response.status}）。`);
+  }
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return name;
+}
 export const errorText = (error: unknown) =>
   error instanceof Error ? error.message : "操作失败，请重试。";
 

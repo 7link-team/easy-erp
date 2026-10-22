@@ -99,7 +99,10 @@ test("物料分页前后切换与搜索重置页码", async ({ page }) => {
   await dialog.getByRole("button", { name: "关闭", exact: true }).click();
 });
 const navigate = (page: Page, name: string) =>
-  page.getByRole("navigation", { name: /^(主要导航|更多功能)$/ }).getByRole("link", { name, exact: true }).click();
+  page
+    .getByRole("navigation", { name: /^(主要导航|更多功能)$/ })
+    .getByRole("link", { name, exact: true })
+    .click();
 
 test("断网提交保留表单，重试成功且只入账一次", async ({ page }) => {
   const created = await page.request.post("/api/items", {
@@ -151,7 +154,9 @@ test.beforeEach(async ({ page }) => {
     ).ok(),
   ).toBeTruthy();
   await page.goto("/");
-  await expect(page.getByRole("navigation", { name: /^(主要导航|更多功能)$/ })).toBeVisible();
+  await expect(
+    page.getByRole("navigation", { name: /^(主要导航|更多功能)$/ }),
+  ).toBeVisible();
 });
 
 test("物料新增、重复编码校验、修改、搜索、类型与低库存筛选", async ({
@@ -372,7 +377,9 @@ test("填好实盘数量直接确认即可完成清点，不必先点保存", as
     page.getByRole("button", { name: /已完成.*清点直确认验收/ }),
   ).toBeVisible();
   const items = await (
-    await page.request.get(`/api/items?q=${encodeURIComponent("清点直确认验收")}`)
+    await page.request.get(
+      `/api/items?q=${encodeURIComponent("清点直确认验收")}`,
+    )
   ).json();
   // Quantities are fixed point, ×1000: eight units.
   expect(items.items[0].balance).toBe(8000);
@@ -454,13 +461,22 @@ test("备份计划保存、模板与所有导出下载、错误导入不写入�
   expect(await file.failure()).toBeNull();
   expect(file.suggestedFilename()).toMatch(/\.zip$/);
   expect(readFileSync((await file.path())!).length).toBeGreaterThan(20);
+  // A finished download has to be announced by the page: the engines show
+  // nothing of their own once the shell sets a destination, so a saved archive
+  // looked exactly like a button that did nothing.
+  await expect(
+    page.getByText(`已下载 ${file.suggestedFilename()}。`),
+  ).toBeVisible();
   // In the packaged shell the engine shows nothing once the host picks the
   // destination, so the shell reports where the file landed and the pages have
   // to surface it; the browser never fires this, so drive it directly.
   await page.evaluate(() =>
     window.dispatchEvent(
       new CustomEvent("erp:download-finished", {
-        detail: { path: "/Users/factory/Downloads/snapshot.zip", success: true },
+        detail: {
+          path: "/Users/factory/Downloads/snapshot.zip",
+          success: true,
+        },
       }),
     ),
   );
@@ -473,7 +489,9 @@ test("备份计划保存、模板与所有导出下载、错误导入不写入�
       new CustomEvent("erp:download-finished", { detail: { success: false } }),
     ),
   );
-  await expect(page.getByRole("status").filter({ hasText: "下载失败" })).toBeVisible();
+  await expect(
+    page.getByRole("status").filter({ hasText: "下载失败" }),
+  ).toBeVisible();
   await page
     .getByRole("button", { name: /^恢复备份 / })
     .first()

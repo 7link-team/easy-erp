@@ -243,23 +243,47 @@ test("立即生成失败可重试，刷新归档及下载，390px 无溢出", as
   await expect(mock.section.getByRole("alert")).toContainText("报告生成失败");
   mock.failGenerate(false);
   await mock.section.getByRole("button", { name: "立即生成报告" }).click();
-  const link = mock.section.getByRole("link", {
+  const download = mock.section.getByRole("button", {
     name: "下载报告 月报-2026-10-01.pdf",
     exact: true,
   });
-  await expect(link).toBeVisible();
+  await expect(download).toBeVisible();
   expect(mock.generated[1]).toEqual({
     period: "month",
     date: "2026-10-22",
     format: "pdf",
   });
-  await expect(link).toHaveAttribute(
-    "href",
-    `/api/reports/${encodeURIComponent("月报-2026-10-01.pdf")}`,
-  );
-  await expect(link).toHaveAttribute("download", "");
-  // Native download requests bypass page.route in Chromium. The archive is
-  // mocked, so verify the download contract without requesting a nonexistent file.
+  // A refusal has to be readable and a success has to be announced: this was a
+  // plain <a download>, which says nothing either way, so both a 403 and a
+  // finished download looked like a button that did nothing.
+  let refuse = true;
+  const asked: string[] = [];
+  await page.route("**/api/reports/*", (route) => {
+    asked.push(decodeURIComponent(new URL(route.request().url()).pathname));
+    return refuse
+      ? route.fulfill({
+          status: 403,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "这个操作只能在库存主机本机进行。" }),
+        })
+      : route.fulfill({ status: 200, body: "report" });
+  });
+  await download.click();
+  await expect(
+    mock.section.getByText("这个操作只能在库存主机本机进行。"),
+  ).toBeVisible();
+  refuse = false;
+  const saved = page.waitForEvent("download");
+  await download.click();
+  expect((await saved).suggestedFilename()).toBe("月报-2026-10-01.pdf");
+  await expect(
+    mock.section.getByText("已下载 月报-2026-10-01.pdf。"),
+  ).toBeVisible();
+  expect(asked).toEqual([
+    "/api/reports/月报-2026-10-01.pdf",
+    "/api/reports/月报-2026-10-01.pdf",
+  ]);
+  await page.unroute("**/api/reports/*");
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Form, Input, Button, Select, Checkbox } from "../ui";
-import { send, dateTime } from "../api";
+import { send, dateTime, saveFile } from "../api";
 import {
   Field,
   Notice,
@@ -52,6 +52,8 @@ export default function Reports({ revision }: { revision: number }) {
   const [message, setMessage] = useState("");
   const [generated, setGenerated] = useState(false);
   const [reportRevision, setReportRevision] = useState(0);
+  const downloading = useAction();
+  const [downloaded, setDownloaded] = useState("");
   const reports = useResource<{
     items: { name: string; key: string; size: number; created_at: number }[];
   }>("/reports", revision + reportRevision);
@@ -305,6 +307,8 @@ export default function Reports({ revision }: { revision: number }) {
         </Form>
         <h3>已归档报告</h3>
         {reports.error && <Notice>{reports.error}</Notice>}
+        {downloading.error && <Notice>{downloading.error}</Notice>}
+        {downloaded && <Notice success>已下载 {downloaded}。</Notice>}
         {reports.loading ? (
           <Loading />
         ) : !reports.error && !reports.data?.items.length ? (
@@ -332,14 +336,23 @@ export default function Reports({ revision }: { revision: number }) {
                       </td>
                       <td className="ledger-actions" data-label="操作">
                         <div className="row-actions">
-                          <a
+                          <Button
                             className="button small"
                             aria-label={`下载报告 ${item.name}`}
-                            href={`/api/reports/${encodeURIComponent(item.name)}`}
-                            download
+                            disabled={downloading.busy}
+                            onClick={() =>
+                              downloading.run(async () => {
+                                setDownloaded("");
+                                await saveFile(
+                                  `/reports/${encodeURIComponent(item.name)}`,
+                                  item.name,
+                                );
+                                setDownloaded(item.name);
+                              })
+                            }
                           >
                             下载报告
-                          </a>
+                          </Button>
                         </div>
                       </td>
                     </tr>
