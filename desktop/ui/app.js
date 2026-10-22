@@ -131,12 +131,6 @@ document.querySelector("#connect").addEventListener("click", async () => {
     connection = { mode: "remote", server_url: address.value };
   });
 });
-document
-  .querySelector("#retry")
-  .addEventListener("click", () => run(() => invoke("resume_last")));
-document
-  .querySelector("#browser")
-  .addEventListener("click", () => run(() => invoke("open_browser")));
 address.addEventListener("keydown", (event) => {
   if (event.key === "Enter") document.querySelector("#connect").click();
 });
@@ -170,7 +164,6 @@ async function initialize() {
         preferences.mode === "local"
           ? "已记住：保存在本机"
           : "已记住：连接已有库存电脑";
-      document.querySelector("#saved-actions").hidden = false;
       await run(() => invoke("resume_last"));
     } else await invoke("show_launcher");
   } catch (error) {

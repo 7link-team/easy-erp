@@ -12,6 +12,7 @@ pub fn project_url_allowed(url: &url::Url) -> bool {
         && [
             package["repository"]["url"].as_str(),
             package["homepage"].as_str(),
+            package["bugs"]["url"].as_str(),
         ]
         .into_iter()
         .flatten()

@@ -62,12 +62,6 @@ body {
   background: transparent;
   color: #285b5d;
 }
-.saved-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 16px;
-}
 #address {
   margin: 6px 0 12px;
 }

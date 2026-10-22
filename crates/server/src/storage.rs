@@ -6,6 +6,7 @@ use object_store::{
     ClientOptions, GetResult, ObjectMeta, ObjectStore, RetryConfig, aws::AmazonS3Builder,
     buffered::BufWriter, local::LocalFileSystem, path::Path as ObjectPath, prefix::PrefixStore,
 };
+use serde::Deserialize;
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -365,7 +366,18 @@ mod tests {
 #[serde(deny_unknown_fields)]
 pub(crate) struct Settings {
     pub backend: String,
+    /// Absent or null when the deployment keeps its files locally: a caller
+    /// configuring 本地目录 has nothing to say about a bucket, and demanding
+    /// eight empty strings from it only invited the mismatch that made first
+    /// run answer 存储配置格式无效.
+    #[serde(default, deserialize_with = "s3_or_default")]
     pub s3: S3Settings,
+}
+fn s3_or_default<'de, D>(deserializer: D) -> std::result::Result<S3Settings, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Option::<S3Settings>::deserialize(deserializer)?.unwrap_or_default())
 }
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -378,6 +390,20 @@ pub(crate) struct S3Settings {
     pub secret_access_key: String,
     pub path_style: bool,
     pub allow_http: bool,
+}
+impl Default for S3Settings {
+    fn default() -> Self {
+        Self {
+            bucket: String::new(),
+            region: String::new(),
+            endpoint: String::new(),
+            prefix: "easy-erp".into(),
+            access_key_id: String::new(),
+            secret_access_key: String::new(),
+            path_style: false,
+            allow_http: false,
+        }
+    }
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -882,6 +908,26 @@ mod settings_tests {
         back.s3.secret_access_key = String::new();
         merge_stored_keys(dir.path(), back).validate().unwrap();
     }
+    #[test]
+    fn a_local_backend_may_omit_the_bucket_section_entirely() {
+        // What the launcher sends after 本地目录 is chosen. All three spellings
+        // mean the same thing, and demanding the long one is what made first
+        // run fail with 存储配置格式无效.
+        for raw in [
+            r#"{"backend":"local"}"#,
+            r#"{"backend":"local","s3":null}"#,
+            r#"{"backend":"local","s3":{"bucket":"","region":"","endpoint":"","prefix":"easy-erp","access_key_id":"","secret_access_key":"","path_style":false,"allow_http":false}}"#,
+        ] {
+            let parsed: Settings = serde_json::from_str(raw).expect(raw);
+            assert_eq!(parsed.backend, "local");
+            assert_eq!(parsed.s3.prefix, "easy-erp");
+            parsed.validate().unwrap();
+        }
+        // A bucket backend still has to say everything about the bucket.
+        let missing: Settings = serde_json::from_str(r#"{"backend":"s3"}"#).unwrap();
+        assert!(missing.validate().is_err());
+    }
+
     #[test]
     fn a_bucket_root_is_refused_but_several_levels_are_fine() {
         let mut root = s3("https://oss-cn-hangzhou.aliyuncs.com", false);

@@ -287,10 +287,14 @@ fn download_report(webview: &tauri::Webview, path: Option<&std::path::Path>, suc
         "window.dispatchEvent(new CustomEvent('erp:download-finished',{{detail:{detail}}}))"
     ));
 }
+/// Where a download is written. The engines hand over a path that already sits
+/// in the download folder, so the only question left is whether something is
+/// there already: WKDownload refuses a destination that exists and answers
+/// nothing, which made every export after the first one — the names repeat —
+/// look like a button that did nothing. The name is numbered instead, the way
+/// a browser does it, and a name carrying directories of its own is reduced to
+/// its last component so it cannot write outside the folder.
 fn download_destination(folder: &std::path::Path, suggested: &std::path::Path) -> PathBuf {
-    if suggested.parent() == Some(folder) {
-        return suggested.to_path_buf();
-    }
     let name = suggested
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
@@ -1208,9 +1212,27 @@ mod download_tests {
     fn downloads_keep_the_platform_name_but_never_leave_the_download_folder() {
         let temporary = tempfile::tempdir().unwrap();
         let folder = temporary.path();
-        // The folder and name the platform resolved are kept untouched.
+        // The folder and name the platform resolved are kept while nothing is
+        // there. This used to return early here, which skipped the check below
+        // and is why a second export silently produced no file at all.
         let suggested = folder.join("backup-20261019-180000-ab12cd34.zip");
         assert_eq!(download_destination(folder, &suggested), suggested);
+        // Downloading the same name again numbers it instead of handing back a
+        // path that exists: WKDownload refuses those and reports nothing, so
+        // the button looked dead from the second export onwards.
+        std::fs::write(&suggested, b"first").unwrap();
+        let second = download_destination(folder, &suggested);
+        assert_eq!(
+            second,
+            folder.join("backup-20261019-180000-ab12cd34 (2).zip")
+        );
+        std::fs::write(&second, b"second").unwrap();
+        assert_eq!(
+            download_destination(folder, &suggested),
+            folder.join("backup-20261019-180000-ab12cd34 (3).zip")
+        );
+        // The existing files are left alone.
+        assert_eq!(std::fs::read(&suggested).unwrap(), b"first");
         // Names the server sends are preserved verbatim, including non-ASCII.
         assert_eq!(
             download_destination(folder, Path::new("/tmp/库存-20261019.csv")),
