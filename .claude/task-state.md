@@ -5,9 +5,39 @@
 客户需求出自 `docs/客户需求/20261019.md`（已脱敏纳管）。
 
 ## Current Phase
-DONE — v0.9.0 已发布（2026-10-21 08:11Z，标签 bfebb51）。标签构建 39562184938 全绿，
-webkit 209 passed（19.9m）、chromium 全绿。核验：23 资产、latest.json=0.9.0 含 4 平台、
-GHCR v0.9.0 digest 22783653（amd64+arm64，不重建）。
+DONE — v0.9.1 与 v0.10.0 均已发布并逐项核验。
+
+## Current Step
+无。工作树干净。
+
+## v0.10.0（2026-10-22 00:08Z，标签 72b0281）
+周期汇总报告：日/周/月/季/年在期间最后一天按设定时刻生成 Excel 或 PDF，归档到与备份
+同一套存储，并发送到企业微信群机器人。标签构建 39693496220 全绿，webkit 222 passed。
+核验：23 资产、latest.json=0.10.0 含 4 平台、GHCR v0.10.0（amd64+arm64，复用 sha-72b0281）。
+
+**真实链路由我亲自验过**（不是 worker 自述）：调度器在设定分钟自己触发 → 生成 PDF →
+upload_media → 发摘要 → 发文件 → 库里标记 sent；幂等（后续 tick 不重发）；报告数字与
+`/api/documents/summary` 逐项一致；webhook 存入后读回是 `****`；传 `****` 提交保留原值。
+
+## 跨平台字体：这条尾巴的真实答案
+给 CI 的 cargo test 加 `--nocapture` 后才看到实际结果 —— **测试 ok 并不代表找到了字体**
+（那条只打印不断言）。真实情况：Windows=msyh.ttc ✅、macOS=Hiragino ✅、
+**Linux=什么都没找到** ⚠️。而 Docker 镜像跑的就是 Linux，所以容器部署里 PDF 本来完全
+不可用。已在 Dockerfile 装 `fonts-noto-cjk`，并**实际 docker run 验证**它落在候选表第一条
+`/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc`（不是靠包名猜）。镜像 +约 40MB。
+
+## 两次重复踩的同一类坑（下次必查）
+1. **标签必须落在 GHCR 有镜像的那个 SHA 上。**
+   v0.4.0：标签落在只改 tests/** 的提交上，paths 过滤不覆盖 → 无镜像。
+   v0.10.0：我 `--amend` 改了提交信息，**amend 生成新 SHA**，推到 main 的是 amend 前的，
+   标签却指向 amend 后的 → `sha-xxx: not found`，已发布版本拉不到镜像。
+   **打标签前必须 `git rev-parse v<tag>` 与 `origin/main` 对齐，并确认该 SHA 有镜像。**
+2. **「检查通过」≠「东西是对的」，今天栽了四次**：grep 读二进制不加 `-a` 全返回 0；
+   把 `tail` 的退出码当成 cargo 的；`grep` 无匹配 + `pipefail` 当成测试失败；
+   cargo 默认吞掉 `eprintln!` 导致 ok 没有信息量。**先验证过滤器/输出本身。**
+3. 测试脚手架的端口是「先占后放再交给子进程」，并发启动会撞车（完整 cargo test 约 1/4
+   概率红）。已只对端口冲突重试；数据目录锁冲突仍立刻失败。
+
 
 ## Current Step
 无。
@@ -190,7 +220,7 @@ Tests: 标签构建 39406369784 —— chromium e2e PASS；webkit 188/189（已�
 Other: cargo test 11 集成 + 单测 PASS；手工 API 实测 PASS。
 
 ## Last Checkpoint
-2026-10-21 v0.9.0 已发布并逐项核验完成。
+2026-10-22 v0.10.0 已发布、镜像标签补齐并核验完成。
 
 ## Next Action
 本轮无待办，工作树干净。等用户回两件：Windows 托盘的现场确认、删除账号要不要做。
