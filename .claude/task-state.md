@@ -5,10 +5,24 @@
 客户需求出自 `docs/客户需求/20261019.md`（已脱敏纳管）。
 
 ## Current Phase
-TESTING — v0.11.2 待发：下载已有操作提示，等用户决定是否发版。
+DONE — v0.11.2 已发布（2026-10-22 14:33Z，标签 56ca174）。
 
 ## Current Step
-下载提示已实现并反向验证（见下）。**阻塞镜像**：v0.11.1 没有 GHCR 镜像。
+无。工作树干净。待用户在打包应用里验下载提示。
+
+## v0.11.2：下载有话说了
+`saveFile` 一处，备份与报表两处调用；23 资产、latest.json=0.11.2 四平台、
+`ghcr.io/7link-team/easy-erp-server:v0.11.2`（双架构，复用 sha-56ca174）。
+标签构建中 `e2e (chromium)` 的 `playwright install --with-deps` 卡死吃满 60 分钟超时，
+rerun --failed 后绿 —— 基础设施偶发，不是代码。
+
+## queries.spec.ts:1153 已定性（观察名单清掉）
+macos-15-intel + webkit 的 90s 超时：webkit 证据包里**它自己的页面快照显示搜索框为空且聚焦**，
+即 `fill()` 输给了 React 恢复受控值，没有请求带上查询 → 页面里的钩子永远装不上。
+与 v0.6.0 的 `update.spec.ts:335` 同一机制。已改为 click+clear+pressSequentially+toHaveValue
+（这个文件 237 行早就这么写了），该搜索框上 4 处 fill 一并改掉。
+**"快照里没有值"这个判断本身验过**：单起 webkit 页面，空框渲染成 `searchbox "x"`，
+填了值渲染成 `searchbox "x": value`。本地 webkit 5.9s 过；竞争本身只在 CI 出现，复现不出来。
 
 ## 下载没有任何操作提示（用户 2026-10-22 反馈，已修）
 v0.11.1 把备份下载改成取回再保存，**只在失败时**说话；成功静默。原先指望的横幅
