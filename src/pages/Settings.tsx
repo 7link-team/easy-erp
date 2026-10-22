@@ -190,6 +190,36 @@ export default function Settings({
     );
   }
   const [message, setMessage] = useState("");
+  const downloading = useAction();
+  /// A plain <a download> gives nothing at all when the server refuses: the
+  /// browser and the packaged webview both drop an error response silently, so
+  /// a 403 looked exactly like a dead button. Fetch it, show what the server
+  /// said when it says no, and save the bytes when it says yes — the same way
+  /// the table exports on this page already work.
+  const saveArchive = async (name: string) => {
+    const response = await fetch(`/api/backups/${encodeURIComponent(name)}`, {
+      headers: { "X-ERP-Request": "1" },
+    });
+    if (!response.ok) {
+      const body = await response.text();
+      let detail = body;
+      try {
+        detail = JSON.parse(body).error ?? body;
+      } catch {
+        /* a non-JSON body is shown as it came */
+      }
+      throw new Error(detail || `下载失败（${response.status}）。`);
+    }
+    const url = URL.createObjectURL(await response.blob());
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
   const [restoring, setRestoring] = useState<Backup>();
   const [confirmation, setConfirmation] = useState("");
   const storage = useResource<StorageConfig>("/storage", revision);
@@ -292,6 +322,7 @@ export default function Settings({
         </div>
       </div>
       {action.error && <Notice>{action.error}</Notice>}
+      {downloading.error && <Notice>{downloading.error}</Notice>}
       {message && <Notice success>{message}</Notice>}
       <section className="panel">
         <h2>自动备份</h2>
@@ -490,14 +521,16 @@ export default function Settings({
                       </td>
                       <td className="ledger-actions">
                         <div className="row-actions">
-                          <a
+                          <Button
                             className="button small"
                             aria-label={`下载完整备份 ${b.name}`}
-                            href={`/api/backups/${encodeURIComponent(b.name)}`}
-                            download
+                            disabled={downloading.busy}
+                            onClick={() =>
+                              downloading.run(() => saveArchive(b.name))
+                            }
                           >
                             下载完整备份
-                          </a>
+                          </Button>
                           <Button
                             className="button small"
                             aria-label={`恢复备份 ${b.name}`}

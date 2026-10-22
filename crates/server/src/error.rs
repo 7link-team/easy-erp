@@ -41,6 +41,10 @@ impl ApiError {
             "当前账号没有此操作权限，请联系管理员。".into(),
         )
     }
+    /// Refused for where the request came from, not for who made it.
+    pub fn forbidden_here(message: &str) -> Self {
+        Self(StatusCode::FORBIDDEN, message.into())
+    }
     pub fn missing() -> Self {
         Self(StatusCode::NOT_FOUND, "记录不存在或已不可用。".into())
     }

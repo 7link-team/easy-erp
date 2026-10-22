@@ -426,9 +426,28 @@ test("备份计划保存、模板与所有导出下载、错误导入不写入�
   // The archive download was only ever asserted as an href, so nothing caught
   // it arriving empty or not at all. The exports above are covered; this is
   // the one that restores a whole ledger.
+  // A refusal has to be readable. The link used to be a plain <a download>,
+  // which drops an error response without a word, so a 403 was indistinguishable
+  // from a button that did nothing.
+  await page.route("**/api/backups/*.zip", (route) =>
+    route.fulfill({
+      status: 403,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "这个操作只能在库存主机本机进行。" }),
+    }),
+  );
+  await page
+    .getByRole("button", { name: /^下载完整备份 / })
+    .first()
+    .click();
+  await expect(
+    page.getByText("这个操作只能在库存主机本机进行。"),
+  ).toBeVisible();
+  await page.unroute("**/api/backups/*.zip");
+
   const archive = page.waitForEvent("download");
   await page
-    .getByRole("link", { name: /^下载完整备份 / })
+    .getByRole("button", { name: /^下载完整备份 / })
     .first()
     .click();
   const file = await archive;

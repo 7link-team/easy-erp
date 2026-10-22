@@ -99,7 +99,11 @@ fn local(peer: SocketAddr, server_mode: bool) -> Result<()> {
     if peer.ip().is_loopback() || server_mode {
         Ok(())
     } else {
-        Err(ApiError::forbidden())
+        // Not the same sentence as a permission refusal: both used to read
+        // 当前账号没有此操作权限, so nobody could tell which one had answered.
+        Err(ApiError::forbidden_here(
+            "这个操作只能在库存主机本机进行，请到库存电脑上操作。",
+        ))
     }
 }
 fn validate_name(name: &str) -> Result<()> {
@@ -818,7 +822,14 @@ pub async fn download(
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     Path(name): Path<String>,
 ) -> Result<Response> {
-    local(peer, s.server_mode)?;
+    // Administrator only, but not only on the inventory computer. Requiring
+    // physical presence stopped an administrator taking a backup off the
+    // shop floor at all, which pushes people towards a USB stick and an
+    // unlocked machine; the guard only covered an attacker who already had
+    // the administrator password but no access to the network, while an
+    // account that can restore and clear data can read everything anyway.
+    // The archive carries credentials, and the backup page says so.
+    let _ = peer;
     current(&s, &headers).await?.admin()?;
     let f = locate(&s, &name).await?;
     let object = s.files().backups().get(&f.backend, &f.key).await?;
