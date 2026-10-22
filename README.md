@@ -15,12 +15,12 @@
 
 服务器镜像支持 Linux amd64 / arm64，包含 Web，无需单独部署前端。镜像统一发布到 [GHCR](https://github.com/orgs/7link-team/packages/container/package/easy-erp-server)，Release 不再附带 Docker 镜像归档。从仓库下载 [compose.yaml](compose.yaml)（如需 MySQL 同时下载 [compose.mysql.yaml](compose.mysql.yaml)）。
 
-使用版本标签 `ghcr.io/7link-team/easy-erp-server:v0.11.0` 固定版本，或 `:latest` 跟随最新构建。GHCR 当前为私有包，需使用具有包读取权限的 GitHub 账号登录。
+使用版本标签 `ghcr.io/7link-team/easy-erp-server:v0.11.1` 固定版本，或 `:latest` 跟随最新构建。GHCR 当前为私有包，需使用具有包读取权限的 GitHub 账号登录。
 
 ```sh
 docker login ghcr.io
-docker pull ghcr.io/7link-team/easy-erp-server:v0.11.0
-# 固定版本部署时，将 compose.yaml 的 image 标签改为 v0.11.0（默认 latest）
+docker pull ghcr.io/7link-team/easy-erp-server:v0.11.1
+# 固定版本部署时，将 compose.yaml 的 image 标签改为 v0.11.1（默认 latest）
 docker compose up -d
 docker compose logs inventory
 ```

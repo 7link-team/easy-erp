@@ -237,11 +237,18 @@ pub(crate) async fn open_business(
                 match webview.app_handle().path().download_dir() {
                     Ok(folder) => {
                         *destination = download_destination(&folder, destination);
+                        download_note(
+                            &webview,
+                            &format!("请求 {url} → {}", destination.display()),
+                        );
                         true
                     }
-                    Err(_) => {
+                    Err(error) => {
                         download_report(&webview, None, false);
-                        eprintln!("找不到下载文件夹，已取消下载：{url}");
+                        download_note(
+                            &webview,
+                            &format!("找不到下载文件夹（{error}），已取消：{url}"),
+                        );
                         false
                     }
                 }
@@ -252,6 +259,15 @@ pub(crate) async fn open_business(
             // folder and the button looks like it did nothing.
             tauri::webview::DownloadEvent::Finished { path, success, .. } => {
                 download_report(&webview, path.as_deref(), success);
+                download_note(
+                    &webview,
+                    &format!(
+                        "结束 success={success} path={}",
+                        path.as_deref()
+                            .map(|p| p.display().to_string())
+                            .unwrap_or_else(|| "(无)".into())
+                    ),
+                );
                 true
             }
             _ => true,
@@ -294,6 +310,31 @@ fn download_report(webview: &tauri::Webview, path: Option<&std::path::Path>, suc
 /// look like a button that did nothing. The name is numbered instead, the way
 /// a browser does it, and a name carrying directories of its own is reduced to
 /// its last component so it cannot write outside the folder.
+/// Appends one line to downloads.log in the data directory. Downloads reach no
+/// test — the suite drives a browser, not this shell — and three attempts at
+/// this have been reasoned from library sources instead of evidence. A line
+/// per event says which of the three things happened: the request never
+/// arrived, it was cancelled, or the file was written somewhere.
+fn download_note(webview: &tauri::Webview, line: &str) {
+    use std::io::Write;
+    eprintln!("下载：{line}");
+    let Ok(dir) = data_dir(&webview.app_handle().clone()) else {
+        return;
+    };
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("downloads.log"))
+    {
+        // Seconds since the epoch: a timestamp here only has to order the
+        // lines, and this needs no dependency to do it.
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let _ = writeln!(file, "{stamp} {line}");
+    }
+}
 fn download_destination(folder: &std::path::Path, suggested: &std::path::Path) -> PathBuf {
     let name = suggested
         .file_name()
