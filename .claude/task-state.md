@@ -26,6 +26,21 @@ upload_media → 发摘要 → 发文件 → 库里标记 sent；幂等（后续
 不可用。已在 Dockerfile 装 `fonts-noto-cjk`，并**实际 docker run 验证**它落在候选表第一条
 `/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc`（不是靠包名猜）。镜像 +约 40MB。
 
+## 下载为什么三次没修对（根因已确诊）
+`backup::download` 有两道闸，**报同一句话**「当前账号没有此操作权限」：
+`local(peer, server_mode)`（非回环→403）与 `admin()`（非管理员→403）。
+而 e2e **只跑 localhost + 管理员**，是唯一两道都放行的组合 —— 测试断言是真的，
+覆盖面有个洞，而那个洞正好是用户的使用方式。
+雪上加霜：`<a download>` 碰到错误响应**不显示任何东西**，403 与"按钮坏了"在界面上一样。
+已修：下载去掉 local() 只留 admin；两道闸文案区分；下载改成取回再保存并显示服务端原文。
+**报表下载没有 local() 守卫**，所以打包应用里报表下载失败是**另一回事**，
+靠 v0.11.1 的 `downloads.log` 定位（记 Requested/Finished 的地址、目标路径、成功与否）。
+
+## 观察中的偶发（不要当新问题查）
+`queries.spec.ts:1153 筛选取消读取响应正文或收到无效JSON` 在 macos-15-intel + webkit 上
+跑满 90s 超时（等 window 上的异步钩子）。本地 webkit 6s 通过，8×CPU 负载下 5/5 通过，
+复现不出来。同一位置再现才是信号。
+
 ## 两次重复踩的同一类坑（下次必查）
 1. **标签必须落在 GHCR 有镜像的那个 SHA 上。**
    v0.4.0：标签落在只改 tests/** 的提交上，paths 过滤不覆盖 → 无镜像。
