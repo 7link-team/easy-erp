@@ -15,6 +15,7 @@ use std::{
 use tokio::io::AsyncWriteExt;
 
 pub struct FileStorage {
+    backup_target: Option<Box<FileStorage>>,
     pub primary: &'static str,
     pub local_root: PathBuf,
     legacy_root: PathBuf,
@@ -129,7 +130,15 @@ impl FileStorage {
             remote_present = true;
             remote = Some(Arc::new(PrefixStore::new(store, prefix)) as Arc<dyn ObjectStore>);
         }
+        let backup_target = settings
+            .backups
+            .as_ref()
+            .map(|target| {
+                Self::from_settings(data_dir, &target.settings(), environment).map(Box::new)
+            })
+            .transpose()?;
         Ok(Self {
+            backup_target,
             primary: if backend == "s3" { "s3" } else { "local" },
             local_root,
             legacy_root,
@@ -144,6 +153,11 @@ impl FileStorage {
                 ..settings.s3.clone()
             }),
         })
+    }
+    /// The backup destination, including its primary kind and private-write store.
+    /// Old configurations return this exact storage instance.
+    pub fn backups(&self) -> &Self {
+        self.backup_target.as_deref().unwrap_or(self)
     }
     pub fn kinds(&self) -> Vec<&'static str> {
         let mut result = vec!["local"];
@@ -246,7 +260,7 @@ impl FileStorage {
         // shutdown consumes the upload state and performs its own completion
         // cleanup. Calling abort afterwards panics, including on failed PUTs.
         output.shutdown().await.map_err(|_| failed())?;
-        Ok(())
+        self.mark_remote_private(kind, object_key).await
     }
     pub async fn list(&self, kind: &str, prefix: &str) -> Result<Vec<ObjectMeta>> {
         self.check_local_path(kind, prefix)?;
@@ -372,6 +386,24 @@ pub(crate) struct Settings {
     /// run answer 存储配置格式无效.
     #[serde(default, deserialize_with = "s3_or_default")]
     pub s3: S3Settings,
+    #[serde(default)]
+    pub backups: Option<BackupSettings>,
+}
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct BackupSettings {
+    pub backend: String,
+    #[serde(default, deserialize_with = "s3_or_default")]
+    pub s3: S3Settings,
+}
+impl BackupSettings {
+    fn settings(&self) -> Settings {
+        Settings {
+            backend: self.backend.clone(),
+            s3: self.s3.clone(),
+            backups: None,
+        }
+    }
 }
 fn s3_or_default<'de, D>(deserializer: D) -> std::result::Result<S3Settings, D::Error>
 where
@@ -408,6 +440,7 @@ impl Default for S3Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            backups: None,
             backend: "local".into(),
             s3: S3Settings {
                 bucket: String::new(),
@@ -452,6 +485,7 @@ impl Settings {
             };
             return Ok((
                 Self {
+                    backups: None,
                     backend: read("ERP_FILE_STORAGE").unwrap_or_else(|| "local".into()),
                     s3: S3Settings {
                         bucket: read("ERP_S3_BUCKET").unwrap_or_default(),
@@ -478,6 +512,18 @@ impl Settings {
         }
     }
     pub(crate) fn validate(&self) -> anyhow::Result<()> {
+        if let Some(target) = &self.backups {
+            target.settings().validate()?;
+            // Compare physical destinations, including retained S3 attachment stores.
+            anyhow::ensure!(
+                self.s3.bucket.is_empty()
+                    || target.s3.bucket.is_empty()
+                    || self.s3.bucket != target.s3.bucket
+                    || self.s3.request_endpoint() != target.s3.request_endpoint()
+                    || trimmed_prefix(&self.s3.prefix) != trimmed_prefix(&target.s3.prefix),
+                "附件与备份不能使用同一存储桶的相同子目录，请为备份设置独立 prefix，避免清空附件时误删备份。"
+            );
+        }
         anyhow::ensure!(
             matches!(self.backend.as_str(), "local" | "s3"),
             "backend 须为 local 或 s3。"
@@ -539,9 +585,13 @@ impl Settings {
     }
     fn response(&self, source: &str) -> serde_json::Value {
         serde_json::json!({"source":source,"editable":source != "env","backend":self.backend,
-            "s3":{"bucket":self.s3.bucket,"region":self.s3.region,"endpoint":self.s3.endpoint,
-            "prefix":self.s3.prefix,"path_style":self.s3.path_style,"allow_http":self.s3.allow_http,
-            "secret_set":!self.s3.secret_access_key.is_empty()}})
+        "s3":{"bucket":self.s3.bucket,"region":self.s3.region,"endpoint":self.s3.endpoint,
+        "prefix":self.s3.prefix,"path_style":self.s3.path_style,"allow_http":self.s3.allow_http,
+        "secret_set":!self.s3.secret_access_key.is_empty()},
+        "backups":self.backups.as_ref().map(|target| {
+            let response = target.settings().response(source);
+            serde_json::json!({"backend": target.backend, "s3": response["s3"]})
+        })})
     }
 }
 impl S3Settings {
@@ -599,7 +649,7 @@ pub async fn configure_cli(dir: &Path) -> anyhow::Result<()> {
     let files = FileStorage::from_settings(dir, &settings, false)?;
     // Same round trip as the HTTP path: a typo must fail here rather than when
     // the first attachment is uploaded.
-    save_settings(dir, &settings, files.store(files.primary)?)
+    save_settings(dir, &settings, &files)
         .await
         .map_err(|e| anyhow::anyhow!(e.1))?;
     Ok(())
@@ -757,8 +807,19 @@ async fn probe(store: Arc<dyn ObjectStore>, anonymous: Option<Arc<dyn ObjectStor
         )),
     }
 }
-async fn save_settings(dir: &Path, settings: &Settings, store: Arc<dyn ObjectStore>) -> Result<()> {
-    probe(store, anonymous_store(settings)).await?;
+async fn save_settings(dir: &Path, settings: &Settings, files: &FileStorage) -> Result<()> {
+    settings
+        .validate()
+        .map_err(|e| ApiError::bad(e.to_string()))?;
+    probe(files.store(files.primary)?, anonymous_store(settings)).await?;
+    if let Some(target) = &settings.backups {
+        let backups = files.backups();
+        probe(
+            backups.store(backups.primary)?,
+            anonymous_store(&target.settings()),
+        )
+        .await?;
+    }
     write_private(
         &dir.join("storage.json"),
         &serde_json::to_vec(settings).map_err(|_| ApiError::bad("存储配置无法序列化。"))?,
@@ -782,14 +843,20 @@ pub async fn get_settings(
 /// bucket is still filled in, which is what keeps earlier attachments readable
 /// from the old backend.
 fn merge_stored_keys(dir: &Path, mut settings: Settings) -> Settings {
-    if settings.s3.access_key_id.is_empty() || settings.s3.secret_access_key.is_empty() {
-        if let Ok((stored, "file")) = Settings::load(dir) {
-            if settings.s3.access_key_id.is_empty() {
-                settings.s3.access_key_id = stored.s3.access_key_id;
-            }
-            if settings.s3.secret_access_key.is_empty() {
-                settings.s3.secret_access_key = stored.s3.secret_access_key;
-            }
+    fn merge(submitted: &mut S3Settings, stored: &S3Settings) {
+        if submitted.access_key_id.is_empty() {
+            submitted.access_key_id.clone_from(&stored.access_key_id);
+        }
+        if submitted.secret_access_key.is_empty() {
+            submitted
+                .secret_access_key
+                .clone_from(&stored.secret_access_key);
+        }
+    }
+    if let Ok((stored, "file")) = Settings::load(dir) {
+        merge(&mut settings.s3, &stored.s3);
+        if let (Some(target), Some(previous)) = (&mut settings.backups, &stored.backups) {
+            merge(&mut target.s3, &previous.s3);
         }
     }
     settings
@@ -816,7 +883,7 @@ pub async fn put_settings(
     let settings = merge_stored_keys(&s.data_dir, settings);
     let files = FileStorage::from_settings(&s.data_dir, &settings, false)
         .map_err(|e| ApiError::bad(e.to_string()))?;
-    save_settings(&s.data_dir, &settings, files.store(files.primary)?).await?;
+    save_settings(&s.data_dir, &settings, &files).await?;
     *s.files.write().unwrap() = Arc::new(files);
     Ok(axum::Json(settings.response("file")))
 }
@@ -837,6 +904,7 @@ mod real_oss {
             return;
         };
         let settings = Settings {
+            backups: None,
             backend: "s3".into(),
             s3: S3Settings {
                 bucket,
@@ -863,10 +931,11 @@ mod real_oss {
     }
 }
 #[cfg(test)]
-mod settings_tests {
+pub(crate) mod settings_tests {
     use super::*;
     fn s3(endpoint: &str, path_style: bool) -> Settings {
         Settings {
+            backups: None,
             backend: "s3".into(),
             s3: S3Settings {
                 bucket: "test-bucket".into(),
@@ -878,6 +947,149 @@ mod settings_tests {
                 path_style,
                 allow_http: endpoint.starts_with("http://"),
             },
+        }
+    }
+    #[tokio::test]
+    async fn legacy_missing_null_and_explicit_local_backup_targets() {
+        let dir = tempfile::tempdir().unwrap();
+        for value in [
+            serde_json::json!({"backend":"local"}),
+            serde_json::json!({"backend":"local", "s3":null, "backups":null}),
+            serde_json::json!({"backend":"local", "backups":{"backend":"local", "s3":null}}),
+        ] {
+            write_private(
+                &dir.path().join("storage.json"),
+                &serde_json::to_vec(&value).unwrap(),
+            )
+            .unwrap();
+            let (settings, source) = Settings::load_with(dir.path(), |_| None).unwrap();
+            assert_eq!(source, "file");
+            let files = FileStorage::from_settings(dir.path(), &settings, false).unwrap();
+            if settings.backups.is_none() {
+                assert!(std::ptr::eq(&files, files.backups()));
+            }
+            assert_eq!(files.backups().primary, "local");
+            files
+                .backups()
+                .put(
+                    "local",
+                    "backups/old.zip",
+                    Bytes::from_static(b"old archive"),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                files.read("local", "backups/old.zip", 100).await.unwrap(),
+                "old archive"
+            );
+        }
+        // Legacy S3 also keeps the very same stores and kinds, with no network calls.
+        let mut value = serde_json::to_value(s3("http://127.0.0.1:1", true)).unwrap();
+        value.as_object_mut().unwrap().remove("backups");
+        let settings: Settings = serde_json::from_value(value).unwrap();
+        let files = FileStorage::from_settings(dir.path(), &settings, false).unwrap();
+        assert!(std::ptr::eq(&files, files.backups()));
+        assert_eq!(files.backups().primary, "s3");
+        assert_eq!(files.backups().kinds(), files.kinds());
+    }
+    #[test]
+    fn backup_validation_keys_and_redaction() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut settings = s3("http://127.0.0.1:1", true);
+        settings.backups = Some(BackupSettings {
+            backend: "s3".into(),
+            s3: settings.s3.clone(),
+        });
+        assert!(
+            settings
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("相同子目录")
+        );
+        settings.backups.as_mut().unwrap().s3.prefix = " /easy-erp/ ".into();
+        assert!(settings.validate().is_err());
+        settings.backups.as_mut().unwrap().s3.bucket = "other-bucket".into();
+        settings.validate().unwrap();
+        settings.backups.as_mut().unwrap().s3.bucket = settings.s3.bucket.clone();
+        settings.backups.as_mut().unwrap().s3.prefix = "backup-only".into();
+        settings.validate().unwrap();
+        for root in ["", "/", " / "] {
+            let mut invalid = settings.clone();
+            invalid.backups.as_mut().unwrap().s3.prefix = root.into();
+            assert!(
+                invalid
+                    .validate()
+                    .unwrap_err()
+                    .to_string()
+                    .contains("桶根目录")
+            );
+        }
+        write_private(
+            &dir.path().join("storage.json"),
+            &serde_json::to_vec(&settings).unwrap(),
+        )
+        .unwrap();
+        let mut submitted = settings.clone();
+        submitted.backups.as_mut().unwrap().s3.access_key_id.clear();
+        submitted
+            .backups
+            .as_mut()
+            .unwrap()
+            .s3
+            .secret_access_key
+            .clear();
+        let merged = merge_stored_keys(dir.path(), submitted);
+        merged.validate().unwrap();
+        assert_eq!(
+            merged.backups.as_ref().unwrap().s3.secret_access_key,
+            "test-secret"
+        );
+        for source in ["file", "env", "default"] {
+            let response = merged.response(source);
+            assert_eq!(response["backups"]["s3"]["secret_set"], true);
+            for forbidden in [
+                "test-secret",
+                "test-access",
+                "secret_access_key",
+                "access_key_id",
+            ] {
+                assert!(!response.to_string().contains(forbidden));
+            }
+        }
+    }
+    #[tokio::test]
+    async fn independent_backup_probe_failures_preserve_configuration() {
+        for fail in ["", "PUT", "GET", "DELETE", "PUBLIC"] {
+            let (remote, fake, server) = fake_s3(fail).await;
+            let dir = tempfile::tempdir().unwrap();
+            let old = br#"{"backend":"local"}"#;
+            write_private(&dir.path().join("storage.json"), old).unwrap();
+            let settings = Settings {
+                backups: Some(BackupSettings {
+                    backend: remote.backend,
+                    s3: remote.s3,
+                }),
+                ..Settings::default()
+            };
+            let files = FileStorage::from_settings(dir.path(), &settings, false).unwrap();
+            let result = save_settings(dir.path(), &settings, &files).await;
+            if fail.is_empty() {
+                result.unwrap();
+                let loaded = FileStorage::from_env(dir.path()).unwrap();
+                assert_eq!(loaded.primary, "local");
+                assert_eq!(loaded.backups().primary, "s3");
+            } else {
+                let error = result.unwrap_err();
+                if fail == "PUBLIC" {
+                    assert!(error.1.contains("匿名读取"));
+                }
+                assert_eq!(std::fs::read(dir.path().join("storage.json")).unwrap(), old);
+            }
+            if fail != "DELETE" {
+                assert!(fake.objects.lock().await.is_empty());
+            }
+            server.abort();
         }
     }
     #[test]
@@ -1014,83 +1226,103 @@ mod settings_tests {
                 .contains("allow_http")
         );
     }
+    use axum::{
+        Router,
+        extract::{Path, Query, State},
+        http::{Method, StatusCode},
+        response::IntoResponse,
+        routing::any,
+    };
+    use std::collections::HashMap;
+    #[derive(Clone)]
+    pub(crate) struct Fake {
+        fail: &'static str,
+        pub(crate) private: Arc<tokio::sync::Mutex<Vec<String>>>,
+        pub(crate) objects: Arc<tokio::sync::Mutex<HashMap<String, Bytes>>>,
+    }
+    async fn endpoint(
+        State(fake): State<Fake>,
+        Path(path): Path<String>,
+        Query(query): Query<HashMap<String, String>>,
+        method: Method,
+        headers: axum::http::HeaderMap,
+        body: Bytes,
+    ) -> axum::response::Response {
+        // Like the real thing: an unsigned request is refused. The probe
+        // reads the object once without credentials to find out whether
+        // strangers can, so a fixture that answered those would report
+        // every bucket as public.
+        if !headers.contains_key(axum::http::header::AUTHORIZATION) && fake.fail != "PUBLIC" {
+            return StatusCode::FORBIDDEN.into_response();
+        }
+        if method.as_str() == fake.fail {
+            return StatusCode::FORBIDDEN.into_response();
+        }
+        if method == Method::PUT && query.contains_key("acl") {
+            assert_eq!(headers.get("x-amz-acl").unwrap(), "private");
+            fake.private.lock().await.push(path);
+            return StatusCode::OK.into_response();
+        }
+        let mut objects = fake.objects.lock().await;
+        if method == Method::GET && query.contains_key("list-type") {
+            let prefix = query.get("prefix").cloned().unwrap_or_default();
+            let contents = objects.iter().filter_map(|(key, bytes)| {
+                let key = key.strip_prefix(&format!("{path}/"))?;
+                key.starts_with(&prefix).then(|| format!("<Contents><Key>{key}</Key><LastModified>2026-10-22T00:00:00Z</LastModified><ETag>&quot;test&quot;</ETag><Size>{}</Size></Contents>", bytes.len()))
+            }).collect::<String>();
+            return format!("<ListBucketResult><Name>{path}</Name><IsTruncated>false</IsTruncated>{contents}</ListBucketResult>").into_response();
+        }
+        match method {
+            Method::PUT => {
+                objects.insert(path, body);
+                ([("etag", "\"test\"")], "").into_response()
+            }
+            Method::GET => match objects.get(&path) {
+                Some(bytes) => (
+                    [
+                        ("etag", "\"test\""),
+                        ("last-modified", "Wed, 21 Oct 2015 07:28:00 GMT"),
+                    ],
+                    bytes.clone(),
+                )
+                    .into_response(),
+                None => StatusCode::NOT_FOUND.into_response(),
+            },
+            Method::DELETE => {
+                objects.remove(&path);
+                StatusCode::NO_CONTENT.into_response()
+            }
+            _ => StatusCode::METHOD_NOT_ALLOWED.into_response(),
+        }
+    }
+    pub(crate) async fn fake_s3(
+        fail: &'static str,
+    ) -> (Settings, Fake, tokio::task::JoinHandle<()>) {
+        let fake = Fake {
+            fail,
+            objects: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            private: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+        };
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let app = Router::new()
+            .route("/{*path}", any(endpoint))
+            .with_state(fake.clone());
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        (s3(&format!("http://{address}"), true), fake, server)
+    }
     #[tokio::test]
     async fn real_s3_roundtrip_and_each_failure_preserves_config() {
-        use axum::{
-            Router,
-            extract::{Path, State},
-            http::{Method, StatusCode},
-            response::IntoResponse,
-            routing::any,
-        };
-        use std::collections::HashMap;
-        #[derive(Clone)]
-        struct Fake {
-            fail: &'static str,
-            objects: Arc<tokio::sync::Mutex<HashMap<String, Bytes>>>,
-        }
-        async fn endpoint(
-            State(fake): State<Fake>,
-            Path(path): Path<String>,
-            method: Method,
-            headers: axum::http::HeaderMap,
-            body: Bytes,
-        ) -> axum::response::Response {
-            assert!(path.starts_with("test-bucket/easy-erp/.probe-"));
-            // Like the real thing: an unsigned request is refused. The probe
-            // reads the object once without credentials to find out whether
-            // strangers can, so a fixture that answered those would report
-            // every bucket as public.
-            if !headers.contains_key(axum::http::header::AUTHORIZATION) {
-                return StatusCode::FORBIDDEN.into_response();
-            }
-            if method.as_str() == fake.fail {
-                return StatusCode::FORBIDDEN.into_response();
-            }
-            let mut objects = fake.objects.lock().await;
-            match method {
-                Method::PUT => {
-                    objects.insert(path, body);
-                    ([("etag", "\"test\"")], "").into_response()
-                }
-                Method::GET => match objects.get(&path) {
-                    Some(bytes) => (
-                        [
-                            ("etag", "\"test\""),
-                            ("last-modified", "Wed, 21 Oct 2015 07:28:00 GMT"),
-                        ],
-                        bytes.clone(),
-                    )
-                        .into_response(),
-                    None => StatusCode::NOT_FOUND.into_response(),
-                },
-                Method::DELETE => {
-                    objects.remove(&path);
-                    StatusCode::NO_CONTENT.into_response()
-                }
-                _ => StatusCode::METHOD_NOT_ALLOWED.into_response(),
-            }
-        }
-        for fail in ["", "PUT", "GET", "DELETE"] {
-            let fake = Fake {
-                fail,
-                objects: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
-            };
-            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-            let address = listener.local_addr().unwrap();
-            let app = Router::new()
-                .route("/{*path}", any(endpoint))
-                .with_state(fake.clone());
-            let server = tokio::spawn(async move {
-                axum::serve(listener, app).await.unwrap();
-            });
+        for fail in ["", "PUT", "GET", "DELETE", "PUBLIC"] {
+            let (settings, fake, server) = fake_s3(fail).await;
             let dir = tempfile::tempdir().unwrap();
             let path = dir.path().join("storage.json");
             let old = serde_json::to_vec(&Settings::default()).unwrap();
             write_private(&path, &old).unwrap();
-            let settings = s3(&format!("http://{address}"), true);
             let files = FileStorage::from_settings(dir.path(), &settings, false).unwrap();
-            let result = save_settings(dir.path(), &settings, files.store("s3").unwrap()).await;
+            let result = save_settings(dir.path(), &settings, &files).await;
             if fail.is_empty() {
                 result.unwrap();
                 assert_eq!(

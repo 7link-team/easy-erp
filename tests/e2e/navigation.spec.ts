@@ -16,7 +16,7 @@ test.beforeEach(async ({ page }) => {
   await post(page.request, "/login", credentials);
 });
 
-test("15项业务菜单名称顺序、退货合并单据、开单直达及关于入口", async ({
+test("16项业务菜单名称顺序、退货合并单据、开单直达及关于入口", async ({
   page,
 }) => {
   await page.goto("/#/home");
@@ -31,6 +31,7 @@ test("15项业务菜单名称顺序、退货合并单据、开单直达及关于
     "清点",
     "记录",
     "汇总",
+    "报告",
     "收款",
     "账户",
     "业绩",

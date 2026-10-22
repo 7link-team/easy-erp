@@ -1869,3 +1869,99 @@ async fn report_schedule_api_and_restart_delivery_are_private_and_durable() {
     server.stop().await;
     fake.abort();
 }
+
+#[tokio::test]
+async fn storage_api_backup_contract_and_secret_retention() {
+    let data = TempDir::new().unwrap();
+    // An actual old file must still load and report inheritance.
+    fs::write(data.path().join("storage.json"), br#"{"backend":"local"}"#).unwrap();
+    let mut server = Server::start(data.path(), None).await;
+    server.setup().await;
+    let old = server.get("/storage").await;
+    assert_eq!(old["backups"], Value::Null);
+    assert_eq!(old["backend"], "local");
+    let mut payload = json!({"backend":"local", "backups":{
+        "backend":"local", "s3":{
+            "bucket":"", "region":"", "endpoint":"", "prefix":"backup-only",
+            "access_key_id":"backup-private-access", "secret_access_key":"backup-private-secret",
+            "path_style":true, "allow_http":false
+        }
+    }});
+    for blank in [false, true] {
+        if blank {
+            payload["backups"]["s3"]["access_key_id"] = json!("");
+            payload["backups"]["s3"]["secret_access_key"] = json!("");
+        }
+        let response = json_response(
+            server
+                .client
+                .put(format!("{}/api/storage", server.base))
+                .header("X-ERP-Request", "1")
+                .json(&payload)
+                .send()
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(response["backups"]["backend"], "local");
+        assert_eq!(response["backups"]["s3"]["secret_set"], true);
+        assert_eq!(response, server.get("/storage").await);
+        for forbidden in [
+            "backup-private-secret",
+            "backup-private-access",
+            "secret_access_key",
+            "access_key_id",
+        ] {
+            assert!(!response.to_string().contains(forbidden));
+        }
+        let saved: Value =
+            serde_json::from_slice(&fs::read(data.path().join("storage.json")).unwrap()).unwrap();
+        assert_eq!(
+            saved["backups"]["s3"]["secret_access_key"],
+            "backup-private-secret"
+        );
+    }
+    // Reject root and collisions before making any request to this inert endpoint.
+    let remote = json!({"bucket":"bucket", "region":"us-east-1", "endpoint":"http://127.0.0.1:1",
+        "prefix":"same", "access_key_id":"access", "secret_access_key":"secret", "path_style":true, "allow_http":true});
+    let old_bytes = fs::read(data.path().join("storage.json")).unwrap();
+    for root in [false, true] {
+        let mut invalid =
+            json!({"backend":"s3", "s3":remote, "backups":{"backend":"s3", "s3":remote}});
+        if root {
+            invalid["backups"]["s3"]["prefix"] = json!(" / ");
+        }
+        let response = server
+            .client
+            .put(format!("{}/api/storage", server.base))
+            .header("X-ERP-Request", "1")
+            .json(&invalid)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = response.text().await.unwrap();
+        assert!(body.contains(if root {
+            "桶根目录"
+        } else {
+            "相同子目录"
+        }));
+        assert_eq!(
+            fs::read(data.path().join("storage.json")).unwrap(),
+            old_bytes
+        );
+    }
+    let response = json_response(
+        server
+            .client
+            .put(format!("{}/api/storage", server.base))
+            .header("X-ERP-Request", "1")
+            .json(&json!({"backend":"local", "backups":null}))
+            .send()
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(response["backups"], Value::Null);
+    server.stop().await;
+}

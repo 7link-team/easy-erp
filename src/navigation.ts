@@ -34,6 +34,7 @@ const pages = [
   "catalog",
   "records",
   "summary",
+  "reports",
   "movement",
   "stocktakes",
   "users",

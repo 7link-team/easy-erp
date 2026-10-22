@@ -166,12 +166,23 @@ pub async fn list(data_dir: &Path) -> Result<Value> {
     };
     directory_or_absent(&data_dir.join("backups"))?;
     let storage = crate::storage::FileStorage::from_env(&data_dir)?;
+    let backups = storage.backups();
+    let mut kinds = storage.kinds();
+    for kind in backups.kinds() {
+        if !kinds.contains(&kind) {
+            kinds.push(kind);
+        }
+    }
     Ok(json!({
-        "data_dir":data_dir, "backups_dir":storage.label(storage.primary, "backups"),
+        "data_dir":data_dir, "backups_dir":backups.label(backups.primary, "backups"),
         "has_data":regular_or_absent(&data_dir.join("inventory.sqlite"))?,
         "items":backup::files_in(&data_dir, true).await.map_err(|e| anyhow::anyhow!(e.1))?,
         "pending":data_dir.join(PENDING).exists(),
-        "storage_locations": storage.kinds().iter().map(|kind| json!({"kind":kind, "backups":storage.label(kind, "backups"), "attachments":storage.label(kind, "attachments")})).collect::<Vec<_>>(),
+        "storage_locations": kinds.iter().map(|kind| json!({
+            "kind":kind,
+            "backups":backups.kinds().contains(kind).then(|| backups.label(kind, "backups")),
+            "attachments":storage.kinds().contains(kind).then(|| storage.label(kind, "attachments"))
+        })).collect::<Vec<_>>(),
     }))
 }
 

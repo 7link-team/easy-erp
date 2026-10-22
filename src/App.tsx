@@ -86,6 +86,7 @@ const Records = lazy(() => import("./pages/Records"));
 const SummaryPage = lazy(() => import("./pages/Summary"));
 const Stocktakes = lazy(() => import("./pages/Stocktakes"));
 const Users = lazy(() => import("./pages/Users"));
+const ReportsPage = lazy(() => import("./pages/Reports"));
 const SettingsPage = lazy(() => import("./pages/Settings"));
 const UpdatesPage = lazy(() => import("./pages/Updates"));
 import WebAccess from "./WebAccess";
@@ -660,6 +661,7 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
   const secondary = [
     "sales",
     "summary",
+    "reports",
     "customers",
     "movement",
     "stocktakes",
@@ -698,6 +700,9 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
     ...((can(user, "records.read") && can(user, "items.read")) ||
     can(user, "sales.read")
       ? [{ id: "summary", label: "汇总", icon: ChartNoAxesCombined }]
+      : []),
+    ...(user.role === "admin"
+      ? [{ id: "reports", label: "报告", icon: ClipboardList }]
       : []),
     ...(can(user, "finance.read")
       ? [
@@ -772,6 +777,7 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
                 "stocktakes",
                 "records",
                 "summary",
+                "reports",
               ],
             },
             {
@@ -1086,6 +1092,12 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
             {page === "users" && user.role === "admin" && (
               <Users revision={revision} refresh={refresh} />
             )}
+            {page === "reports" && user.role === "admin" && (
+              <ReportsPage
+                key={`reports-${navigationIndex}`}
+                revision={revision}
+              />
+            )}
             {page === "settings" && user.role === "admin" && (
               <SettingsPage revision={revision} refresh={refresh} />
             )}
@@ -1115,7 +1127,13 @@ function Application({ dirty }: { dirty: RefObject<boolean> }) {
               {
                 label: "库存",
                 domain: "stock",
-                ids: ["movement", "stocktakes", "records", "summary"],
+                ids: [
+                  "movement",
+                  "stocktakes",
+                  "records",
+                  "summary",
+                  "reports",
+                ],
               },
               {
                 label: "财务",

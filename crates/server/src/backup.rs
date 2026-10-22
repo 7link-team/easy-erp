@@ -195,8 +195,9 @@ pub async fn create(s: &AppState, actor: &User, source: &str) -> Result<BackupIn
         Policy::Valid(_) | Policy::Absent => {
             let policy = settings(s).await?;
             s.files()
+                .backups()
                 .put(
-                    s.files().primary,
+                    s.files().backups().primary,
                     "backups/policy.json",
                     serde_json::to_vec(&policy).unwrap().into(),
                 )
@@ -305,7 +306,8 @@ async fn snapshot_with_storage(
     let target = stage.path().join("complete.zip");
     let archive = target.clone();
     let key = format!("backups/{}/{name}", chrono::Utc::now().format("%Y/%m/%d"));
-    let path = files.label(files.primary, &key);
+    let destination = files.backups();
+    let path = destination.label(destination.primary, &key);
     let source = source.to_string();
     let manifest_source = source.clone();
     let configs = read_configs(data_dir)?;
@@ -381,21 +383,23 @@ async fn snapshot_with_storage(
         photo_count: Some(photo_count),
         path,
         metadata_error: false,
-        backend: files.primary.into(),
+        backend: destination.primary.into(),
         key: key.clone(),
     };
     if info.size > MAX_SNAPSHOT + 1024 * 1024 {
         return Err(ApiError::bad("完整备份超过当前恢复大小限制。"));
     }
-    files.put_file(files.primary, &key, &archive).await?;
+    destination
+        .put_file(destination.primary, &key, &archive)
+        .await?;
     // Archive is authoritative; missing metadata must never hide a valid backup.
     // The archive is already stored durably here, so a failed sidecar must not
     // fail the backup: that would skip recording success and pruning, leaving
     // the scheduler to rewrite a full archive every tick. Listing falls back to
     // reading the archive's own manifest.
-    if let Err(error) = files
+    if let Err(error) = destination
         .put(
-            files.primary,
+            destination.primary,
             &format!("{key}.json"),
             serde_json::to_vec(&info).unwrap().into(),
         )
@@ -502,7 +506,8 @@ enum Policy {
 async fn stored_policy(s: &AppState) -> Result<Policy> {
     match s
         .files()
-        .read(s.files().primary, "backups/policy.json", 65536)
+        .backups()
+        .read(s.files().backups().primary, "backups/policy.json", 65536)
         .await
     {
         Ok(bytes) => Ok(match serde_json::from_slice::<Schedule>(&bytes) {
@@ -583,8 +588,9 @@ pub async fn update_schedule(
     let _backup = s.backup_lock.lock().await;
     let _lock = s.writes.lock().await;
     s.files()
+        .backups()
         .put(
-            s.files().primary,
+            s.files().backups().primary,
             "backups/policy.json",
             serde_json::to_vec(&input).unwrap().into(),
         )
@@ -672,6 +678,7 @@ async fn stored_files(
     data_dir: &FsPath,
     details: bool,
 ) -> Result<Vec<BackupInfo>> {
+    let storage = storage.backups();
     let mut results = vec![];
     for backend in storage.kinds() {
         for object in storage.list(backend, "backups").await? {
@@ -761,6 +768,7 @@ async fn locate(s: &AppState, name: &str) -> Result<BackupInfo> {
         .ok_or_else(ApiError::missing)
 }
 async fn remove_archive(storage: &crate::storage::FileStorage, f: &BackupInfo) -> Result<()> {
+    let storage = storage.backups();
     storage.delete(&f.backend, &f.key).await?;
     match storage.delete(&f.backend, &format!("{}.json", f.key)).await {
         Err(e) if e.0 != axum::http::StatusCode::NOT_FOUND => Err(e),
@@ -779,7 +787,7 @@ pub(crate) async fn materialize_remote(
         .into_iter()
         .find(|f| f.backend == "s3" && f.path == source)
         .ok_or_else(ApiError::missing)?;
-    copy_archive(&storage, &f.backend, &f.key, target).await
+    copy_archive(storage.backups(), &f.backend, &f.key, target).await
 }
 pub(crate) async fn clear_in(data_dir: &FsPath) -> Result<usize> {
     let storage = crate::storage::FileStorage::from_env(data_dir)
@@ -813,7 +821,7 @@ pub async fn download(
     local(peer, s.server_mode)?;
     current(&s, &headers).await?.admin()?;
     let f = locate(&s, &name).await?;
-    let object = s.files().get(&f.backend, &f.key).await?;
+    let object = s.files().backups().get(&f.backend, &f.key).await?;
     // Without a length the response is chunked, so a stream that breaks midway
     // looks like a finished download and the short file is only caught by the
     // checksum at restore time.
@@ -998,7 +1006,7 @@ pub async fn restore(
     let snapshot = stage.path().join("restore.sqlite");
     let f = locate(&s, &input.name).await?;
     let archive = stage.path().join("restore.zip");
-    copy_archive(&s.files(), &f.backend, &f.key, &archive).await?;
+    copy_archive(s.files().backups(), &f.backend, &f.key, &archive).await?;
     let manifest = prepare_restore(
         archive,
         snapshot.clone(),
@@ -1442,7 +1450,7 @@ pub async fn restore_preview(
     let stage = tempfile::tempdir_in(&s.data_dir)?;
     let f = locate(&s, &input.name).await?;
     let archive = stage.path().join("restore.zip");
-    copy_archive(&s.files(), &f.backend, &f.key, &archive).await?;
+    copy_archive(s.files().backups(), &f.backend, &f.key, &archive).await?;
     // Only the two small configuration entries, not a full prepare_restore:
     // this runs every time the confirmation dialog opens, and validating the
     // database and extracting the snapshot to answer two strings made a large
@@ -1461,6 +1469,140 @@ mod config_tests {
     use super::*;
     use crate::migration::Migrator;
 
+    #[tokio::test]
+    async fn local_attachments_and_independent_s3_backup_roundtrip() {
+        use crate::storage::{BackupSettings, FileStorage, Settings, settings_tests::fake_s3};
+        let (remote, fake, server) = fake_s3("").await;
+        let dir = tempfile::tempdir().unwrap();
+        let settings = Settings {
+            backups: Some(BackupSettings {
+                backend: remote.backend,
+                s3: remote.s3,
+            }),
+            ..Settings::default()
+        };
+        crate::storage::write_private(
+            &dir.path().join("storage.json"),
+            &serde_json::to_vec(&settings).unwrap(),
+        )
+        .unwrap();
+        let files = FileStorage::from_env(dir.path()).unwrap();
+        files
+            .put(
+                files.primary,
+                "attachments/5b315628-bb31-42bd-b801-4ebaa0ecb64b",
+                bytes::Bytes::from_static(b"photo"),
+            )
+            .await
+            .unwrap();
+        let db = crate::database::sqlite(&dir.path().join("inventory.sqlite"), false)
+            .await
+            .unwrap();
+        Migrator::up(&db, None).await.unwrap();
+        execute(
+            &db,
+            "INSERT INTO settings (id,value) VALUES ('backup-route-marker','restored from S3')",
+            vec![],
+        )
+        .await
+        .unwrap();
+        let info = snapshot_with_storage(&db, dir.path(), "test", &files)
+            .await
+            .unwrap();
+        assert_eq!(info.backend, "s3");
+        assert!(info.path.starts_with("s3://test-bucket/easy-erp/backups/"));
+        assert!(!dir.path().join(&info.key).exists());
+        assert_eq!(
+            std::fs::read(
+                dir.path()
+                    .join("attachments/5b315628-bb31-42bd-b801-4ebaa0ecb64b")
+            )
+            .unwrap(),
+            b"photo"
+        );
+        let object_key = format!("test-bucket/easy-erp/{}", info.key);
+        assert!(fake.objects.lock().await.contains_key(&object_key));
+        assert!(fake.private.lock().await.contains(&object_key));
+        assert!(
+            fake.private
+                .lock()
+                .await
+                .contains(&format!("{object_key}.json"))
+        );
+        let listed = stored_files(&files, dir.path(), true).await.unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].name, info.name);
+        assert!(!listed[0].metadata_error);
+        let download = files
+            .backups()
+            .get(&info.backend, &info.key)
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
+        assert_eq!(download.len() as u64, info.size);
+        // Force the metadata fallback to download and inspect the remote archive.
+        files
+            .backups()
+            .delete("s3", &format!("{}.json", info.key))
+            .await
+            .unwrap();
+        assert!(!stored_files(&files, dir.path(), true).await.unwrap()[0].metadata_error);
+        let stage = tempfile::tempdir().unwrap();
+        let archive = stage.path().join("remote.zip");
+        materialize_remote(dir.path(), &info.path, &archive)
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read(&archive).unwrap(), download);
+        let restored = stage.path().join("restored.sqlite");
+        prepare_restore(
+            archive,
+            restored.clone(),
+            stage.path().into(),
+            0,
+            schemas(&db).await.unwrap(),
+        )
+        .await
+        .unwrap();
+        let checked = crate::database::sqlite(&restored, false).await.unwrap();
+        assert_eq!(
+            schemas(&checked).await.unwrap(),
+            schemas(&db).await.unwrap()
+        );
+        assert_eq!(
+            text(
+                &one(
+                    &checked,
+                    "SELECT value FROM settings WHERE id='backup-route-marker'",
+                    vec![]
+                )
+                .await
+                .unwrap()
+                .unwrap(),
+                "value"
+            ),
+            "restored from S3"
+        );
+        checked.close().await.unwrap();
+        files.clear_attachments().await.unwrap();
+        assert!(
+            !dir.path()
+                .join("attachments/5b315628-bb31-42bd-b801-4ebaa0ecb64b")
+                .exists()
+        );
+        assert!(fake.objects.lock().await.contains_key(&object_key));
+        remove_archive(&files, &info).await.unwrap();
+        assert!(
+            stored_files(&files, dir.path(), false)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert!(!fake.objects.lock().await.contains_key(&object_key));
+        db.close().await.unwrap();
+        server.abort();
+    }
     #[tokio::test]
     async fn old_archives_without_reports_or_config_restore_with_legacy_schema() {
         for steps in [None, Some(8)] {

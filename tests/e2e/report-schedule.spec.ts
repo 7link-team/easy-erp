@@ -74,7 +74,7 @@ async function start(page: Page, overrides: Partial<typeof initial> = {}) {
     }
     await route.fulfill({ json: { items } });
   });
-  await page.goto("/#/settings");
+  await page.goto("/#/reports");
   const section = page.getByRole("region", { name: "周期报告", exact: true });
   await expect(
     section.getByRole("button", { name: "保存周期报告设置" }),
@@ -108,7 +108,9 @@ for (const state of [
 
 test("留空保留已有地址，只发送约定字段，关闭时清空周期", async ({ page }) => {
   const { section, saved } = await start(page);
-  const input = section.getByLabel("群机器人地址 选填", { exact: true });
+  const input = section.getByLabel("企业微信群机器人地址 选填", {
+    exact: true,
+  });
   await expect(input).toHaveValue("");
   await expect(input).toHaveAttribute("type", "password");
   await expect(input).toHaveAttribute("placeholder", "****");
@@ -145,8 +147,8 @@ test("显式清除地址，保存后不再显示掩码", async ({ page }) => {
   await expect(section.getByText("周期报告设置已保存。")).toBeVisible();
   expect(saved[0].webhook).toBe("");
   await expect(
-    section.getByLabel("群机器人地址 选填", { exact: true }),
-  ).toHaveAttribute("placeholder", "请输入群机器人地址");
+    section.getByLabel("企业微信群机器人地址 选填", { exact: true }),
+  ).toHaveAttribute("placeholder", "请输入企业微信群机器人地址");
   await expect(
     section.getByText("当前设置不会投递", { exact: false }),
   ).toBeVisible();
@@ -172,9 +174,8 @@ test("周期末日文案、多选、时间、PDF 提示和最近错误", async (
     section.getByRole("checkbox", { name: "每周", exact: true }),
   ).toHaveCount(0);
   await section
-    .getByLabel("投递小时（本地时间） 必填", { exact: true })
-    .fill("23");
-  await section.getByLabel("投递分钟 必填", { exact: true }).fill("59");
+    .getByLabel("投递时间（本地时间） 必填", { exact: true })
+    .fill("23:59");
   await section
     .getByRole("combobox", { name: "投递格式", exact: true })
     .click();
@@ -197,7 +198,9 @@ test("周期末日文案、多选、时间、PDF 提示和最近错误", async (
 
 test("新地址保存失败保留输入，重试后掩码，刷新不丢草稿", async ({ page }) => {
   const mock = await start(page);
-  const input = mock.section.getByLabel("群机器人地址 选填", { exact: true });
+  const input = mock.section.getByLabel("企业微信群机器人地址 选填", {
+    exact: true,
+  });
   const address = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=test";
   await input.fill(address);
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
@@ -266,4 +269,82 @@ test("立即生成失败可重试，刷新归档及下载，390px 无溢出", as
     path: test.info().outputPath("report-schedule-mobile.png"),
     fullPage: true,
   });
+});
+
+test("报告独立导航、面包屑与返回，备份页不再包含周期报告", async ({ page }) => {
+  await start(page);
+  await expect(
+    page.getByRole("heading", { name: "报告", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "面包屑" })).toHaveText(
+    "工作台报告",
+  );
+  const nav = page.getByRole("navigation", { name: "主要导航" });
+  const stock = nav.getByRole("group", { name: "库存", exact: true });
+  await expect(stock.getByRole("link")).toHaveText([
+    "物料",
+    "出入库",
+    "清点",
+    "记录",
+    "汇总",
+    "报告",
+  ]);
+  await expect(
+    stock.getByRole("link", { name: "报告", exact: true }),
+  ).toHaveAttribute("aria-current", "page");
+  await nav.getByRole("link", { name: "备份", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "备份", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "周期报告", exact: true }),
+  ).toHaveCount(0);
+  await nav.getByRole("link", { name: "报告", exact: true }).click();
+  await expect(page).toHaveURL(/#\/reports$/);
+  await page
+    .locator(".topbar")
+    .getByRole("button", { name: "返回上一页", exact: true })
+    .click();
+  await expect(page).toHaveURL(/#\/settings$/);
+});
+
+test("原生时间补零、空值校验与零点保存，企业微信说明", async ({ page }) => {
+  const { section, saved } = await start(page, { hour: 8, minute: 5 });
+  const time = section.getByLabel("投递时间（本地时间） 必填", { exact: true });
+  await expect(time).toHaveAttribute("type", "time");
+  await expect(time).toHaveValue("08:05");
+  await expect(
+    section.getByText("目前只支持企业微信群机器人", { exact: false }),
+  ).toContainText("企业微信群 →「群机器人」→ 添加后复制");
+  await time.fill("");
+  await section.getByRole("button", { name: "保存周期报告设置" }).click();
+  await expect(time).toHaveAttribute("aria-invalid", "true");
+  expect(saved).toHaveLength(0);
+  await time.fill("00:00");
+  await section.getByRole("button", { name: "保存周期报告设置" }).click();
+  await expect.poll(() => saved.length).toBe(1);
+  expect(saved[0]).toMatchObject({ hour: 0, minute: 0 });
+  await expect(time).toHaveValue("00:00");
+});
+
+test("非管理员不能查看报告菜单或直达页面", async ({ page }) => {
+  await start(page);
+  await page.route("**/api/me", async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({
+      json: { ...(await response.json()), role: "staff" },
+    });
+  });
+  await page.reload();
+  await expect(
+    page.getByText("当前角色没有此页面的查看权限，请联系管理员。"),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("navigation", { name: "主要导航" })
+      .getByRole("link", { name: "报告", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("region", { name: "周期报告", exact: true }),
+  ).toHaveCount(0);
 });
