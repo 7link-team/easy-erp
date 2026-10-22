@@ -26,8 +26,10 @@ host-only 守卫，导出端点不会出现"看不见的 403"，浏览器和外�
 根因还是教训 1：35d11c1 只改 `tests/**`，不在 `server-image.yml` 的 paths 过滤里，
 **push 没有构建 `sha-35d11c1`**。release 事件下只跑 `version` 作业（它只给已有镜像打标签，
 不构建），所以 `sha-35d11c1...: not found` 直接失败。
-修法两步：① 以 `--ref v0.11.1` dispatch（不传 release_tag）构建 `sha-35d11c1`；
-② 再 dispatch 并传 `release_tag=v0.11.1` 打版本标签。①已发起：run 39765477760。
+修法两步，**已补齐**：① `--ref v0.11.1` dispatch 构建 `sha-35d11c1`（run 39765477760 绿，
+sqlite/mysql/s3 全过，delete-items 这次正常）；② `release_tag=v0.11.1` dispatch 打标签
+（run 39769605214 绿）。`ghcr.io/7link-team/easy-erp-server:v0.11.1` 现在是双架构 manifest list。
+**发版流程缺一道闸**：打标签前没有任何东西强制"该 SHA 必须已有镜像"，这坑是第三次。
 
 ## delete-items 是偶发，不是阻塞（已重新分类）
 第一次 dispatch（39744936814）挂在 `delete-items.spec.ts:3`：删除后按 `q=<物料id>` 查审计
