@@ -15,6 +15,7 @@ on:
 permissions:
   actions: read
   contents: write
+  packages: read
 
 concurrency:
   group: publish-${{ inputs.tag }}
@@ -45,6 +46,27 @@ jobs:
           test "$(jq -r .head_repository.full_name "$RUNNER_TEMP/build-run.json")" = "$RELEASE_REPOSITORY"
           test "$(jq -r .path "$RUNNER_TEMP/build-run.json")" = .github/workflows/build.yml
           test "$(gh api "repos/$RELEASE_REPOSITORY" --jq .private)" = false
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # A release whose commit has no container image is a release Docker users
+      # cannot install, and nothing noticed until someone tried to pull it:
+      # v0.4.0, v0.10.0 and v0.11.1 all shipped that way, because a commit
+      # outside the image workflow's paths filter never builds one and the
+      # release event only tags an image that already exists. Check it here,
+      # while the tag can still be moved.
+      - name: Verify the tagged commit has a container image
+        shell: bash
+        run: |
+          source="ghcr.io/$RELEASE_REPOSITORY-server:sha-$(git rev-parse HEAD)"
+          docker buildx imagetools inspect "$source" --raw > "$RUNNER_TEMP/image.json" || {
+            echo "No image for $source. Build it first: gh workflow run server-image.yml --ref $RELEASE_TAG"
+            exit 1
+          }
+          jq -e '[.manifests[].platform | select(.os == "linux") | .architecture] | sort == ["amd64", "arm64"]' "$RUNNER_TEMP/image.json"
       - uses: actions/download-artifact@v4
         with:
           run-id: ${{ inputs.run_id }}
